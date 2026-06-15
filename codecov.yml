@@ -1,0 +1,17 @@
+coverage:
+  precision: 2
+  round: down
+  range: "80...100"
+  status:
+    project:
+      default:
+        # Project coverage must not be allowed to drift below the 70% target
+        # by a full percentage point; the threshold is intentionally strict so
+        # that removal of drift test suites (e.g. *_drift_test.go) is caught.
+        target: 85%
+        threshold: 0.1%
+        if_ci_failed: error
+    patch:
+      default:
+        target: 80%
+        threshold: 1%
