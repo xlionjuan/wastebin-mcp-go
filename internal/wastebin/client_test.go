@@ -97,6 +97,63 @@ func TestCreatePaste_Success(t *testing.T) {
 	}
 }
 
+func TestCreatePaste_ExpirationParsed(t *testing.T) {
+	t.Parallel()
+
+	var capturedExt, capturedExpires any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		capturedExt = req["extension"]
+		capturedExpires = req["expires"]
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/EXP123"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+	expires := "1h"
+	ext := "go"
+
+	resp, err := client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content:   &content,
+		Expires:   &expires,
+		Extension: &ext,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ID != "EXP123" {
+		t.Errorf("expected ID EXP123, got %q", resp.ID)
+	}
+
+	// Verify expiration was parsed: "1h" = 3600 seconds
+	if capturedExpires != float64(3600) {
+		t.Errorf("expected expires=3600, got %v", capturedExpires)
+	}
+
+	if capturedExt != "go" {
+		t.Errorf("expected extension 'go', got %v", capturedExt)
+	}
+}
+
 func TestCreatePaste_403Response(t *testing.T) {
 	t.Parallel()
 
@@ -1086,6 +1143,24 @@ func TestNewWastebinClient_NoScheme(t *testing.T) {
 	_, err := NewWastebinClient(&Config{ServerURL: "localhost:8080"})
 	if err == nil {
 		t.Fatal("expected error for missing scheme, got nil")
+	}
+}
+
+func TestNewWastebinClient_FTPScheme(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewWastebinClient(&Config{ServerURL: "ftp://server"})
+	if !errors.Is(err, errUnsupportedURLScheme) {
+		t.Errorf("expected errUnsupportedURLScheme, got: %v", err)
+	}
+}
+
+func TestNewWastebinClient_URLWithPathNoHost(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewWastebinClient(&Config{ServerURL: "http:///path"})
+	if !errors.Is(err, errURLMissingHost) {
+		t.Errorf("expected errURLMissingHost, got: %v", err)
 	}
 }
 

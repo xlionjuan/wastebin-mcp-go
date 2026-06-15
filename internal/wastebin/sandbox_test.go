@@ -59,6 +59,27 @@ func TestParseSandboxMounts_Multiple(t *testing.T) {
 	}
 }
 
+func TestParseSandboxMounts_EmptyPair(t *testing.T) {
+	t.Parallel()
+
+	mounts, err := ParseSandboxMounts("/a:/x,,/b:/y")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(mounts) != 2 {
+		t.Errorf("expected 2 mounts (skipping empty), got %d: %v", len(mounts), mounts)
+	}
+
+	if mounts[0].HostPath != "/a" {
+		t.Errorf("expected first host path /a, got %q", mounts[0].HostPath)
+	}
+
+	if mounts[1].HostPath != "/b" {
+		t.Errorf("expected second host path /b, got %q", mounts[1].HostPath)
+	}
+}
+
 func TestParseSandboxMounts_InvalidFormat(t *testing.T) {
 	t.Parallel()
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -360,6 +361,72 @@ func TestConfigFromEnv_FileReadEnabledTrue(t *testing.T) {
 
 	if !cfg.DisableBuiltinBlocklist {
 		t.Error("expected DisableBuiltinBlocklist to be true")
+	}
+}
+
+func TestConfigFromEnv_InvalidDisableBuiltinBlocklist(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST", "not-bool")
+
+	_, err := ConfigFromEnv()
+	if err == nil {
+		t.Fatal("expected error for invalid bool")
+	}
+
+	if !strings.Contains(err.Error(), "WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST") {
+		t.Errorf("expected error about DISABLE_BUILTIN_BLOCKLIST, got: %v", err)
+	}
+}
+
+func TestConfigFromEnv_AllowedPathsEmptyParts(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_ALLOWED_PATHS", "/tmp,,"+tmpDir)
+
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should have 2 paths (empty part skipped).
+	if len(cfg.AllowedPaths) != 2 {
+		t.Errorf("expected 2 allowed paths (skipping empty), got %d: %v", len(cfg.AllowedPaths), cfg.AllowedPaths)
+	}
+}
+
+func TestConfigFromEnv_BlockedPathsEmptyParts(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_BLOCKED_PATHS", "/etc,,/proc")
+
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.BlockedPaths) != 2 {
+		t.Errorf("expected 2 blocked paths (skipping empty), got %d: %v", len(cfg.BlockedPaths), cfg.BlockedPaths)
+	}
+
+	// Both should resolve to absolute paths.
+	if !strings.HasSuffix(cfg.BlockedPaths[0], "/etc") {
+		t.Errorf("expected first blocked path to end with /etc, got %q", cfg.BlockedPaths[0])
+	}
+
+	if !strings.HasSuffix(cfg.BlockedPaths[1], "/proc") {
+		t.Errorf("expected second blocked path to end with /proc, got %q", cfg.BlockedPaths[1])
+	}
+}
+
+func TestConfigFromEnv_AllowedPathsNonExistent(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_ALLOWED_PATHS", "/nonexistent/path/that/does/not/exist/12345")
+
+	_, err := ConfigFromEnv()
+	if err == nil {
+		t.Fatal("expected error for nonexistent allowed path")
+	}
+
+	if !strings.Contains(err.Error(), "failed to resolve allowed path") {
+		t.Errorf("expected 'failed to resolve allowed path', got: %v", err)
 	}
 }
 

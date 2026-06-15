@@ -294,6 +294,39 @@ func TestBuildCreatePasteArgsTypeCheck(t *testing.T) {
 	_ = args // Use to avoid unused-variable lint
 }
 
+func TestRunCLIMode_CreatePasteError(t *testing.T) {
+	// Cannot use t.Parallel() due to environment variable manipulation.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	t.Setenv("WASTEBIN_SERVER_URL", ts.URL)
+
+	err := runCLIMode(&CLIFlags{Content: "test"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !strings.Contains(err.Error(), "create paste failed") {
+		t.Errorf("expected 'create paste failed', got: %v", err)
+	}
+}
+
+func TestRunCLIMode_ClientError(t *testing.T) {
+	// URL with unsupported scheme passes ConfigFromEnv but fails NewWastebinClient.
+	t.Setenv("WASTEBIN_SERVER_URL", "ftp://server")
+
+	err := runCLIMode(&CLIFlags{Content: "test"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !strings.Contains(err.Error(), "failed to create client") {
+		t.Errorf("expected 'failed to create client', got: %v", err)
+	}
+}
+
 func TestRunCLIMode_ConfigError(t *testing.T) {
 	// Don't set WASTEBIN_SERVER_URL — ConfigFromEnv should fail.
 	// Ensure any previously set env var is cleared.
