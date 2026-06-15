@@ -270,8 +270,8 @@ func TestPasteBothContentAndFilePath(t *testing.T) {
 	}
 
 	text := toolText(t, result)
-	if !strings.Contains(text, "not both") {
-		t.Fatalf("error text should contain 'not both', got %q\nstderr:\n%s", text, stderr.String())
+	if !strings.Contains(text, "additional properties") {
+		t.Fatalf("error text should mention unexpected properties, got %q\nstderr:\n%s", text, stderr.String())
 	}
 
 	t.Log("both content and file_path error verified")
