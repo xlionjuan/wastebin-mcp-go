@@ -375,6 +375,27 @@ func TestPrepareMCPStdin_FirstLineOver1MB(t *testing.T) {
 	}
 }
 
+// errFailReader is the sentinel error returned by failReader.
+var errFailReader = errors.New("simulated read failure")
+
+// failReader returns an error on every Read call.
+type failReader struct{}
+
+func (failReader) Read(_ []byte) (int, error) {
+	return 0, errFailReader
+}
+
+func TestPrepareMCPStdin_ReadError(t *testing.T) {
+	t.Parallel()
+
+	stdin := &failReader{}
+
+	_, err := prepareMCPStdin(stdin)
+	if !errors.Is(err, errInvalidMCPInitializeMessage) {
+		t.Errorf("expected errInvalidMCPInitializeMessage for read error, got %v", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // NewCreatePasteHandler tests
 // ---------------------------------------------------------------------------
