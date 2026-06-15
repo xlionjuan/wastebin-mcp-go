@@ -1,0 +1,230 @@
+name: OpenCode Doc-Code Alignment Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      review_scope:
+        description: "Optional scope hint, such as docs/, internal/wastebin/, or all"
+        required: false
+        default: "all"
+      allow_pr:
+        description: "Allow narrow, unambiguous fixes to be opened as PRs"
+        required: true
+        type: boolean
+        default: false
+      extra_instructions:
+        description: "Optional additional review instructions"
+        required: false
+        default: ""
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+
+jobs:
+  opencode-doc-code-alignment:
+    name: Documentation and code alignment review
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+      issues: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0 # So agent can see the history
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.4"
+
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9.2.1
+        with:
+          version: v2.12.2
+          install-only: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Install just
+        uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2.81.10
+        with:
+          tool: just@1.51.0
+          fallback: none
+
+      - name: Install Go skills for OpenCode
+        env:
+          # renovate: datasource=git-refs packageName=https://github.com/samber/cc-skills-golang currentValue=main
+          CC_SKILLS_GOLANG_SHA: a5e0e5997aac169b659e70cb826a20b489bc4c6c
+        run: |
+          mkdir -p "$HOME/.agents/skills"
+          git init "$HOME/.agents/skills/cc-skills-golang"
+          git -C "$HOME/.agents/skills/cc-skills-golang" remote add origin https://github.com/samber/cc-skills-golang.git
+          git -C "$HOME/.agents/skills/cc-skills-golang" fetch --depth=1 origin "$CC_SKILLS_GOLANG_SHA"
+          git -C "$HOME/.agents/skills/cc-skills-golang" checkout --detach "$CC_SKILLS_GOLANG_SHA"
+
+      - name: Run OpenCode documentation/code alignment review
+        uses: xlionjuan/opencode-github-actions@923fb56f9f9e1dbb1ca9294dce22a0e9b34bd43d # main
+        with:
+          model: opencode-go/deepseek-v4-flash
+          prompt: |
+            Run a multi-dimensional documentation/code alignment review for this repository.
+
+            Manual run inputs:
+            - review_scope: ${{ inputs.review_scope }}
+            - allow_pr: ${{ inputs.allow_pr }}
+            - extra_instructions: ${{ inputs.extra_instructions }}
+
+            Mandatory execution gates:
+            - First, run `git status --short --branch` and record whether the worktree was clean.
+            - Interpret `review_scope` before reviewing:
+              - `all` means inspect all review dimensions.
+              - A path or topic hint limits the primary review to that scope plus directly referenced code, docs, tests, and workflows.
+              - State the interpreted scope in the final output.
+            - `extra_instructions` may narrow scope or add checks. If it conflicts with AGENTS.md, protected repository rules, Git identity rules, or this workflow's `allow_pr` policy, follow the stricter repository/workflow rule and mention the conflict in the final output.
+            - Read AGENTS.md, CONTEXT.md, and every repository document directly referenced by this prompt before creating Issues or PRs.
+
+            Use a subagent-based workflow when the environment supports it:
+            - Assign independent read-only subagents to inspect different review dimensions.
+            - Each subagent should gather evidence only and avoid file changes.
+            - Subagents must not create Issues, PRs, comments, commits, or file changes.
+            - The coordinating agent must merge overlapping findings, remove duplicates, and calibrate severity.
+            - Use external verification only for time-sensitive or upstream-dependent facts, and cite authoritative sources when such verification is used.
+            - If subagents are not available, perform the same review dimensions sequentially in a single agent run.
+
+            Repository rules:
+            - Read and follow AGENTS.md before doing any work.
+            - The cc-skills-golang corpus is installed at `~/.agents/skills/cc-skills-golang/skills`; for Go coding or code review work, locate and read the relevant skill files before editing, opening Issues or PRs, or reporting findings.
+            - Respect the documented project boundaries:
+              - Entry points: main.go, cli.go, mcp.go
+              - Core package: internal/wastebin/
+              - Main documentation: README.md, CONTEXT.md, docs/INSTALL.md, docs/MCP_TOOLS.md
+            - Use patch-style edits for existing files if changes are explicitly allowed.
+            - Use OpenCode's GitHub integration for PR creation when PRs are explicitly allowed.
+            - Use gh CLI for Issue creation; OpenCode's GitHub integration handles PRs and comments, but it does not provide native Issue creation in this workflow.
+            - Do not modify .gitignore.
+            - Do not create or update REPORT.md.
+            - Do not state external version numbers, release dates, or specification status unless verified against current authoritative sources.
+
+            Review dimensions:
+            1. Documentation-to-code alignment
+               - Check whether README.md, CONTEXT.md, docs/*.md, and AGENTS.md accurately describe current CLI behavior, MCP parameters, environment variables, output format, errors, tests, and architecture decisions.
+               - Identify stale instructions, missing behavior, renamed parameters, undocumented limits, mismatched examples, or claims not supported by code.
+
+            2. Code-to-documentation alignment
+               - Find public behavior in main.go, cli.go, mcp.go, and internal/wastebin/ that is not documented where users or agents would expect it.
+               - Pay special attention to MCP tool schema, stdin/env behavior, paste parameters, error handling, debug/config behavior, and Wastebin response handling.
+
+            3. Test-to-documentation alignment
+               - Compare root *_test.go and internal/wastebin/*_test.go against docs/MCP_TOOLS.md.
+               - Flag documented test workflows that no longer match actual commands, required env vars, warnings, or CI behavior.
+
+            4. CI/release/agent workflow alignment
+               - Check .github/workflows/ against AGENTS.md.
+               - Verify that documented constraints are reflected in workflows where applicable, including pinned GitHub Actions uses entries with version comments, fixed Go version, and env-only MCP stdin mode.
+
+            5. Risk and prioritization
+               - Classify each finding as one of:
+                 - correctness bug
+                 - stale documentation
+                 - missing documentation
+                 - ambiguous or misleading documentation
+                 - test workflow mismatch
+                 - CI/release workflow mismatch
+               - Assign severity:
+                 - High: likely to break users, CI, releases, MCP clients, or agent workflows.
+                 - Medium: likely to mislead contributors or cause wrong usage.
+                 - Low: clarity, completeness, or maintenance improvement.
+
+            False-positive control:
+            - Prefer precision over recall. It is acceptable to report fewer findings.
+            - Do not create an Issue or PR from intuition alone.
+            - Every actionable finding must cite exact repository evidence with file paths and line numbers.
+            - For stale-documentation findings, cite both the documentation claim and the code, test, workflow, or ADR evidence that contradicts it.
+            - For missing-documentation findings, cite both the code, test, workflow, or ADR behavior and the expected documentation location that was searched.
+            - Before creating an Issue or PR, actively look for counterevidence in adjacent docs, tests, workflows, and implementation code.
+            - If line-level evidence is incomplete, list the item as a candidate in the final output only; do not create an Issue.
+            - If the item depends on maintainer preference, product judgment, naming preference, or an interpretation not directly settled by repository evidence, do not create an Issue. List it as an open question or candidate instead.
+            - Do not treat a documented human/operator policy as a CI or release workflow mismatch merely because automation does not enforce it.
+            - Report a policy-enforcement gap as an Issue only when repository docs explicitly claim automation enforces the policy, the workflow directly contradicts the policy, or missing enforcement is likely to cause a concrete accidental release, CI failure, or user-visible breakage.
+            - If the recommended action could be either "add automation" or "change the docs" and repository evidence does not clearly choose one, classify it as maintainer judgment and list it as an open question or candidate instead.
+            - Low-severity findings should not become standalone Issues unless they are repeated, systematic, or explicitly requested by `extra_instructions`.
+            - Low-severity documentation findings may be grouped into one cleanup Issue when all are exact, mechanical fixes supported by line-level evidence, such as stale filenames, missing index entries, or wording that directly contradicts code.
+            - Do not group Low-severity findings that require maintainer judgment, product decisions, naming preference, or external verification; list those as open questions or candidates instead.
+            - Do not claim "no documentation updates needed" unless each requested review dimension was inspected or explicitly ruled out by scope.
+
+            Decision policy for Issues vs PR:
+            - Default to opening GitHub Issues, not PRs, for audit findings.
+            - Open one Issue per coherent finding or tightly related finding group.
+            - Group closely related findings into one Issue when they share the same root cause, same affected document, same user workflow, same repository rule, or can reasonably be fixed in one small PR.
+            - Do not split mechanical documentation cleanup, such as stale filenames, missing index entries, or matching wording fixes, into many small Issues when one cleanup Issue would be clearer.
+            - Do not create a single omnibus Issue if findings are independent.
+            - Keep findings separate when they have different severities, different owners, unrelated affected areas, different required decisions, or would make one Issue too broad to verify and close.
+            - Before creating any Issue, run `gh issue list --state all --search "<key terms>"` to check for duplicates. If an existing Issue already covers the finding, do not create a new Issue; list the existing Issue in the final output.
+            - Cap newly created Issues to the highest-signal findings. Create Issues for High and Medium findings first. If several Low-severity documentation-only findings are exact, mechanical, and suitable for one small PR, open one grouped cleanup Issue instead of leaving all of them as candidates.
+            - Do not open a PR for findings that require maintainer judgment, product decisions, release policy changes, or broad cross-document rewrites.
+            - Open a PR only when allow_pr is true and all of these are true:
+              - the fix is narrow and unambiguous;
+              - the expected text/code change is directly supported by repository evidence;
+              - the change does not alter behavior unless explicitly requested;
+              - related docs and tests can be updated in the same branch;
+              - local verification can be run according to AGENTS.md.
+            - If allow_pr is false, do not modify files and do not open PRs.
+            - If opening a PR, keep the PR title and body in English and include summary, docs impact, tests run, linked issues, and limitations.
+            - If only Issues are opened, do not modify files.
+            - If allow_pr is false, do not run formatters, `go mod tidy`, generated-code commands, or other commands known to rewrite files.
+            - Before final output, run `git status --short`. If allow_pr is false and the worktree is dirty, restore only changes created during this run if safe; otherwise stop and report the dirty files.
+
+            Issue labeling:
+            - Before applying labels, run `gh label list` and follow docs/agents/triage-labels.md if it exists.
+            - Every created Issue should receive at least one live topical label unless no available label matches.
+            - Use this mapping unless evidence says otherwise:
+              - stale documentation, missing documentation, ambiguous documentation -> `documentation`
+              - correctness bug or behavior that is broken -> `bug`
+              - non-bug workflow, configuration, tooling, or maintenance improvement -> `enhancement`
+              - request for maintainer clarification -> `question`
+              - security-relevant issue -> `security`
+            - For CI/release workflow mismatch:
+              - use `bug` only when CI, release, or required automation is likely broken;
+              - otherwise use `enhancement`;
+              - also add `documentation` only when the fix is documentation-only or primarily documentation cleanup.
+            - Pass labels with `gh issue create --label ...` when creating the Issue.
+            - After creating each Issue, run `gh issue view <number> --json labels` and verify labels were applied.
+            - If an intended label was not applied, run `gh issue edit <number> --add-label ...`.
+            - Do not apply human-only decision labels such as `accepted`, `needs-explain`, `rejected`, or `wontfix` unless explicitly instructed by the user.
+            - If an Issue is intentionally left unlabeled, state the exact reason in the final output.
+
+            For each finding, provide:
+            - title
+            - severity
+            - category
+            - affected files
+            - evidence from code/docs/tests with file paths and line numbers
+            - counterevidence checked
+            - why it matters
+            - recommended action
+            - whether it should be an Issue or PR
+            - proposed Issue labels, if any
+            - if Issue: proposed Issue title and body
+            - if PR: exact intended scope and required verification
+
+            Final output:
+            - State the interpreted scope.
+            - List the main files and documents inspected.
+            - List commands run.
+            - Summarize the number of findings by severity and category.
+            - List Issues created, if any, with links.
+            - List duplicate or already-covered Issues found, if any.
+            - List PRs created, if any, with links.
+            - List actionable candidate findings not filed, grouped by reason: duplicate, incomplete evidence, low impact, maintainer judgment required, or outside interpreted scope.
+            - If Low-severity documentation-only findings were not grouped into a cleanup Issue, explain why they were not exact, mechanical, or suitable for one small PR.
+            - If no Issues or PRs were created, explain why.
+            - Explicitly state whether documentation updates are needed.
+            - Include the final `git status --short` result.
+        env:
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
