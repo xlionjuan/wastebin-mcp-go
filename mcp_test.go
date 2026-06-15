@@ -227,6 +227,32 @@ func TestBuildPasteSchemaBasicFields(t *testing.T) {
 	}
 }
 
+func TestBuildToolDescription(t *testing.T) {
+	t.Parallel()
+
+	desc := buildToolDescription()
+
+	if !strings.Contains(desc, "content") {
+		t.Error("expected description to mention content")
+	}
+
+	if !strings.Contains(desc, "file_path") {
+		t.Error("expected description to mention file_path")
+	}
+
+	if !strings.Contains(desc, "hostname") {
+		t.Error("expected description to mention hostname")
+	}
+
+	if !strings.Contains(desc, "raw") {
+		t.Error("expected description to mention raw")
+	}
+
+	if !strings.Contains(desc, "markdown_rendered") {
+		t.Error("expected description to mention markdown_rendered")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // isValidMCPInitializeMessage tests
 // ---------------------------------------------------------------------------

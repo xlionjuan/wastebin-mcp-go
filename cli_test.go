@@ -1,13 +1,72 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"wastebin-mcp-go/internal/wastebin"
 )
+
+func TestPrintCLIHelp(t *testing.T) {
+	t.Parallel()
+
+	// Capture stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	old := os.Stdout
+	os.Stdout = w
+
+	printCLIHelp()
+
+	closeErr := w.Close()
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+
+	os.Stdout = old
+
+	var buf bytes.Buffer
+
+	_, copyErr := io.Copy(&buf, r)
+	if copyErr != nil {
+		t.Fatal(copyErr)
+	}
+
+	output := buf.String()
+
+	if !strings.Contains(output, "wastebin-mcp-go") {
+		t.Error("expected help to contain project name")
+	}
+
+	if !strings.Contains(output, "USAGE:") {
+		t.Error("expected help to contain USAGE section")
+	}
+
+	if !strings.Contains(output, "--content") {
+		t.Error("expected help to mention --content flag")
+	}
+
+	if !strings.Contains(output, "--file-path") {
+		t.Error("expected help to mention --file-path flag")
+	}
+
+	if !strings.Contains(output, "--burn-after-reading") {
+		t.Error("expected help to mention --burn-after-reading flag")
+	}
+
+	if !strings.Contains(output, "EXIT CODES:") {
+		t.Error("expected help to contain EXIT CODES section")
+	}
+}
 
 func TestBuildCreatePasteArgs(t *testing.T) {
 	t.Parallel()
