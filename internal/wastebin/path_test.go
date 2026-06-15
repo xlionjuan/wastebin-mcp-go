@@ -727,10 +727,10 @@ func TestHasPathTraversal_Unicode(t *testing.T) {
 
 func TestIsBuiltinBlocked_DotSshAtRoot(t *testing.T) {
 	t.Parallel()
-	// Even though /.ssh is at root, it should be caught as a component match.
+
 	_, blocked := isBuiltinBlocked("/.ssh/authorized_keys")
 	if !blocked {
-		t.Log("NOTE: /.ssh is a valid system path on some systems; test is informational")
+		t.Error("expected /.ssh/authorized_keys to be blocked (builtin blocklist covers .ssh)")
 	}
 }
 

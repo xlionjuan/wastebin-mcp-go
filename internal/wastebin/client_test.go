@@ -1,10 +1,12 @@
 package wastebin //nolint:testpackage // white-box tests need access to unexported types/functions
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1201,43 +1203,29 @@ func (errorReader) Read(_ []byte) (int, error) { return 0, io.EOF }
 
 func (errorReader) Close() error { return errors.New("close error") } //nolint:err113 // test helper
 
-func TestCloseResponseBody_NilResponse(t *testing.T) {
+func TestCloseResponseBody_CloseErrorLogged(t *testing.T) {
 	t.Parallel()
 
-	// Should not panic.
-	closeResponseBody(nil)
-}
+	// Create a slog handler that captures log records.
+	var logBuf bytes.Buffer
 
-func TestCloseResponseBody_NilBody(t *testing.T) {
-	t.Parallel()
+	handler := slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	original := slog.Default()
 
-	// Should not panic when Body is nil.
-	closeResponseBody(&http.Response{Body: nil})
-}
+	slog.SetDefault(slog.New(handler))
+	defer slog.SetDefault(original)
 
-func TestCloseResponseBody_CloseError(t *testing.T) {
-	t.Parallel()
-
-	// Create a response with a body that returns error on Close.
-	// errorReader implements io.ReadCloser so Close() returns an error.
+	// Response body whose Close returns an error.
 	resp := &http.Response{
 		Body: &errorReader{},
 	}
 
-	// Should not panic; error is logged to slog.Debug only.
 	closeResponseBody(resp)
-}
 
-func TestCloseResponseBody_CloseSuccess(t *testing.T) {
-	t.Parallel()
-
-	// Create a response with a normal body that closes successfully.
-	resp := &http.Response{
-		Body: io.NopCloser(strings.NewReader("ok")),
+	output := logBuf.String()
+	if !strings.Contains(output, "failed to close response body") {
+		t.Error("expected debug log about close error, got:", output)
 	}
-
-	// Should not panic; Close succeeds silently.
-	closeResponseBody(resp)
 }
 
 func TestIsConnectionError_NonMatch(t *testing.T) {

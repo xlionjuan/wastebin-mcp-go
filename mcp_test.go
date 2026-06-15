@@ -530,20 +530,6 @@ func TestNewCreatePasteHandler_Failure(t *testing.T) {
 	}
 }
 
-func TestNewCreatePasteHandler_MarshalErrorPath(t *testing.T) {
-	t.Parallel()
-	// Simulate a response that cannot be marshaled by creating a client connected
-	// to a real server — the response path is fine, but we test the marshal path
-	// by using an unresolvable type scenario (not possible with PasteResponse,
-	// so we skip the actual marshal failure test since json.Marshal only fails
-	// on channels/complex types which we don't use here).
-	// Instead, we verify the success path works and trust that json.Marshal
-	// failure on a plain struct is effectively impossible in normal execution.
-	// This test validates that the happy path for the handler works correctly
-	// when the server returns a valid response.
-	t.Skip("json.Marshal on PasteResponse cannot fail in practice; this path is covered by the success test")
-}
-
 func TestRunMCPMode_ClientError(t *testing.T) {
 	t.Parallel()
 

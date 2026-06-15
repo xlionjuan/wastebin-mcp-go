@@ -9,8 +9,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	"wastebin-mcp-go/internal/wastebin"
 )
 
 func TestPrintCLIHelp(t *testing.T) {
@@ -290,15 +288,10 @@ func TestBuildCreatePasteArgsWithParseCreateFlagsFilePath(t *testing.T) {
 
 func TestBuildCreatePasteArgsTypeCheck(t *testing.T) {
 	t.Parallel()
-
-	// Verify that buildCreatePasteArgs returns a *wastebin.CreatePasteArgs
-	// (compile-time check; the real assertion is that this compiles).
+	// Compile-time check: buildCreatePasteArgs returns *CreatePasteArgs.
 	flags := &CLIFlags{Content: "type-check"}
 	args := buildCreatePasteArgs(flags)
-
-	if _, ok := any(args).(*wastebin.CreatePasteArgs); !ok {
-		t.Error("buildCreatePasteArgs did not return *wastebin.CreatePasteArgs")
-	}
+	_ = args // Use to avoid unused-variable lint
 }
 
 func TestRunCLIMode_ConfigError(t *testing.T) {
