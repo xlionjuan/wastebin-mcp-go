@@ -116,6 +116,64 @@ func TestIsLikelyTextFile_NotFound(t *testing.T) {
 	}
 }
 
+func TestIsLikelyTextFile_StatError(t *testing.T) {
+	t.Parallel()
+
+	// Path in a non-existent directory should cause os.Stat error.
+	result, err := IsLikelyTextFile("/nonexistent/path/that/does/not/exist/12345")
+
+	if result {
+		t.Error("expected false when file doesn't exist")
+	}
+
+	if err == nil {
+		t.Error("expected error for nonexistent file")
+	}
+}
+
+func TestIsLikelyTextFile_ReadError(t *testing.T) {
+	t.Parallel()
+
+	// Create a directory (can't be read as file for sniffing).
+	tmpDir := t.TempDir()
+	result, err := IsLikelyTextFile(tmpDir)
+
+	if result {
+		t.Error("expected false when path is a directory")
+	}
+
+	if err == nil {
+		t.Error("expected error when reading directory as file")
+	}
+}
+
+func TestIsLikelyTextFile_LargeFile(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "large.txt")
+
+	// Create a file > sniffSize (sniffSize is 8192 bytes).
+	data := make([]byte, 8193)
+	for i := range data {
+		data[i] = 'a'
+	}
+
+	err := os.WriteFile(filePath, data, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := IsLikelyTextFile(filePath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !result {
+		t.Error("expected true for large text file")
+	}
+}
+
 func TestIsLikelyTextFile_TextFile(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

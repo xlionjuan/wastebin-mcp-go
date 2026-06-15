@@ -11,6 +11,15 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
 
+func TestParseCreateFlags_InvalidFlag(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseCreateFlags([]string{"--unknown-flag"})
+	if err == nil {
+		t.Fatal("expected error for unknown flag")
+	}
+}
+
 func TestParseCreateFlags(t *testing.T) {
 	t.Parallel()
 

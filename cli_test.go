@@ -301,6 +301,46 @@ func TestBuildCreatePasteArgsTypeCheck(t *testing.T) {
 	}
 }
 
+func TestRunCLIMode_ConfigError(t *testing.T) {
+	// Don't set WASTEBIN_SERVER_URL — ConfigFromEnv should fail.
+	// Ensure any previously set env var is cleared.
+	t.Setenv("WASTEBIN_SERVER_URL", "")
+
+	err := runCLIMode(&CLIFlags{Content: "test"})
+	if err == nil {
+		t.Fatal("expected error for missing server URL")
+	}
+
+	if !strings.Contains(err.Error(), "configuration error") {
+		t.Errorf("expected configuration error, got: %v", err)
+	}
+}
+
+func TestRunCLIMode_DebugPath(t *testing.T) {
+	// Cannot use t.Parallel() due to environment variable manipulation.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+
+		if r.URL.Path != "/" {
+			t.Errorf("expected /, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/ABCDEFG"}) //nolint:errcheck // Test helper OK
+	}))
+	defer ts.Close()
+
+	t.Setenv("WASTEBIN_SERVER_URL", ts.URL)
+
+	err := runCLIMode(&CLIFlags{Content: "hello", Debug: true})
+	if err != nil {
+		t.Fatalf("runCLIMode failed: %v", err)
+	}
+}
+
 func TestRunCLIModeWithTestServer(t *testing.T) {
 	// Cannot use t.Parallel() due to environment variable manipulation.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

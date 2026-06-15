@@ -522,3 +522,20 @@ func TestNewCreatePasteHandler_MarshalErrorPath(t *testing.T) {
 	// when the server returns a valid response.
 	t.Skip("json.Marshal on PasteResponse cannot fail in practice; this path is covered by the success test")
 }
+
+func TestRunMCPMode_ClientError(t *testing.T) {
+	t.Parallel()
+
+	// Config without ServerURL should make NewWastebinClient fail.
+	cfg := &wastebin.Config{}
+	stdin := strings.NewReader("")
+
+	err := runMCPMode(cfg, stdin)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !strings.Contains(err.Error(), "failed to create wastebin client") {
+		t.Errorf("expected client creation error, got: %v", err)
+	}
+}

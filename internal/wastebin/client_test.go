@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -553,6 +554,125 @@ func TestCreatePaste_FileMode_BinaryFileRejected(t *testing.T) {
 	}
 }
 
+func TestCreatePaste_FileMode_StatError(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.AllowedPaths = []string{allowedDir}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	// File doesn't exist yet — should get errFilePathCannotBeUsed.
+	nonExistentPath := filepath.Join(allowedDir, "nonexistent.txt")
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath: &nonExistentPath,
+	})
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
+	}
+
+	if !errors.Is(err, errFilePathCannotBeUsed) {
+		t.Errorf("expected errFilePathCannotBeUsed, got: %v", err)
+	}
+}
+
+func TestCreatePaste_FileMode_FileTooLarge(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a file larger than MaxContentSize.
+	filePath := filepath.Join(allowedDir, "large.txt")
+	data := make([]byte, 100)
+
+	err = os.WriteFile(filePath, data, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.AllowedPaths = []string{allowedDir}
+	cfg.MaxContentSize = 50 // Smaller than our 100-byte file.
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath: &filePath,
+	})
+	if err == nil {
+		t.Fatal("expected error for oversized file")
+	}
+
+	if !strings.Contains(err.Error(), "content exceeds the maximum allowed size") {
+		t.Errorf("expected content too large error, got: %v", err)
+	}
+}
+
+func TestCreatePaste_FileMode_ReadError(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a file with no read permissions.
+	filePath := filepath.Join(allowedDir, "secret.txt")
+
+	err = os.WriteFile(filePath, []byte("secret"), 0o000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.AllowedPaths = []string{allowedDir}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath: &filePath,
+	})
+	if err == nil {
+		t.Fatal("expected error for unreadable file")
+	}
+
+	if !errors.Is(err, errFilePathCannotBeUsed) {
+		t.Errorf("expected errFilePathCannotBeUsed, got: %v", err)
+	}
+}
+
 func TestCreatePaste_FileMode_PathNotAllowed(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
@@ -1070,5 +1190,292 @@ func TestBuildPasteResponse_TrailingSlashBaseURL(t *testing.T) {
 
 	if resp.Hostname != "https://bin.example.com" {
 		t.Errorf("expected hostname without trailing slash, got %q", resp.Hostname)
+	}
+}
+
+// errorReader is a helper for testing closeResponseBody with a body that
+// returns an error on Close. It implements io.ReadCloser.
+type errorReader struct{}
+
+func (errorReader) Read(_ []byte) (int, error) { return 0, io.EOF }
+
+func (errorReader) Close() error { return errors.New("close error") } //nolint:err113 // test helper
+
+func TestCloseResponseBody_NilResponse(t *testing.T) {
+	t.Parallel()
+
+	// Should not panic.
+	closeResponseBody(nil)
+}
+
+func TestCloseResponseBody_NilBody(t *testing.T) {
+	t.Parallel()
+
+	// Should not panic when Body is nil.
+	closeResponseBody(&http.Response{Body: nil})
+}
+
+func TestCloseResponseBody_CloseError(t *testing.T) {
+	t.Parallel()
+
+	// Create a response with a body that returns error on Close.
+	// errorReader implements io.ReadCloser so Close() returns an error.
+	resp := &http.Response{
+		Body: &errorReader{},
+	}
+
+	// Should not panic; error is logged to slog.Debug only.
+	closeResponseBody(resp)
+}
+
+func TestCloseResponseBody_CloseSuccess(t *testing.T) {
+	t.Parallel()
+
+	// Create a response with a normal body that closes successfully.
+	resp := &http.Response{
+		Body: io.NopCloser(strings.NewReader("ok")),
+	}
+
+	// Should not panic; Close succeeds silently.
+	closeResponseBody(resp)
+}
+
+func TestIsConnectionError_NonMatch(t *testing.T) {
+	t.Parallel()
+
+	errTestNonDial := errors.New("some other error") //nolint:err113 // test helper error
+	result := isConnectionError(errTestNonDial)
+
+	if result {
+		t.Error("expected false for non-dial error")
+	}
+}
+
+func TestNewWastebinClient_RedirectFollowed(t *testing.T) {
+	t.Parallel()
+
+	// Server that redirects once to final destination.
+	// baseURL.JoinPath("/") appends "/", so the POST path has a trailing slash.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect/" {
+			// Redirect to the root which returns the JSON response.
+			http.Redirect(w, r, "/", http.StatusFound)
+
+			return
+		}
+
+		// Final destination.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/REDIRECTED"}) //nolint:errcheck // Test helper OK
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL + "/redirect" // postURL becomes ts.URL + "/redirect/".
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+
+	resp, err := client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ID != "REDIRECTED" {
+		t.Errorf("expected ID 'REDIRECTED', got %q", resp.ID)
+	}
+}
+
+func TestNewWastebinClient_RedirectDifferentHostBlocked(t *testing.T) {
+	t.Parallel()
+
+	// baseURL.JoinPath("/") appends "/", so the POST path has a trailing slash.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect/" {
+			// Redirect to a completely different host.
+			http.Redirect(w, r, "http://evil.example.com/malicious", http.StatusFound)
+
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL + "/redirect" // postURL becomes ts.URL + "/redirect/".
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err == nil {
+		t.Fatal("expected redirect error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "redirect to different host") {
+		t.Errorf("expected redirect blocked error, got: %v", err)
+	}
+}
+
+func TestCreatePaste_NilArgs(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	_, err = client.CreatePaste(context.Background(), nil)
+	if !errors.Is(err, errArgsRequired) {
+		t.Errorf("expected errArgsRequired, got: %v", err)
+	}
+}
+
+func TestCreatePaste_ContentEmpty(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	empty := ""
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &empty,
+	})
+	if !errors.Is(err, errContentEmpty) {
+		t.Errorf("expected errContentEmpty, got: %v", err)
+	}
+}
+
+func TestCreatePaste_PasswordOverHTTP(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		if _, ok := req["password"]; !ok {
+			t.Error("expected password in request body")
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/PASSWD"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL // httptest uses http, so password over HTTP warning triggers.
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "secret"
+	password := "hunter2"
+
+	resp, err := client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content:  &content,
+		Password: &password,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.PasswordHint == "" {
+		t.Error("expected PasswordHint to be set for password-protected paste")
+	}
+}
+
+func TestCreatePaste_InvalidExpiration(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/EXPIRED"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+	badExpiry := "not-a-valid-expiry"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+		Expires: &badExpiry,
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid expiration")
+	}
+
+	if !strings.Contains(err.Error(), "invalid expiration") {
+		t.Errorf("expected invalid expiration error, got: %v", err)
+	}
+}
+
+func TestCreatePaste_JSONDecodeError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{invalid json`)) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid JSON response")
+	}
+
+	if !strings.Contains(err.Error(), "failed to parse Wastebin response") {
+		t.Errorf("expected parse error, got: %v", err)
 	}
 }
