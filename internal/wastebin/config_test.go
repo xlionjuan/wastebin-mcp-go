@@ -344,4 +344,23 @@ func TestConfigFromEnv_InvalidSandboxMounts(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnv_FileReadEnabledTrue(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_FILE_READ_ENABLED", "true")
+	t.Setenv("WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST", "true")
+
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !cfg.FileReadEnabled {
+		t.Error("expected FileReadEnabled to be true")
+	}
+
+	if !cfg.DisableBuiltinBlocklist {
+		t.Error("expected DisableBuiltinBlocklist to be true")
+	}
+}
+
 // The isAllowedPath function is tested in path_test.go.
