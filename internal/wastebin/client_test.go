@@ -1278,8 +1278,10 @@ func (errorReader) Read(_ []byte) (int, error) { return 0, io.EOF }
 
 func (errorReader) Close() error { return errors.New("close error") } //nolint:err113 // test helper
 
+//nolint:paralleltest // intentional: modifies global slog state
 func TestCloseResponseBody_CloseErrorLogged(t *testing.T) {
-	t.Parallel()
+	// NOTE: no t.Parallel() — slog.SetDefault() modifies global state and
+	// would race with other parallel tests that log via slog.Debug().
 
 	// Create a slog handler that captures log records.
 	var logBuf bytes.Buffer
