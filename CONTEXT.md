@@ -260,5 +260,5 @@ an agent cannot debug.
 | Max content size | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | 1 MB |
 | Sandbox mounts | `WASTEBIN_MCP_SANDBOX_MOUNTS` | — |
 | Transparent mode | `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | false |
-| Server URL | `WASTEBIN_MCP_SERVER_URL` | — (required) |
+| Server URL | `WASTEBIN_SERVER_URL` | — (required) |
 | Default expires | `WASTEBIN_MCP_DEFAULT_EXPIRES` | 31536000 |

@@ -274,7 +274,7 @@ func TestRunCLIModeWithTestServer(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", ts.URL)
+	t.Setenv("WASTEBIN_SERVER_URL", ts.URL)
 	t.Setenv("DEBUG", "false")
 
 	err := runCLIMode(&CLIFlags{Content: "hello"})

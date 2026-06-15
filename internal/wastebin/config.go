@@ -11,7 +11,7 @@ import (
 
 // Sentinel errors for configuration validation.
 var (
-	errServerURLRequired              = errors.New("WASTEBIN_MCP_SERVER_URL is required and must not be empty")
+	errServerURLRequired              = errors.New("WASTEBIN_SERVER_URL is required and must not be empty")
 	errNegativeDefaultExpires         = errors.New("WASTEBIN_MCP_DEFAULT_EXPIRES cannot be negative")
 	errMaxContentSizeTooSmall         = errors.New("WASTEBIN_MCP_MAX_CONTENT_SIZE must be at least 1")
 	errSandboxMountNotAllowed         = errors.New("sandbox mount host_path is not under any allowed path")
@@ -44,7 +44,7 @@ func ConfigFromEnv() (*Config, error) {
 	cfg := DefaultConfig()
 
 	// Server URL (required).
-	cfg.ServerURL = os.Getenv("WASTEBIN_MCP_SERVER_URL")
+	cfg.ServerURL = os.Getenv("WASTEBIN_SERVER_URL")
 	if cfg.ServerURL == "" {
 		return nil, errServerURLRequired
 	}

@@ -10,7 +10,7 @@ A Model Context Protocol (MCP) server and CLI tool for creating pastes on a
 go build ./...
 
 # MCP mode (stdio server for AI agents)
-export WASTEBIN_MCP_SERVER_URL=https://bin-staging.xlion.tw
+export WASTEBIN_SERVER_URL=https://bin-staging.xlion.tw
 wastebin-mcp-go
 
 # CLI mode
@@ -32,7 +32,7 @@ wastebin-mcp-go create --file-path /tmp/doc.md
 
 | Environment Variable | Required | Default | Description |
 |----------------------|----------|---------|-------------|
-| `WASTEBIN_MCP_SERVER_URL` | ✅ | — | Wastebin server URL (e.g. `https://bin-staging.xlion.tw`) |
+| `WASTEBIN_SERVER_URL` | ✅ | — | Wastebin server URL (e.g. `https://bin-staging.xlion.tw`) |
 | `WASTEBIN_MCP_DEFAULT_EXPIRES` | | 31536000 | Default expiration in seconds |
 | `WASTEBIN_MCP_FILE_READ_ENABLED` | | true | Enable file reading mode |
 | `WASTEBIN_MCP_ALLOWED_PATHS` | | — | Comma-separated allowed directory paths |

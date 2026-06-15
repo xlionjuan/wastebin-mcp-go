@@ -50,7 +50,7 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestConfigFromEnv_Defaults(t *testing.T) {
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 
 	cfg, err := ConfigFromEnv()
 	if err != nil {
@@ -87,7 +87,7 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 }
 
 func TestConfigFromEnv_AllSet(t *testing.T) {
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_DEFAULT_EXPIRES", "3600")
 	t.Setenv("WASTEBIN_MCP_FILE_READ_ENABLED", "false")
 	t.Setenv("WASTEBIN_MCP_ALLOWED_PATHS", "/tmp")
@@ -144,7 +144,7 @@ func TestConfigFromEnv_AllSet(t *testing.T) {
 
 func TestConfigFromEnv_MissingServerURL(t *testing.T) {
 	// Ensure no env var is set.
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "")
+	t.Setenv("WASTEBIN_SERVER_URL", "")
 
 	_, err := ConfigFromEnv()
 	if err == nil {
@@ -157,7 +157,7 @@ func TestConfigFromEnv_MissingServerURL(t *testing.T) {
 }
 
 func TestConfigFromEnv_InvalidDefaultExpires(t *testing.T) {
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_DEFAULT_EXPIRES", "not-a-number")
 
 	_, err := ConfigFromEnv()
@@ -167,7 +167,7 @@ func TestConfigFromEnv_InvalidDefaultExpires(t *testing.T) {
 }
 
 func TestConfigFromEnv_NegativeDefaultExpires(t *testing.T) {
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_DEFAULT_EXPIRES", "-1")
 
 	_, err := ConfigFromEnv()
@@ -177,7 +177,7 @@ func TestConfigFromEnv_NegativeDefaultExpires(t *testing.T) {
 }
 
 func TestConfigFromEnv_InvalidFileReadEnabled(t *testing.T) {
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_FILE_READ_ENABLED", "maybe")
 
 	_, err := ConfigFromEnv()
@@ -187,7 +187,7 @@ func TestConfigFromEnv_InvalidFileReadEnabled(t *testing.T) {
 }
 
 func TestConfigFromEnv_InvalidMaxContentSize(t *testing.T) {
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_MAX_CONTENT_SIZE", "large")
 
 	_, err := ConfigFromEnv()
@@ -197,7 +197,7 @@ func TestConfigFromEnv_InvalidMaxContentSize(t *testing.T) {
 }
 
 func TestConfigFromEnv_ZeroMaxContentSize(t *testing.T) {
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_MAX_CONTENT_SIZE", "0")
 
 	_, err := ConfigFromEnv()
@@ -207,7 +207,7 @@ func TestConfigFromEnv_ZeroMaxContentSize(t *testing.T) {
 }
 
 func TestConfigFromEnv_BlockedPathsWhitespace(t *testing.T) {
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_BLOCKED_PATHS", "/etc, /proc, /sys")
 
 	cfg, err := ConfigFromEnv()
@@ -238,7 +238,7 @@ func TestConfigFromEnv_AllowedPathsSymlink(t *testing.T) {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_ALLOWED_PATHS", linkDir)
 
 	cfg, err := ConfigFromEnv()
@@ -265,7 +265,7 @@ func TestConfigFromEnv_SandboxMountValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_ALLOWED_PATHS", allowedDir)
 	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", allowedDir+":/workspace")
 
@@ -304,7 +304,7 @@ func TestConfigFromEnv_SandboxMountNotInAllowed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_ALLOWED_PATHS", allowedDir)
 	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", otherDir+":/workspace")
 
@@ -315,7 +315,7 @@ func TestConfigFromEnv_SandboxMountNotInAllowed(t *testing.T) {
 }
 
 func TestConfigFromEnv_InvalidSandboxTransparent(t *testing.T) {
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_SANDBOX_TRANSPARENT", "nope")
 
 	_, err := ConfigFromEnv()
@@ -325,7 +325,7 @@ func TestConfigFromEnv_InvalidSandboxTransparent(t *testing.T) {
 }
 
 func TestConfigFromEnv_InvalidDebug(t *testing.T) {
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("DEBUG", "maybe")
 
 	_, err := ConfigFromEnv()
@@ -335,7 +335,7 @@ func TestConfigFromEnv_InvalidDebug(t *testing.T) {
 }
 
 func TestConfigFromEnv_InvalidSandboxMounts(t *testing.T) {
-	t.Setenv("WASTEBIN_MCP_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", "invalid-format")
 
 	_, err := ConfigFromEnv()

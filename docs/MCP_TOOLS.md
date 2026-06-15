@@ -333,7 +333,7 @@ reconstructing the retrieval commands.
 - **Transport**: Stdio (stdin/stdout)
 - **Protocol**: MCP (Model Context Protocol)
 - **Wastebin API**: REST (`POST /` with JSON body)
-- **Server URL**: Configured via `WASTEBIN_MCP_SERVER_URL` (required)
+- **Server URL**: Configured via `WASTEBIN_SERVER_URL` (required)
 - **Stdin validation**: First line of stdin must be a valid JSON-RPC 2.0
   `initialize` message (max 1 MB); non-MCP input causes immediate exit
 - **SDK**: `github.com/modelcontextprotocol/go-sdk`
