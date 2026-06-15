@@ -1,0 +1,39 @@
+# Binaries
+wastebin-mcp-go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+__pycache__/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Backup files
+*.bak
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Review Reports (always local, never commit)
+REPORT.md
+
+# Environment files (keep .env.example)
+.env

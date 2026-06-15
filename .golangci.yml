@@ -1,0 +1,159 @@
+version: "2"
+run:
+  modules-download-mode: readonly
+  tests: true
+linters:
+  default: all
+  enable:
+    - fatcontext
+    - gomodguard_v2
+    - nosprintfhostport
+    - perfsprint
+    - sloglint
+    - thelper
+    - usetesting
+    - wastedassign
+    - wsl_v5
+  disable:
+    - gochecknoglobals
+    - gomodguard
+    - wrapcheck
+    - wsl
+  settings:
+    cyclop:
+      max-complexity: 15
+    depguard:
+      rules:
+        main:
+          list-mode: lax
+          files:
+            - main.go
+            - cli.go
+            - mcp.go
+          allow:
+            - $gostd
+            - github.com/modelcontextprotocol/go-sdk/mcp
+            - wastebin-mcp-go/internal/wastebin
+          deny:
+            - pkg: net/http
+              desc: Use internal client wrapper instead
+    dupl:
+      threshold: 100
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    errorlint:
+      asserts: true
+      comparison: true
+    gocognit:
+      min-complexity: 20
+    goconst:
+      min-len: 2
+      min-occurrences: 2
+    gocritic:
+      enabled-checks:
+        - deferInLoop
+        - httpNoBody
+        - unnecessaryDefer
+    gocyclo:
+      min-complexity: 13
+    govet:
+      enable:
+        - shadow
+    interfacebloat:
+      max: 5
+    lll:
+      line-length: 120
+    misspell:
+      locale: US
+    nakedret:
+      max-func-lines: 1
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    funlen:
+      lines: 60
+      statements: 40
+    prealloc:
+      simple: true
+      range-loops: true
+    sloglint:
+      no-mixed-args: true
+      kv-only: true
+    varnamelen:
+      min-name-length: 2
+  exclusions:
+    generated: lax
+    paths:
+      - .*\.pb\.go$
+      - third_party$
+      - builtin$
+      - examples$
+    rules:
+      - linters: [exhaustruct]
+        paths:
+          - ".*_test\\.go$"
+        text: ".*"
+      - linters: [forbidigo]
+        paths:
+          - "cli\\.go$"
+        text: ".*"
+      - linters: [funlen]
+        paths:
+          - ".*_test\\.go$"
+        text: ".*"
+      - linters: [dupl]
+        paths:
+          - ".*_test\\.go$"
+        text: ".*"
+      - linters: [gosmopolitan]
+        paths:
+          - ".*_test\\.go$"
+        text: ".*"
+      - linters: [goconst]
+        paths:
+          - ".*_test\\.go$"
+        text: ".*"
+      - linters: [varnamelen]
+        paths:
+          - ".*_test\\.go$"
+        text: ".*"
+      - linters: [gocognit]
+        paths:
+          - ".*_test\\.go$"
+        text: ".*"
+      - linters: [gocyclo]
+        paths:
+          - ".*_test\\.go$"
+        text: ".*"
+      - linters: [cyclop]
+        paths:
+          - ".*_test\\.go$"
+        text: ".*"
+      - linters: [tagliatelle]
+        path: 'internal/wastebin/types\.go$'
+        text: '.*'
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(wastebin-mcp-go)
+    gofumpt:
+      extra-rules: true
+      module-path: wastebin-mcp-go
+  exclusions:
+    generated: lax
+    paths:
+      - .*\.pb\.go$
+      - third_party$
+      - builtin$
+      - examples$
