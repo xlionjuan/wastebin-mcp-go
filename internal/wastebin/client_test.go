@@ -1544,3 +1544,198 @@ func TestCreatePaste_JSONDecodeError(t *testing.T) {
 		t.Errorf("expected parse error, got: %v", err)
 	}
 }
+
+func TestCreatePaste_TitleInBody(t *testing.T) {
+	t.Parallel()
+
+	var capturedTitle any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		capturedTitle = req["title"]
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/TITLE"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+	title := "My Test Paste"
+
+	resp, err := client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+		Title:   &title,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ID != "TITLE" {
+		t.Errorf("expected ID TITLE, got %q", resp.ID)
+	}
+
+	if capturedTitle != "My Test Paste" {
+		t.Errorf("expected title 'My Test Paste', got %v", capturedTitle)
+	}
+}
+
+func TestCreatePaste_BurnAfterReadingInBody(t *testing.T) {
+	t.Parallel()
+
+	var capturedBurn any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		capturedBurn = req["burn_after_reading"]
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/BURN"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+	burn := true
+
+	resp, err := client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content:          &content,
+		BurnAfterReading: &burn,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ID != "BURN" {
+		t.Errorf("expected ID BURN, got %q", resp.ID)
+	}
+
+	if capturedBurn != true {
+		t.Errorf("expected burn_after_reading=true, got %v", capturedBurn)
+	}
+}
+
+func TestCreatePaste_DefaultExpiresInBody(t *testing.T) {
+	t.Parallel()
+
+	var capturedExpires any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		capturedExpires = req["expires"]
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/EXP"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+	// No Expires set — should use default (31536000)
+	resp, err := client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ID != "EXP" {
+		t.Errorf("expected ID EXP, got %q", resp.ID)
+	}
+
+	if capturedExpires != float64(31536000) {
+		t.Errorf("expected default expires 31536000, got %v", capturedExpires)
+	}
+}
+
+func TestCreatePaste_TitleOmittedWhenNil(t *testing.T) {
+	t.Parallel()
+
+	var capturedTitle any
+
+	hasTitleKey := false
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		_, hasTitleKey = req["title"]
+		capturedTitle = req["title"]
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/NOTITLE"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+	// No Title set — should not be in JSON body
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if hasTitleKey {
+		t.Error("expected title key to be omitted from JSON body when Title is nil")
+	}
+
+	if capturedTitle != nil {
+		t.Errorf("expected nil title, got %v", capturedTitle)
+	}
+}
