@@ -329,37 +329,37 @@ func findCreatePasteTool(ctx context.Context, t *testing.T, session *mcp.ClientS
 		t.Fatal("create_paste InputSchema has no 'required' field")
 	}
 	switch req := requiredRaw.(type) {
-		case []any:
-			found := false
+	case []any:
+		found := false
 
-			for _, r := range req {
-				if r == "content" {
-					found = true
+		for _, r := range req {
+			if r == "content" {
+				found = true
 
-					break
-				}
+				break
 			}
-
-			if !found {
-				t.Errorf("create_paste InputSchema required does not include 'content'; got %v", req)
-			}
-		case []string:
-			found := false
-
-			for _, r := range req {
-				if r == "content" {
-					found = true
-
-					break
-				}
-			}
-
-			if !found {
-				t.Errorf("create_paste InputSchema required does not include 'content'; got %v", req)
-			}
-		default:
-			t.Errorf("create_paste InputSchema required has unexpected type %T: %v", requiredRaw, requiredRaw)
 		}
+
+		if !found {
+			t.Errorf("create_paste InputSchema required does not include 'content'; got %v", req)
+		}
+	case []string:
+		found := false
+
+		for _, r := range req {
+			if r == "content" {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			t.Errorf("create_paste InputSchema required does not include 'content'; got %v", req)
+		}
+	default:
+		t.Errorf("create_paste InputSchema required has unexpected type %T: %v", requiredRaw, requiredRaw)
+	}
 
 	return tool
 }
