@@ -102,11 +102,28 @@ func isUserBlocked(resolvedPath string, userBlockedPaths []string) (string, bool
 	return "", false
 }
 
+// isComponentBlocked checks the resolved path against the built-in sensitive
+// component blocklist only (Stage 3b). Unlike isBuiltinBlocked, it does NOT
+// check absolute path prefixes. This allows ALLOWED_PATHS to bypass prefix
+// checks while still blocking sensitive path components.
+func isComponentBlocked(resolvedPath string) (string, bool) {
+	cleaned := filepath.Clean(resolvedPath)
+
+	for part := range strings.SplitSeq(cleaned, string(filepath.Separator)) {
+		if slices.Contains(builtinBlockedComponents, part) {
+			return part, true
+		}
+	}
+
+	return "", false
+}
+
 // validateFilePath runs the four-stage path validation pipeline:
 //
 //	Stage 1: Path traversal detection on the raw input (before resolution).
 //	Stage 2: ALLOWED_PATHS check — if configured and path is under one,
-//	         blocklists are bypassed entirely.
+//	         the prefix blocklist and user blocklist are bypassed, but the
+//	         sensitive component blocklist (Stage 3b) is still enforced.
 //	Stage 3: BUILT-IN BLOCKLIST check (prefix + component) — unless
 //	         cfg.DisableBuiltinBlocklist is true.
 //	Stage 4: USER BLOCKLIST check (WASTEBIN_MCP_BLOCKED_PATHS).
@@ -139,12 +156,19 @@ func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err err
 
 	// Stage 2: ALLOWED_PATHS check.
 	if len(cfg.AllowedPaths) > 0 {
-		if isAllowedPath(resolvedPath, cfg.AllowedPaths) {
-			// ALLOWED_PATHS bypasses all blocklists.
-			return resolvedPath, nil
+		if !isAllowedPath(resolvedPath, cfg.AllowedPaths) {
+			return "", errPathNotAllowed
 		}
 
-		return "", errPathNotAllowed
+		// ALLOWED_PATHS bypasses the prefix blocklist and user blocklist,
+		// but not the sensitive component blocklist.
+		if !cfg.DisableBuiltinBlocklist {
+			if reason, blocked := isComponentBlocked(resolvedPath); blocked {
+				return "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+			}
+		}
+
+		return resolvedPath, nil
 	}
 
 	// Stage 3: BUILT-IN BLOCKLIST.

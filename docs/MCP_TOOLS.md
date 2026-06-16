@@ -261,15 +261,18 @@ File read mode is **enabled by default** (`WASTEBIN_MCP_FILE_READ_ENABLED=true`)
 When file mode is enabled, the `file_path` parameter allows reading local files.
 This is a powerful feature that must be configured carefully.
 
-The server applies a **three-tier path validation pipeline** (in order):
+The server applies a **four-stage path validation pipeline** (in order):
 
 1. **Path traversal detection** — rejects paths containing `..` or equivalents.
 2. **ALLOWED_PATHS (user allowlist)** — if configured, only paths under allowed
-   directories are accepted. ALLOWED_PATHS has the highest priority and skips
-   all subsequent blocklist checks.
+   directories are accepted. ALLOWED_PATHS bypasses the system directory prefix
+   blocklist and the user blocklist, but **not** the sensitive component
+   blocklist (Stage 3b).
 3. **Built-in blocklist** — two independent checks:
    - *System directory prefix*: `/etc`, `/proc`, `/sys`, `/dev`
-   - *Sensitive path component*: `.ssh`, `.gnupg`, etc.
+   - *Sensitive path component*: `.ssh`, `.gnupg`, `.aws`, `.kube`, `.docker`,
+     `.git`
+   The prefix check is bypassed by ALLOWED_PATHS; the component check is not.
    Can be disabled entirely via `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true`.
 4. **User blocklist** — configurable via `WASTEBIN_MCP_BLOCKED_PATHS`.
 
