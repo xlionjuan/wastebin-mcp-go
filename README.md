@@ -40,6 +40,8 @@ wastebin-mcp-go create --file-path /tmp/doc.md
 | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | | 1048576 | Max content size in bytes |
 | `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker mount mappings (`host:sandbox,...`) |
 | `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | | false | Transparent sandbox translation |
+| `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST` | | false | Disable built-in blocklist (system + sensitive paths) |
+| `DEBUG` | | — | Set to `1` or `true` to enable debug logging |
 
 ## Response Format
 
@@ -53,7 +55,7 @@ wastebin-mcp-go create --file-path /tmp/doc.md
 }
 ```
 
-`markdown_rendered` is only present when extension is `.md`.
+`markdown_rendered` is only present when extension is `.md` or `.markdown`.
 
 ## Security
 

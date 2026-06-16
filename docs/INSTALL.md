@@ -239,6 +239,9 @@ before file reading. Two modes:
 Translated paths still pass through the allowlist and blocklist checks. Mount
 host paths are validated against `ALLOWED_PATHS` at startup.
 
+> **Note:** Sandbox path translation is only available in MCP mode.
+> The CLI mode (`wastebin-mcp-go create`) does not support it.
+
 ---
 
 ## Related Documentation
