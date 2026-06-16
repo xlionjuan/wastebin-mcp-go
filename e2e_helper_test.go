@@ -268,7 +268,10 @@ func parsePasteResponse(t *testing.T, result *mcp.CallToolResult, stderr stderrB
 	return response
 }
 
-// findCreatePasteTool lists tools and returns the "create_paste" tool, verifying its schema.
+// findCreatePasteTool lists tools and returns the "create_paste" tool, verifying
+// its InputSchema contains the expected properties. The expected properties are
+// based on the default configuration (WASTEBIN_MCP_FILE_READ_ENABLED=false), so
+// file_path and translate_sandbox_path are excluded from the schema.
 func findCreatePasteTool(ctx context.Context, t *testing.T, session *mcp.ClientSession, stderr stderrBuffer) *mcp.Tool {
 	t.Helper()
 
@@ -279,17 +282,85 @@ func findCreatePasteTool(ctx context.Context, t *testing.T, session *mcp.ClientS
 
 	t.Logf("tools/list returned %d tools", len(tools.Tools))
 
-	for _, tool := range tools.Tools {
-		t.Logf("  tool: %s - %s", tool.Name, tool.Description)
+	var tool *mcp.Tool
 
-		if tool.Name == "create_paste" {
-			return tool
+	for i, t2 := range tools.Tools {
+		t.Logf("  tool: %s - %s", t2.Name, t2.Description)
+
+		if t2.Name == "create_paste" {
+			tool = &tools.Tools[i]
+
+			break
 		}
 	}
 
-	t.Fatalf("tools/list did not include create_paste tool; got %#v\nstderr:\n%s", //nolint:revive // unreachable marker
-		tools.Tools, stderr.String())
-	panic("unreachable")
+	if tool == nil {
+		t.Fatalf("tools/list did not include create_paste tool; got %#v\nstderr:\n%s",
+			tools.Tools, stderr.String())
+	}
+
+	// Validate InputSchema
+	if tool.InputSchema == nil {
+		t.Fatal("create_paste tool has no InputSchema")
+	}
+
+	schema := requireSchemaMap(t, tool.InputSchema, stderr)
+
+	if schema["type"] != "object" {
+		t.Errorf("create_paste InputSchema type = %v, want %q", schema["type"], "object")
+	}
+
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("create_paste InputSchema has no 'properties' or it is not an object")
+	}
+
+	expectedProps := []string{"content", "extension", "expires", "title", "burn_after_reading", "password"}
+
+	for _, prop := range expectedProps {
+		if _, exists := props[prop]; !exists {
+			t.Errorf("create_paste InputSchema missing expected property %q", prop)
+		}
+	}
+
+	// Check that the required field includes content
+	requiredRaw, hasRequired := schema["required"]
+	if hasRequired {
+		switch req := requiredRaw.(type) {
+		case []any:
+			found := false
+
+			for _, r := range req {
+				if r == "content" {
+					found = true
+
+					break
+				}
+			}
+
+			if !found {
+				t.Errorf("create_paste InputSchema required does not include 'content'; got %v", req)
+			}
+		case []string:
+			found := false
+
+			for _, r := range req {
+				if r == "content" {
+					found = true
+
+					break
+				}
+			}
+
+			if !found {
+				t.Errorf("create_paste InputSchema required does not include 'content'; got %v", req)
+			}
+		default:
+			t.Errorf("create_paste InputSchema required has unexpected type %T: %v", requiredRaw, requiredRaw)
+		}
+	}
+
+	return tool
 }
 
 // toolText extracts the text content from a tool result, failing if empty.
