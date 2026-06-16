@@ -325,8 +325,10 @@ func findCreatePasteTool(ctx context.Context, t *testing.T, session *mcp.ClientS
 
 	// Check that the required field includes content
 	requiredRaw, hasRequired := schema["required"]
-	if hasRequired {
-		switch req := requiredRaw.(type) {
+	if !hasRequired {
+		t.Fatal("create_paste InputSchema has no 'required' field")
+	}
+	switch req := requiredRaw.(type) {
 		case []any:
 			found := false
 
@@ -358,7 +360,6 @@ func findCreatePasteTool(ctx context.Context, t *testing.T, session *mcp.ClientS
 		default:
 			t.Errorf("create_paste InputSchema required has unexpected type %T: %v", requiredRaw, requiredRaw)
 		}
-	}
 
 	return tool
 }

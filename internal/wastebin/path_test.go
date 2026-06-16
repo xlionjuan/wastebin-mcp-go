@@ -892,17 +892,10 @@ func TestValidateFilePath_DisableBuiltinBlocklistWithBlockedComponent(t *testing
 
 	tmpDir := t.TempDir()
 
-	allowedDir := filepath.Join(tmpDir, "allowed")
+	// Create a .ssh directory with a test file ('.ssh' IS a builtin blocked component)
+	sshDir := filepath.Join(tmpDir, ".ssh")
 
-	err := os.Mkdir(allowedDir, 0o750)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// A file with .ssh in its path but in an allowed dir
-	sshDir := filepath.Join(allowedDir, "ssh-config")
-
-	err = os.Mkdir(sshDir, 0o750)
+	err := os.Mkdir(sshDir, 0o750)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -914,18 +907,39 @@ func TestValidateFilePath_DisableBuiltinBlocklistWithBlockedComponent(t *testing
 		t.Fatal(err)
 	}
 
-	cfg := &Config{
-		DisableBuiltinBlocklist: true,
-		AllowedPaths:            []string{allowedDir},
-		BlockedPaths:            DefaultConfig().BlockedPaths,
-	}
+	t.Run("blocked when builtin blocklist enabled", func(t *testing.T) {
+		t.Parallel()
 
-	resolved, err := validateFilePath(testFile, cfg)
-	if err != nil {
-		t.Fatalf("expected no error with builtin blocklist disabled, got: %v", err)
-	}
+		cfg := &Config{
+			DisableBuiltinBlocklist: false,
+			BlockedPaths:            DefaultConfig().BlockedPaths,
+		}
 
-	if resolved != filepath.Clean(testFile) {
-		t.Errorf("expected %q, got %q", filepath.Clean(testFile), resolved)
-	}
+		_, err := validateFilePath(testFile, cfg)
+		if err == nil {
+			t.Fatal("expected error for path with .ssh component, got nil")
+		}
+
+		if !errors.Is(err, errBuiltinBlockedComponent) {
+			t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+		}
+	})
+
+	t.Run("allowed when builtin blocklist disabled", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{
+			DisableBuiltinBlocklist: true,
+			BlockedPaths:            DefaultConfig().BlockedPaths,
+		}
+
+		resolved, err := validateFilePath(testFile, cfg)
+		if err != nil {
+			t.Fatalf("expected no error with builtin blocklist disabled, got: %v", err)
+		}
+
+		if resolved != filepath.Clean(testFile) {
+			t.Errorf("expected %q, got %q", filepath.Clean(testFile), resolved)
+		}
+	})
 }

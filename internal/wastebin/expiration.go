@@ -12,6 +12,7 @@ var (
 	errNegativeExpiration    = errors.New("expiration cannot be negative")
 	errUnknownExpirationUnit = errors.New("unknown expiration unit")
 	errInvalidExpirationFmt  = errors.New("invalid expiration format")
+	errExpirationOverflow    = errors.New("expiration overflow")
 )
 
 // ParseExpiration parses an expiration string to seconds.
@@ -69,7 +70,12 @@ func parseNumberWithUnit(s string) (int, error) {
 		return 0, fmt.Errorf("%w: %q", errUnknownExpirationUnit, unitStr)
 	}
 
-	return n * multiplier, nil
+	result := n * multiplier
+	if multiplier != 0 && result/multiplier != n {
+		return 0, errExpirationOverflow
+	}
+
+	return result, nil
 }
 
 // Time multipliers in seconds.

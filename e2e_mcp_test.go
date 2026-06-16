@@ -150,9 +150,7 @@ func TestPasteMarkdownExtension(t *testing.T) {
 				err, stderr.String(), string(out))
 		}
 
-		if !strings.Contains(string(out), "<h1>Hello</h1>") &&
-			!strings.Contains(string(out), "<h1>Hello") &&
-			!strings.Contains(string(out), "Hello") {
+		if !strings.Contains(string(out), "<h1>Hello</h1>") && !strings.Contains(string(out), "<h1>Hello") {
 			t.Fatalf("rendered markdown does not contain expected heading \"Hello\"\nrendered content:\n%s", string(out))
 		}
 
