@@ -18,6 +18,24 @@ a configured Wastebin pastebin.
 |-------|----------|
 | Build, install, configuration | [docs/INSTALL.md](docs/INSTALL.md) |
 | MCP tool parameters | [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) |
+| Issue tracker workflow | [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md) |
+| Triage labels | [docs/agents/triage-labels.md](docs/agents/triage-labels.md) |
+| Domain and ADR workflow | [docs/agents/domain.md](docs/agents/domain.md) |
+| Architecture decisions | [docs/adr/](docs/adr/) |
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked as GitHub issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Labels are managed via `gh label list`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context. See `docs/agents/domain.md`.
 
 ## Project Rules
 
