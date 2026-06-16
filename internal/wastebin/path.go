@@ -111,8 +111,9 @@ func isUserBlocked(resolvedPath string, userBlockedPaths []string) (string, bool
 //	         cfg.DisableBuiltinBlocklist is true.
 //	Stage 4: USER BLOCKLIST check (WASTEBIN_MCP_BLOCKED_PATHS).
 //
-// The caller should apply any sandbox path translation before calling this
-// function, since EvalSymlinks is called internally on the provided path.
+// Path traversal detection (Stage 1) runs on the path as received — callers
+// must apply sandbox path translation AFTER the traversal check has already
+// been performed on the original sandbox path (see readFileContent).
 //
 //nolint:nonamedreturns // Named returns improve godoc clarity
 func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err error) {

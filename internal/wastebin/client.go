@@ -278,10 +278,24 @@ func (c *WastebinClient) readFileContent(
 
 	// 1. Sandbox path translation (if applicable).
 	if translateSandboxPath != nil && *translateSandboxPath && len(c.config.SandboxMounts) > 0 {
+		// Check path traversal on the original sandbox path BEFORE any
+		// translation occurs. Translate uses filepath.Join which normalizes
+		// ".." out of the result, so we must catch traversal here first.
+		if hasPathTraversal(resolvedPath) {
+			return "", "", errPathTraversal
+		}
+
 		translator := NewTranslator(c.config.SandboxMounts)
 
 		translated, ok := translator.Translate(resolvedPath)
 		if ok {
+			// Defense-in-depth: verify the translated path is still under
+			// a configured mount's host root. Prevents any filepath.Join
+			// normalization from escaping the intended sandbox scope.
+			if !isUnderMountHost(translated, c.config.SandboxMounts) {
+				return "", "", errPathTraversal
+			}
+
 			slog.Debug("translated sandbox path", "from", resolvedPath, "to", translated)
 			resolvedPath = translated
 		}
