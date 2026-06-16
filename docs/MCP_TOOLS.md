@@ -298,9 +298,15 @@ out-of-the-box experience without requiring mandatory allowlist configuration.
 #### Sandbox Path Translation
 
 When `WASTEBIN_MCP_SANDBOX_MOUNTS` is configured, the server validates at
-startup that each mount's host path is covered by `WASTEBIN_MCP_ALLOWED_PATHS`.
-If not, the server prints a clear error and exits — preventing opaque
-"path not allowed" failures that agents cannot debug.
+startup that:
+
+1. Each mount's host path is covered by `WASTEBIN_MCP_ALLOWED_PATHS`. If not,
+   the server prints a clear error and exits — preventing opaque "path not
+   allowed" failures that agents cannot debug.
+2. No two mounts share overlapping sandbox paths (one sandbox path being a
+   prefix of another). Overlapping or duplicate sandbox paths are rejected at
+   startup with a clear error, eliminating the ambiguity and security risk of
+   first-match-wins resolution.
 
 #### Password-Protected Pastes
 

@@ -195,22 +195,31 @@ func TestTranslator_PrefixNotPartial(t *testing.T) {
 	}
 }
 
-func TestTranslator_FirstMatchWins(t *testing.T) {
+func TestParseSandboxMounts_Overlapping(t *testing.T) {
 	t.Parallel()
 
-	mounts := []SandboxMount{
-		{HostPath: "/host/first", SandboxPath: "/mnt"},
-		{HostPath: "/host/second", SandboxPath: "/mnt/sub"},
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "prefix overlap",
+			input: "/host/workspace:/workspace,/host/workspace-sub:/workspace/sub",
+		},
+		{
+			name:  "same path (duplicate)",
+			input: "/host/a:/workspace,/host/b:/workspace",
+		},
 	}
-	tr := NewTranslator(mounts)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	host, ok := tr.Translate("/mnt/sub/file.txt")
-	if !ok {
-		t.Fatal("expected match")
-	}
-	// First mount matches (/mnt is prefix of /mnt/sub/file.txt).
-	if host != "/host/first/sub/file.txt" {
-		t.Errorf("got %q, want %q", host, "/host/first/sub/file.txt")
+			_, err := ParseSandboxMounts(tt.input)
+			if err == nil {
+				t.Fatal("expected error for overlapping sandbox mounts")
+			}
+		})
 	}
 }
 
