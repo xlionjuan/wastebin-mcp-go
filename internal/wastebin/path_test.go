@@ -8,6 +8,27 @@ import (
 )
 
 // ──────────────────────────────────────────────
+// Test helpers
+// ──────────────────────────────────────────────
+
+// allowedDirFixture creates a temp directory with a subdirectory for allowed paths.
+//
+//nolint:unused // Intentionally provided for future test extraction
+func allowedDirFixture(t *testing.T) (string, string) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return tmpDir, allowedDir
+}
+
+// ──────────────────────────────────────────────
 // normalizePath tests
 // ──────────────────────────────────────────────
 

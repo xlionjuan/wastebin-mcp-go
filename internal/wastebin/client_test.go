@@ -16,6 +16,53 @@ import (
 	"testing"
 )
 
+// ──────────────────────────────────────────────
+// Test helpers
+// ──────────────────────────────────────────────
+
+// newTestServer creates an httptest.Server that responds with JSON {"path": path}.
+//
+//nolint:unused // Intentionally provided for future test extraction
+func newTestServer(t *testing.T, path string) *httptest.Server {
+	t.Helper()
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": path}) //nolint:errcheck // Test helper OK
+	}))
+}
+
+// newTestServerWithHandler creates an httptest.Server with a custom handler.
+// The handler is wrapped so that Content-Type is set to application/json.
+//
+//nolint:unused // Intentionally provided for future test extraction
+func newTestServerWithHandler(t *testing.T, handler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		handler(w, r)
+	}))
+}
+
+// createTestClient creates a WastebinClient pointing at the given server URL.
+//
+//nolint:unused // Intentionally provided for future test extraction
+func createTestClient(t *testing.T, serverURL string) *WastebinClient {
+	t.Helper()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = serverURL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	return client
+}
+
 func TestCreatePaste_Success(t *testing.T) {
 	t.Parallel()
 
