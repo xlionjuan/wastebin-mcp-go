@@ -42,9 +42,6 @@ jobs:
           version: v2.12.2
           install-only: true
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-
       - name: Install just
         uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2.81.10
         with:
