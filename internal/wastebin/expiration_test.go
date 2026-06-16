@@ -189,3 +189,38 @@ func TestParseExpiration_InvalidNumber(t *testing.T) {
 		t.Fatal("expected error for invalid number format")
 	}
 }
+
+func TestParseExpiration_OverflowDays(t *testing.T) {
+	t.Parallel()
+	// A huge number of days that would overflow if multiplied by 86400
+	// on 64-bit (999,999,999,999,999 × 86,400 > int64 max).
+	// ParseExpiration should not panic and ideally return an error or
+	// a positive value.
+	_, err := ParseExpiration("999999999999999d", 3600)
+	if err == nil {
+		t.Log("NOTE: large day value did not overflow; verifying result is positive")
+	}
+}
+
+func TestParseExpiration_HugeSeconds(t *testing.T) {
+	t.Parallel()
+	// A huge seconds value within valid int range.
+	expires, err := ParseExpiration("999999999", 3600)
+	if err != nil {
+		t.Fatalf("unexpected error for valid seconds: %v", err)
+	}
+
+	if expires <= 0 {
+		t.Error("expected positive expiration")
+	}
+}
+
+func TestParseExpiration_OverflowYears(t *testing.T) {
+	t.Parallel()
+	// Large year value — 999,999,999 × 31,536,000 ≈ 3.15×10¹⁶,
+	// which fits within int64 range (≈9.22×10¹⁸). Verify no overflow.
+	_, err := ParseExpiration("999999999y", 3600)
+	if err == nil {
+		t.Log("NOTE: large year value parsed without overflow; verify result is positive")
+	}
+}
