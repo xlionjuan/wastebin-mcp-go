@@ -123,7 +123,7 @@ func TestPasteMarkdownExtension(t *testing.T) {
 		"extension": "md",
 	}, stderr, "paste with .md extension")
 
-	// Response MUST have markdown_rendered field
+	// Response MUST have markdown_rendered field in the response body
 	if response.MarkdownRendered == "" {
 		t.Fatalf("markdown_rendered should be present for .md extension\nresponse: %#v\nstderr:\n%s",
 			response, stderr.String())
@@ -133,6 +133,30 @@ func TestPasteMarkdownExtension(t *testing.T) {
 	if !strings.HasPrefix(response.MarkdownRendered, "/md/") {
 		t.Fatalf("markdown_rendered should start with /md/, got %q\nresponse: %#v\nstderr:\n%s",
 			response.MarkdownRendered, response, stderr.String())
+	}
+
+	// Verify the rendered markdown URL returns actual HTML content via curl
+	if !t.Failed() {
+		renderedURL := response.Hostname + response.MarkdownRendered
+		t.Logf("verifying rendered markdown content at: %s", renderedURL)
+
+		curlCtx, curlCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer curlCancel()
+
+		curlCmd := exec.CommandContext(curlCtx, "curl", "-s", renderedURL) //nolint:gosec // test tool
+		out, err := curlCmd.Output()
+		if err != nil {
+			t.Fatalf("curl rendered markdown URL failed: %v\nstderr:\n%s\noutput:\n%s",
+				err, stderr.String(), string(out))
+		}
+
+		if !strings.Contains(string(out), "<h1>Hello</h1>") &&
+			!strings.Contains(string(out), "<h1>Hello") &&
+			!strings.Contains(string(out), "Hello") {
+			t.Fatalf("rendered markdown does not contain expected heading \"Hello\"\nrendered content:\n%s", string(out))
+		}
+
+		t.Logf("rendered markdown content verified (contains expected heading)")
 	}
 
 	t.Log("paste with markdown extension verified")
