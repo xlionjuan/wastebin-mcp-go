@@ -99,6 +99,41 @@ func TestParseSandboxMounts_InvalidFormat(t *testing.T) {
 	}
 }
 
+func TestParseSandboxMounts_RelativeHostPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := ParseSandboxMounts("./workspace:/mnt")
+	if err == nil {
+		t.Fatal("expected error for relative host path")
+	}
+
+	_, err = ParseSandboxMounts("relative/path:/sandbox")
+	if err == nil {
+		t.Fatal("expected error for relative host path")
+	}
+}
+
+func TestParseSandboxMounts_SandboxPathCleaning(t *testing.T) {
+	t.Parallel()
+
+	mounts, err := ParseSandboxMounts("/host://sandbox//path///")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(mounts) != 1 {
+		t.Fatalf("expected 1 mount, got %d", len(mounts))
+	}
+
+	if mounts[0].HostPath != "/host" {
+		t.Errorf("expected host path /host, got %q", mounts[0].HostPath)
+	}
+
+	if mounts[0].SandboxPath != "/sandbox/path" {
+		t.Errorf("expected sandbox path /sandbox/path, got %q", mounts[0].SandboxPath)
+	}
+}
+
 func TestParseSandboxMounts_Whitespace(t *testing.T) {
 	t.Parallel()
 

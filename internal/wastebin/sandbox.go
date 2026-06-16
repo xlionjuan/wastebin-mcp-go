@@ -3,6 +3,7 @@ package wastebin
 import (
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -40,9 +41,19 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 			)
 		}
 
+		hostPath := strings.TrimSpace(parts[0])
+		sandboxPath := strings.TrimSpace(parts[1])
+
+		if !strings.HasPrefix(hostPath, "/") {
+			return nil, fmt.Errorf(
+				"%w at index %d: host path %q must be absolute",
+				errInvalidSandboxMount, i, hostPath,
+			)
+		}
+
 		mounts = append(mounts, SandboxMount{
-			HostPath:    strings.TrimSpace(parts[0]),
-			SandboxPath: strings.TrimSpace(parts[1]),
+			HostPath:    hostPath,
+			SandboxPath: path.Clean(sandboxPath),
 		})
 	}
 

@@ -335,6 +335,20 @@ func TestConfigFromEnv_InvalidDebug(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnv_SandboxMountNonExistentHostPath(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", "/nonexistent/path/that/does/not/exist/12345:/workspace")
+
+	_, err := ConfigFromEnv()
+	if err == nil {
+		t.Fatal("expected error for nonexistent sandbox mount host path")
+	}
+
+	if !strings.Contains(err.Error(), "failed to resolve sandbox mount host path") {
+		t.Errorf("expected 'failed to resolve sandbox mount host path', got: %v", err)
+	}
+}
+
 func TestConfigFromEnv_InvalidSandboxMounts(t *testing.T) {
 	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", "invalid-format")
