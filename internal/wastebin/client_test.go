@@ -703,13 +703,10 @@ func TestCreatePaste_FileMode_ReadError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create a file with no read permissions.
-	filePath := filepath.Join(allowedDir, "secret.txt")
-
-	err = os.WriteFile(filePath, []byte("secret"), 0o000)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Use a directory path — os.Stat succeeds (it's a valid path),
+	// but os.ReadFile fails deterministically (can't read a directory's
+	// content as a file), regardless of whether running as root or not.
+	dirPath := allowedDir
 
 	cfg := DefaultConfig()
 	cfg.ServerURL = "http://localhost:12345"
@@ -721,7 +718,7 @@ func TestCreatePaste_FileMode_ReadError(t *testing.T) {
 	}
 
 	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
-		FilePath: &filePath,
+		FilePath: &dirPath,
 	})
 	if err == nil {
 		t.Fatal("expected error for unreadable file")
