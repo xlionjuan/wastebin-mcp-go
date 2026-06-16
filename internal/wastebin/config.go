@@ -142,33 +142,14 @@ func ConfigFromEnv() (*Config, error) {
 
 		cfg.SandboxMounts = mounts
 
-		// Canonicalise mount host paths (EvalSymlinks + Abs + Clean)
-		// for consistency with allowed path resolution.
-		for i, m := range cfg.SandboxMounts {
-			resolved, err := filepath.EvalSymlinks(m.HostPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve mount host path %q: %w", m.HostPath, err)
-			}
-
-			abs, err := filepath.Abs(resolved)
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve mount host path %q: %w", m.HostPath, err)
-			}
-
-			cfg.SandboxMounts[i].HostPath = filepath.Clean(abs)
+		err = canonicaliseMountHostPaths(cfg.SandboxMounts)
+		if err != nil {
+			return nil, err
 		}
 
-		// Validate mount host_paths against AllowedPaths at startup.
-		if len(cfg.AllowedPaths) > 0 {
-			for _, m := range cfg.SandboxMounts {
-				if !isAllowedPath(m.HostPath, cfg.AllowedPaths) {
-					return nil, fmt.Errorf(
-						"%w: host_path %q is not under any allowed path; "+
-							"each mount host_path must be covered by WASTEBIN_MCP_ALLOWED_PATHS",
-						errSandboxMountNotAllowed, m.HostPath,
-					)
-				}
-			}
+		err = validateMountsAllowed(cfg.SandboxMounts, cfg.AllowedPaths)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -203,4 +184,40 @@ func ConfigFromEnv() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func canonicaliseMountHostPaths(mounts []SandboxMount) error {
+	for i, m := range mounts {
+		resolved, err := filepath.EvalSymlinks(m.HostPath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve mount host path %q: %w", m.HostPath, err)
+		}
+
+		abs, err := filepath.Abs(resolved)
+		if err != nil {
+			return fmt.Errorf("failed to resolve mount host path %q: %w", m.HostPath, err)
+		}
+
+		mounts[i].HostPath = filepath.Clean(abs)
+	}
+
+	return nil
+}
+
+func validateMountsAllowed(mounts []SandboxMount, allowedPaths []string) error {
+	if len(allowedPaths) == 0 {
+		return nil
+	}
+
+	for _, m := range mounts {
+		if !isAllowedPath(m.HostPath, allowedPaths) {
+			return fmt.Errorf(
+				"%w: host_path %q is not under any allowed path; "+
+					"each mount host_path must be covered by WASTEBIN_MCP_ALLOWED_PATHS",
+				errSandboxMountNotAllowed, m.HostPath,
+			)
+		}
+	}
+
+	return nil
 }
