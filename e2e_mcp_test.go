@@ -266,7 +266,16 @@ func TestPasteNoExtension(t *testing.T) {
 	t.Log("paste without extension verified")
 }
 
-func TestPasteBothContentAndFilePath(t *testing.T) {
+func TestPasteBothContentAndFilePath_FileModeDisabled(t *testing.T) {
+	// NOTE: The current e2e environment disables file mode (no ALLOWED_PATHS
+	// configured), so file_path is excluded from the MCP tool schema entirely.
+	// This test verifies JSON Schema rejection of an unexpected parameter
+	// ("additional properties") — NOT mutual exclusivity between content and
+	// file_path. When file mode IS enabled, file_path appears in the schema
+	// and both parameters can coexist; a dedicated e2e test for that scenario
+	// is a future gap (see TestBuildPasteSchemaFileModeEnabled in mcp_test.go
+	// for the unit-level schema test).
+
 	wastebinURL := os.Getenv("WASTEBIN_SERVER_URL")
 	if wastebinURL == "" {
 		t.Skip("WASTEBIN_SERVER_URL not set")
@@ -277,7 +286,8 @@ func TestPasteBothContentAndFilePath(t *testing.T) {
 
 	session, stderr, _ := startMCPSession(ctx, t, wastebinURL)
 
-	// Both content and file_path — should return IsError=true
+	// Both content and file_path — file_path is not in the schema (file mode
+	// disabled), so the schema rejects it as an unexpected property.
 	result := createPaste(ctx, t, session, map[string]any{
 		"content":   "Some content",
 		"file_path": "/tmp/test.txt",
@@ -298,7 +308,7 @@ func TestPasteBothContentAndFilePath(t *testing.T) {
 		t.Fatalf("error text should mention unexpected properties, got %q\nstderr:\n%s", text, stderr.String())
 	}
 
-	t.Log("both content and file_path error verified")
+	t.Log("both content and file_path (file mode disabled) error verified")
 }
 
 func TestPasteEmptyContent(t *testing.T) {
