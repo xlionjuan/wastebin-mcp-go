@@ -261,17 +261,24 @@ File read mode is **enabled by default** (`WASTEBIN_MCP_FILE_READ_ENABLED=true`)
 When file mode is enabled, the `file_path` parameter allows reading local files.
 This is a powerful feature that must be configured carefully.
 
-The server applies a **three-tier path validation pipeline** (in order):
+The server applies a **multi-tier path validation pipeline** (in order):
 
-1. **Path traversal detection** — rejects paths containing `..` or equivalents.
-2. **ALLOWED_PATHS (user allowlist)** — if configured, only paths under allowed
+1. **Path traversal detection (before sandbox translation)** — rejects paths
+   containing `..` or equivalents, checked on the raw input _before_ any
+   sandbox path translation occurs. This prevents `filepath.Join` normalization
+   from silently removing `..` during translation and bypassing the check.
+2. **Sandbox path translation** — if sandbox mounts are configured and
+   `translate_sandbox_path` is enabled, the sandbox path is translated to its
+   corresponding host path. After translation, the result is verified to still
+   be under the matched mount's host root.
+3. **ALLOWED_PATHS (user allowlist)** — if configured, only paths under allowed
    directories are accepted. ALLOWED_PATHS has the highest priority and skips
    all subsequent blocklist checks.
-3. **Built-in blocklist** — two independent checks:
+4. **Built-in blocklist** — two independent checks:
    - *System directory prefix*: `/etc`, `/proc`, `/sys`, `/dev`
    - *Sensitive path component*: `.ssh`, `.gnupg`, etc.
    Can be disabled entirely via `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true`.
-4. **User blocklist** — configurable via `WASTEBIN_MCP_BLOCKED_PATHS`.
+5. **User blocklist** — configurable via `WASTEBIN_MCP_BLOCKED_PATHS`.
 
 Without `WASTEBIN_MCP_ALLOWED_PATHS`, file reads **are not automatically
 refused** — they fall through to the built-in blocklist, which blocks system

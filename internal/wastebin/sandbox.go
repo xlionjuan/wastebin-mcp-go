@@ -59,6 +59,21 @@ func NewTranslator(mounts []SandboxMount) *Translator {
 	return &Translator{mounts: mounts}
 }
 
+// isUnderMountHost checks whether the given path is under any configured
+// mount's HostPath (either equal to it or a subdirectory).
+func isUnderMountHost(path string, mounts []SandboxMount) bool {
+	cleaned := filepath.Clean(path)
+
+	for _, m := range mounts {
+		hostClean := filepath.Clean(m.HostPath)
+		if cleaned == hostClean || strings.HasPrefix(cleaned, hostClean+string(filepath.Separator)) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // Translate converts sandbox path to host path.
 // Returns empty string and false if no mount matches.
 func (t *Translator) Translate(sandboxPath string) (string, bool) {
