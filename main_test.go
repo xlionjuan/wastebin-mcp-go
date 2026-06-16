@@ -290,7 +290,7 @@ func TestParseCreateFlags(t *testing.T) {
 				if flags.Help {
 					t.Error("expected Help=false")
 				}
-				},
+			},
 		},
 		{
 			name: "file path flag",

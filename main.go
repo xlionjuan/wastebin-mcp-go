@@ -98,6 +98,7 @@ func parseCreateFlags(args []string) (*CLIFlags, error) {
 	fs.StringVar(&flags.Password, "password", "", "Encryption password")
 	fs.BoolVar(&flags.Debug, "debug", false, "Enable debug logging")
 	fs.BoolVar(&flags.Help, "help", false, "Show this help message")
+
 	err := fs.Parse(args)
 	if err != nil {
 		return nil, err
