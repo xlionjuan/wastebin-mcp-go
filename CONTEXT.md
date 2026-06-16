@@ -175,8 +175,8 @@ review the BLOCKED_PATHS defaults.
 **Path Allowlist** (`WASTEBIN_MCP_ALLOWED_PATHS`): A comma-separated list of
 absolute directory paths. Any file read is validated against this list — the
 resolved path must be within one of the allowed directories. Has no default; if
-file read mode is enabled and ALLOWED_PATHS is empty, the server refuses all
-file reads at runtime.
+file read mode is enabled and ALLOWED_PATHS is empty, the server skips the
+allowlist check and falls through to the blocklist pipeline instead.
 
 **Path Blocklist** (`WASTEBIN_MCP_BLOCKED_PATHS`): A comma-separated list of
 absolute directory paths that are denied by default. Default value:
