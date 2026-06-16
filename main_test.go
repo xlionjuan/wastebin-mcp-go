@@ -127,8 +127,16 @@ func TestCLI_Version(t *testing.T) {
 		t.Errorf("expected exit code 0, got %d", exitCode)
 	}
 
-	if !strings.Contains(stdout, "version") {
-		t.Errorf("expected stdout to contain 'version', got: %s", stdout)
+	if !strings.Contains(stdout, "wastebin-mcp-go version") {
+		t.Errorf("expected stdout to contain 'wastebin-mcp-go version', got: %s", stdout)
+	}
+
+	if !strings.Contains(stdout, "commit:") {
+		t.Errorf("expected stdout to contain 'commit:', got: %s", stdout)
+	}
+
+	if !strings.Contains(stdout, "built:") {
+		t.Errorf("expected stdout to contain 'built:', got: %s", stdout)
 	}
 
 	if stderr != "" {
@@ -235,25 +243,6 @@ func TestParseCreateFlags(t *testing.T) {
 				if !flags.Help {
 					t.Error("expected Help=true")
 				}
-
-				if flags.Version {
-					t.Error("expected Version=false")
-				}
-			},
-		},
-		{
-			name: "version flag",
-			args: []string{"--version"},
-			want: func(t *testing.T, flags *CLIFlags) {
-				t.Helper()
-
-				if !flags.Version {
-					t.Error("expected Version=true")
-				}
-
-				if flags.Help {
-					t.Error("expected Help=false")
-				}
 			},
 		},
 		{
@@ -301,11 +290,7 @@ func TestParseCreateFlags(t *testing.T) {
 				if flags.Help {
 					t.Error("expected Help=false")
 				}
-
-				if flags.Version {
-					t.Error("expected Version=false")
-				}
-			},
+				},
 		},
 		{
 			name: "file path flag",

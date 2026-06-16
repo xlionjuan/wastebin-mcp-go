@@ -19,9 +19,6 @@ import (
 	"wastebin-mcp-go/internal/wastebin"
 )
 
-// version is set at build time via -ldflags.
-var version = "dev"
-
 // buildPasteSchema generates the JSON Schema for the create_paste tool input
 // dynamically based on the server configuration.
 func buildPasteSchema(cfg *wastebin.Config) (json.RawMessage, error) {

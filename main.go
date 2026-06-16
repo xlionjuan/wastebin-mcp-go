@@ -21,6 +21,12 @@ const (
 // errContentEmptyCLI is returned when --content flag is explicitly set to empty.
 var errContentEmptyCLI = errors.New("--content must not be empty")
 
+var (
+	version = "v0.9.0"
+	commit  = "none"
+	date    = "unknown"
+)
+
 // CLIFlags holds parsed CLI create-command flag values.
 type CLIFlags struct {
 	Content          string
@@ -32,7 +38,6 @@ type CLIFlags struct {
 	Password         string
 	Debug            bool
 	Help             bool
-	Version          bool
 }
 
 func main() {
@@ -59,12 +64,6 @@ func main() {
 			return
 		}
 
-		if flags.Version {
-			fmt.Printf("wastebin-mcp-go version %s\n", version)
-
-			return
-		}
-
 		err = runCLIMode(flags)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
@@ -73,7 +72,7 @@ func main() {
 	case "--help":
 		printCLIHelp()
 	case "--version":
-		fmt.Printf("wastebin-mcp-go version %s\n", version)
+		fmt.Printf("wastebin-mcp-go version %s (commit: %s, built: %s)\n", version, commit, date)
 	default:
 		fmt.Fprintf(os.Stderr, "ERROR: unknown command or flag: %q\n\n", args[0])
 		printCLIHelp()
@@ -99,8 +98,6 @@ func parseCreateFlags(args []string) (*CLIFlags, error) {
 	fs.StringVar(&flags.Password, "password", "", "Encryption password")
 	fs.BoolVar(&flags.Debug, "debug", false, "Enable debug logging")
 	fs.BoolVar(&flags.Help, "help", false, "Show this help message")
-	fs.BoolVar(&flags.Version, "version", false, "Show version information")
-
 	err := fs.Parse(args)
 	if err != nil {
 		return nil, err

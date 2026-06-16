@@ -1,0 +1,89 @@
+# .goreleaser.yaml
+version: 2
+
+project_name: wastebin-mcp-go
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: wastebin-mcp-go
+    main: .
+    binary: wastebin-mcp-go
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    tags:
+      - netgo
+      - osusergo
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version=v{{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    formats:
+      - tar.zst
+    name_template: >-
+      {{ .ProjectName }}_v{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "{{ .ProjectName }}_v{{ .Version }}_checksums.txt"
+
+snapshot:
+  version_template: "{{ .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+release:
+  github:
+    owner: xlionjuan
+    name: wastebin-mcp-go
+  prerelease: auto
+  make_latest: true
+
+homebrew_casks:
+  - name: wastebin-mcp-go
+    repository:
+      owner: xlionjuan
+      name: homebrew-tap
+      branch: main
+      git:
+        url: ssh://git@github.com/xlionjuan/homebrew-tap.git
+        private_key: "{{ .Env.HOMEBREW_TAP_SSH_KEY }}"
+    directory: Casks
+    homepage: "https://github.com/xlionjuan/wastebin-mcp-go"
+    description: "Wastebin MCP Server — paste creation via Wastebin"
+    license: "AGPL-3.0"
+    binaries:
+      - wastebin-mcp-go
+    commit_author:
+      name: xlionjuan-bot1
+      email: gh-xlionjuan-bot1@mail.xlion.tw
+      signing:
+        enabled: true
+        key: "{{ .Env.GPG_FINGERPRINT }}"
+        program: gpg2
+        format: openpgp
+    commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
+    skip_upload: auto
