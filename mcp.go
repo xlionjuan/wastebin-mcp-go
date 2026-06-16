@@ -47,9 +47,9 @@ func buildPasteSchema(cfg *wastebin.Config) (json.RawMessage, error) {
 			"Provide this OR content (not both). The file must be a text file."
 
 		if len(cfg.SandboxMounts) > 0 && !cfg.SandboxTransparent {
-			filePathDesc += " Sandbox path translation is active: paths under a " +
-				"configured sandbox mount point are automatically translated " +
-				"to the corresponding host path."
+			filePathDesc += " Sandbox path translation is available: when " +
+				"`translate_sandbox_path` is set to `true`, the path is " +
+				"translated to the corresponding host path."
 		}
 
 		filePathDesc += " SECURITY: Only paths under ALLOWED_PATHS are accepted. " +
