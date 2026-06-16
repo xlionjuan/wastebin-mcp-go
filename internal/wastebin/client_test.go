@@ -959,7 +959,6 @@ func TestCreatePaste_FileMode_SandboxTranslationNoMounts(t *testing.T) {
 
 	cfg := DefaultConfig()
 	cfg.ServerURL = "http://localhost:12345"
-	cfg.AllowedPaths = []string{"/tmp"}
 
 	client, err := NewWastebinClient(cfg)
 	if err != nil {
@@ -987,7 +986,6 @@ func TestCreatePaste_FileMode_SandboxTranslationNoMatch(t *testing.T) {
 
 	cfg := DefaultConfig()
 	cfg.ServerURL = "http://localhost:12345"
-	cfg.AllowedPaths = []string{"/tmp"}
 	cfg.SandboxMounts = []SandboxMount{
 		{HostPath: "/tmp", SandboxPath: "/workspace"},
 	}
@@ -1011,6 +1009,117 @@ func TestCreatePaste_FileMode_SandboxTranslationNoMatch(t *testing.T) {
 
 	if !errors.Is(err, errSandboxTranslationNoMatch) {
 		t.Errorf("expected errSandboxTranslationNoMatch, got: %v", err)
+	}
+}
+
+func TestCreatePaste_SandboxPathTraversal_Rejected(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a target outside the allowed dir to confirm it's NOT read.
+	outsideDir := filepath.Join(tmpDir, "outside")
+
+	err = os.Mkdir(outsideDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.WriteFile(filepath.Join(outsideDir, "secret.txt"), []byte("leaked"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("server should not be reached when path traversal is detected")
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+	cfg.AllowedPaths = []string{allowedDir}
+	cfg.SandboxMounts = []SandboxMount{
+		{HostPath: allowedDir, SandboxPath: "/workspace"},
+	}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"parent dir escape", "/workspace/../secret.txt"},
+		{"double parent dir escape", "/workspace/../../etc/passwd"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			translate := true
+
+			_, err := client.CreatePaste(context.Background(), &CreatePasteArgs{
+				FilePath:             &tt.path,
+				TranslateSandboxPath: &translate,
+			})
+			if err == nil {
+				t.Fatal("expected error for sandbox path traversal, got nil")
+			}
+
+			if !errors.Is(err, errPathTraversal) {
+				t.Errorf("expected errPathTraversal, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestCreatePaste_SandboxPathWithoutTraversalFlag_StillBlocksTraversal(t *testing.T) {
+	t.Parallel()
+	// Even without translate_sandbox_path, the raw path with ".." should be
+	// rejected by validateFilePath's own traversal check.
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("server should not be reached")
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+	cfg.AllowedPaths = []string{allowedDir}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	traversalPath := "../secret.txt"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath: &traversalPath,
+	})
+	if err == nil {
+		t.Fatal("expected error for path traversal without sandbox flag, got nil")
+	}
+
+	if !errors.Is(err, errPathTraversal) {
+		t.Errorf("expected errPathTraversal, got: %v", err)
 	}
 }
 
