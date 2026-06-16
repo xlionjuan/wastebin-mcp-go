@@ -201,6 +201,9 @@ allowlist bypass.
 
 ```
 User-supplied file_path
+  → Path traversal detection (before sandbox translation)
+  → Sandbox translation (if enabled)
+  → Mount host root verification (after translation)
   → Resolve (EvalSymlinks + Clean)
   → Stage 1 — Path traversal detection
      ├─ Traversal found → ❌  denied
@@ -253,6 +256,10 @@ container/sandbox-internal paths to host paths before file reading.
 comma-separated. Example:
 `/home/user/.hermes/profiles/neko/sandboxes/default/workspace:/workspace`
 
+Sandbox mount paths must be unique and non-overlapping — one mount's sandbox
+path cannot be a prefix of another's. Overlapping or duplicate paths are
+rejected at startup with a clear error.
+
 **Translation Modes**:
 - **opt-in** (default): Tool schema includes a `translate_sandbox_path`
   boolean parameter. The caller must explicitly set it to `true`.
@@ -267,6 +274,11 @@ server validates at startup that each mount's `host_path` component is covered
 by at least one entry in `WASTEBIN_MCP_ALLOWED_PATHS`. If not, the server prints
 a clear error and exits. This prevents opaque "path not allowed" failures that
 an agent cannot debug.
+
+**Security**: Path traversal (`..`) is detected on the original sandbox path
+_before_ any translation occurs. After translation, the result is verified to
+still be under the matched mount's host root. This prevents an attacker from
+using `filepath.Join` normalization to bypass the traversal check.
 
 ### Gating Summary
 
