@@ -1,0 +1,57 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "postUpdateOptions": ["gomodTidy"],
+  "git-submodules": { "enabled": true },
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "vulnerabilityAlerts": {
+    "enabled": true
+  },
+  "minimumReleaseAge": "3 days",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update pinned cc-skills-golang Git SHA used by OpenCode workflows",
+      "managerFilePatterns": ["/^\\.github/workflows/opencode.*\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=git-refs packageName=(?<packageName>\\S+) currentValue=(?<currentValue>\\S+)\\s+CC_SKILLS_GOLANG_SHA: (?<currentDigest>[a-f0-9]{40})"
+      ],
+      "datasourceTemplate": "git-refs",
+      "depNameTemplate": "samber/cc-skills-golang",
+      "versioningTemplate": "git"
+    },
+    {
+      "customType": "regex",
+      "description": "Update pinned OpenCode version in workflows",
+      "managerFilePatterns": ["/^\\.github/workflows/opencode.*\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=github-releases packageName=anomalyco/opencode versioning=loose\\s+OPENCODE_VERSION: (?<currentValue>v[^\\s]+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "anomalyco/opencode",
+      "versioningTemplate": "loose"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Require Dependency Dashboard approval for Python updates",
+      "matchCategories": ["python"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Require Dependency Dashboard approval for Git submodule updates",
+      "matchManagers": ["git-submodules"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Group Go minor and patch updates together",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "go minor and patch updates"
+    }
+  ]
+}
