@@ -142,6 +142,22 @@ func ConfigFromEnv() (*Config, error) {
 
 		cfg.SandboxMounts = mounts
 
+		// Canonicalise mount host paths (EvalSymlinks + Abs + Clean)
+		// for consistency with allowed path resolution.
+		for i, m := range cfg.SandboxMounts {
+			resolved, err := filepath.EvalSymlinks(m.HostPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve mount host path %q: %w", m.HostPath, err)
+			}
+
+			abs, err := filepath.Abs(resolved)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve mount host path %q: %w", m.HostPath, err)
+			}
+
+			cfg.SandboxMounts[i].HostPath = filepath.Clean(abs)
+		}
+
 		// Validate mount host_paths against AllowedPaths at startup.
 		if len(cfg.AllowedPaths) > 0 {
 			for _, m := range cfg.SandboxMounts {

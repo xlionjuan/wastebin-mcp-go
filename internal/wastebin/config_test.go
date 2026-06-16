@@ -288,6 +288,44 @@ func TestConfigFromEnv_SandboxMountValidation(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnv_SandboxMountSymlink(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	realDir := filepath.Join(tmpDir, "real")
+	err := os.Mkdir(realDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	linkDir := filepath.Join(tmpDir, "link")
+	err = os.Symlink(realDir, linkDir)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_ALLOWED_PATHS", realDir)
+	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", linkDir+":/workspace")
+
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.SandboxMounts) != 1 {
+		t.Fatalf("expected 1 SandboxMount, got %d", len(cfg.SandboxMounts))
+	}
+
+	// HostPath should be canonicalised to the real dir.
+	if cfg.SandboxMounts[0].HostPath != filepath.Clean(realDir) {
+		t.Errorf("expected host path %q, got %q", filepath.Clean(realDir), cfg.SandboxMounts[0].HostPath)
+	}
+
+	if cfg.SandboxMounts[0].SandboxPath != "/workspace" {
+		t.Errorf("got %q, want %q", cfg.SandboxMounts[0].SandboxPath, "/workspace")
+	}
+}
+
 func TestConfigFromEnv_SandboxMountNotInAllowed(t *testing.T) {
 	tmpDir := t.TempDir()
 
