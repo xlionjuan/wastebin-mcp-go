@@ -767,3 +767,144 @@ func TestIsBuiltinBlocked_GnupgMidPath(t *testing.T) {
 		t.Errorf("expected reason %q, got %q", ".gnupg", reason)
 	}
 }
+
+// ──────────────────────────────────────────────
+// Sensitive component blocking tests
+// ──────────────────────────────────────────────
+
+func TestIsBuiltinBlocked_DotAwsComponent(t *testing.T) {
+	t.Parallel()
+
+	_, blocked := isBuiltinBlocked("/home/user/.aws/credentials")
+	if !blocked {
+		t.Error("expected /.aws/ to be blocked")
+	}
+}
+
+func TestIsBuiltinBlocked_DotKubeComponent(t *testing.T) {
+	t.Parallel()
+
+	_, blocked := isBuiltinBlocked("/home/user/.kube/config")
+	if !blocked {
+		t.Error("expected /.kube/ to be blocked")
+	}
+}
+
+func TestIsBuiltinBlocked_DotDockerComponent(t *testing.T) {
+	t.Parallel()
+
+	_, blocked := isBuiltinBlocked("/home/user/.docker/config.json")
+	if !blocked {
+		t.Error("expected /.docker/ to be blocked")
+	}
+}
+
+func TestIsBuiltinBlocked_DotGitComponent(t *testing.T) {
+	t.Parallel()
+
+	_, blocked := isBuiltinBlocked("/home/user/project/.git/config")
+	if !blocked {
+		t.Error("expected /.git/ to be blocked")
+	}
+}
+
+// ──────────────────────────────────────────────
+// Symlink escape from allowed directory
+// ──────────────────────────────────────────────
+
+func TestValidateFilePath_SymlinkEscapeFromAllowed(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create target file outside allowed dir
+	outsideDir := filepath.Join(tmpDir, "outside")
+
+	err = os.Mkdir(outsideDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outsideFile := filepath.Join(outsideDir, "secret.txt")
+
+	err = os.WriteFile(outsideFile, []byte("secret"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create symlink inside allowed dir pointing outside
+	symlinkPath := filepath.Join(allowedDir, "escape_link")
+
+	err = os.Symlink(outsideFile, symlinkPath)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	cfg := &Config{
+		AllowedPaths: []string{allowedDir},
+		BlockedPaths: DefaultConfig().BlockedPaths,
+	}
+
+	_, err = validateFilePath(symlinkPath, cfg)
+	if err == nil {
+		t.Error("expected error for symlink escape, got nil")
+	}
+
+	if !errors.Is(err, errPathNotAllowed) {
+		t.Errorf("expected errPathNotAllowed, got: %v", err)
+	}
+}
+
+// ──────────────────────────────────────────────
+// DisableBuiltinBlocklist with blocked component
+// ──────────────────────────────────────────────
+
+func TestValidateFilePath_DisableBuiltinBlocklistWithBlockedComponent(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A file with .ssh in its path but in an allowed dir
+	sshDir := filepath.Join(allowedDir, "ssh-config")
+
+	err = os.Mkdir(sshDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testFile := filepath.Join(sshDir, "authorized_keys")
+
+	err = os.WriteFile(testFile, []byte("ssh-rsa AAA..."), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{
+		DisableBuiltinBlocklist: true,
+		AllowedPaths:            []string{allowedDir},
+		BlockedPaths:            DefaultConfig().BlockedPaths,
+	}
+
+	resolved, err := validateFilePath(testFile, cfg)
+	if err != nil {
+		t.Fatalf("expected no error with builtin blocklist disabled, got: %v", err)
+	}
+
+	if resolved != filepath.Clean(testFile) {
+		t.Errorf("expected %q, got %q", filepath.Clean(testFile), resolved)
+	}
+}
