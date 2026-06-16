@@ -19,7 +19,11 @@ Single-context repo:
 ├── docs/adr/
 │   ├── 001-use-go-sdk.md
 │   └── 002-path-validation.md
-└── src/
+├── cli.go
+├── mcp.go
+├── main.go
+└── internal/
+    └── wastebin/
 ```
 
 ## Use the glossary's vocabulary

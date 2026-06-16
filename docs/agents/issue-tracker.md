@@ -28,6 +28,5 @@ Run `gh issue view <number> --json number,title,body,labels,comments --jq '{numb
 
 ## Pull requests
 
-For branch and PR work, also read `docs/agents/pull-requests.md`. PR agents
-must ignore `REPORT.md` unless explicitly asked for a local report, and every PR
+PR agents must ignore `REPORT.md` unless explicitly asked for a local report, and every PR
 body must mention related documentation updates or explain why none were needed.

@@ -220,21 +220,22 @@ MCP tool result with a plain text description.
 
 | Error Condition | Message |
 |---|---|
-| Both `content` and `file_path` provided | `"Create paste error: Provide either 'content' or 'file_path', not both."` |
-| Neither `content` nor `file_path` provided | `"Create paste error: Provide either 'content' or 'file_path', not both."` |
-| HTTP 403 from server | `"Create paste error: Server rejected the request; content may contain disallowed data"` |
-| HTTP 413 from server | `"Create paste error: Content exceeds the server's maximum allowed size"` |
-| Connection refused / timeout | `"Create paste error: Cannot connect to Wastebin server; verify the server is running"` |
-| DNS resolution failure | `"Create paste error: Cannot resolve the server hostname"` |
-| File exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE` | `"Create paste error: Content size exceeds maximum allowed size"` |
-|| File path rejected by traversal detection | `"Create paste error: Path traversal is not allowed"` |
-|| File path rejected by allowlist | `"Create paste error: File path is not under any allowed path"` |
-|| File path rejected by built-in blocklist (system prefix) | `"Create paste error: Blocked system path: /etc"` |
-|| File path rejected by built-in blocklist (sensitive component) | `"Create paste error: Blocked sensitive path component: .ssh"` |
-|| File path rejected by user blocklist | `"Create paste error: Blocked path (user-configured): ..."` |
+| Both `content` and `file_path` provided | `"Create paste error: provide either 'content' or 'file_path', not both"` |
+| Neither `content` nor `file_path` provided | `"Create paste error: provide either 'content' or 'file_path'"` |
+| `content` is empty (content mode) | `"Create paste error: content cannot be empty"` |
+| HTTP 403 from server | `"Create paste error: server rejected the request; content may contain disallowed data"` |
+| HTTP 413 from server | `"Create paste error: content exceeds the server's maximum allowed size"` |
+| Connection refused / timeout | `"Create paste error: cannot connect to Wastebin server; verify the server is running: <details>"` |
+| DNS resolution failure | `"Create paste error: cannot resolve the server hostname: <details>"` |
+| Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE` | `"Create paste error: content exceeds the maximum allowed size: <N> bytes exceeds limit of <N> bytes"` |
+| File path rejected by traversal detection | `"Create paste error: path traversal is not allowed"` |
+| File path rejected by allowlist | `"Create paste error: file path is not under any allowed path"` |
+| File path rejected by built-in blocklist (system prefix) | `"Create paste error: file path is in a blocked system directory (<path>)"` |
+| File path rejected by built-in blocklist (sensitive component) | `"Create paste error: file path contains a blocked component (<name>)"` |
+| File path rejected by user blocklist | `"Create paste error: file path is in a user-blocked directory (<path>)"` |
 | File is binary or non-UTF-8 | `"Create paste error: file is binary or not valid UTF-8 text"` |
-| File not found | `"Create paste error: open {path}: no such file or directory"` |
-| Unknown error | `"Create paste error: Unknown error: HTTP {CODE} - {details}"` |
+| File cannot be read (not found, permissions, symlink error) | `"Create paste error: file path cannot be used"` |
+| Unknown HTTP error | `"Create paste error: unknown HTTP error: HTTP <CODE>"` |
 
 #### Error Response Format (as received by MCP client)
 
