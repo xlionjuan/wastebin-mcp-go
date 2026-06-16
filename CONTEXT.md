@@ -235,6 +235,10 @@ container/sandbox-internal paths to host paths before file reading.
 comma-separated. Example:
 `/home/user/.hermes/profiles/neko/sandboxes/default/workspace:/workspace`
 
+Sandbox mount paths must be unique and non-overlapping — one mount's sandbox
+path cannot be a prefix of another's. Overlapping or duplicate paths are
+rejected at startup with a clear error.
+
 **Translation Modes**:
 - **opt-in** (default): Tool schema includes a `translate_sandbox_path`
   boolean parameter. The caller must explicitly set it to `true`.

@@ -8,7 +8,10 @@ import (
 )
 
 // errInvalidSandboxMount is returned when a mount string does not match host:sandbox format.
-var errInvalidSandboxMount = errors.New("invalid sandbox mount format")
+var (
+	errInvalidSandboxMount = errors.New("invalid sandbox mount format")
+	errOverlappingMounts   = errors.New("overlapping sandbox mount paths")
+)
 
 // SandboxMount maps a host path to a sandbox path.
 type SandboxMount struct {
@@ -44,6 +47,20 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 			HostPath:    strings.TrimSpace(parts[0]),
 			SandboxPath: strings.TrimSpace(parts[1]),
 		})
+	}
+
+	// Validate that no sandbox path is a prefix of another (overlapping mounts).
+	for i, a := range mounts {
+		for j, b := range mounts {
+			if i != j && (strings.HasPrefix(a.SandboxPath+"/", b.SandboxPath+"/") ||
+				strings.HasPrefix(b.SandboxPath+"/", a.SandboxPath+"/")) {
+				return nil, fmt.Errorf(
+					"%w: sandbox mount %d (%q) overlaps with mount %d (%q); "+
+						"each mount's sandbox path must be unique and non-overlapping",
+					errOverlappingMounts, i, a.SandboxPath, j, b.SandboxPath,
+				)
+			}
+		}
 	}
 
 	return mounts, nil
