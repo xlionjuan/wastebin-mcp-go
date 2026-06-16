@@ -94,7 +94,7 @@ func buildPasteSchema(cfg *wastebin.Config) (json.RawMessage, error) {
 		"type": "string",
 		"description": "Optional password to protect the paste. NOTE: " +
 			"Password-protected pastes cannot be retrieved via /raw/{id}; " +
-			"use curl with HTTP basic auth instead.",
+			"use curl with the Wastebin-Password header or password query parameter instead.",
 	}
 
 	// translate_sandbox_path — only when mounts configured and not transparent
