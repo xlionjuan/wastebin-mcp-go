@@ -146,12 +146,14 @@ When a paste creation fails, the error message is constructed as follows:
 
 **Known errors translated to clear messages:**
 
-| HTTP Error | Translated Message |
-|------------|-------------------|
-| 403 | "Server rejected the request; content may contain disallowed data" |
-| 413 | "Content exceeds the server's maximum allowed size" |
+| Error Condition | Message |
+|-----------------|---------|
+| HTTP 403 | "Server rejected the request; content may contain disallowed data" |
+| HTTP 413 | "Content exceeds the server's maximum allowed size" |
 | Connection refused / timeout | "Cannot connect to Wastebin server; verify the server is running" |
 | DNS resolution failure | "Cannot resolve the server hostname" |
+| Sandbox translation requested, no mounts | "sandbox path translation requested but no mounts configured" |
+| Sandbox path matches no mount | "sandbox path \"<path>\" does not match any configured mount" |
 
 **Unknown/ambiguous errors**: Returned as-is with the HTTP status code and any
 additional upstream error message:

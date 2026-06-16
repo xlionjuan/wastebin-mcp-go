@@ -235,6 +235,8 @@ MCP tool result with a plain text description.
 | File path rejected by user blocklist | `"Create paste error: file path is in a user-blocked directory (<path>)"` |
 | File is binary or non-UTF-8 | `"Create paste error: file is binary or not valid UTF-8 text"` |
 | File cannot be read (not found, permissions, symlink error) | `"Create paste error: file path cannot be used"` |
+| Sandbox translation requested but no mounts configured | `"Create paste error: sandbox path translation requested but no mounts configured"` |
+| Sandbox path does not match any configured mount | `"Create paste error: sandbox path \"<path>\" does not match any configured mount"` |
 | Unknown HTTP error | `"Create paste error: unknown HTTP error: HTTP <CODE>"` |
 
 #### Error Response Format (as received by MCP client)

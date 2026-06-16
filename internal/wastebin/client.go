@@ -19,20 +19,22 @@ import (
 
 // Sentinel errors for the WastebinClient.
 var (
-	errBothContentAndFilePath    = errors.New("provide either 'content' or 'file_path', not both")
-	errNeitherContentNorFilePath = errors.New("provide either 'content' or 'file_path'")
-	errContentEmpty              = errors.New("content cannot be empty")
-	errArgsRequired              = errors.New("args is required")
-	errContentTooLarge           = errors.New("content exceeds the maximum allowed size")
-	errServerRejected            = errors.New("server rejected the request; content may contain disallowed data")
-	errContentTooLargeServer     = errors.New("content exceeds the server's maximum allowed size")
-	errUnknownHTTP               = errors.New("unknown HTTP error")
-	errFileNotText               = errors.New("file is binary or not valid UTF-8 text")
-	errConfigRequired            = errors.New("config is required")
-	errUnsupportedURLScheme      = errors.New("server URL must use http or https scheme")
-	errURLMissingHost            = errors.New("server URL must include a host")
-	errTooManyRedirects          = errors.New("stopped after 10 redirects")
-	errRedirectDifferentHost     = errors.New("redirect to different host blocked")
+	errBothContentAndFilePath     = errors.New("provide either 'content' or 'file_path', not both")
+	errNeitherContentNorFilePath  = errors.New("provide either 'content' or 'file_path'")
+	errContentEmpty               = errors.New("content cannot be empty")
+	errArgsRequired               = errors.New("args is required")
+	errContentTooLarge            = errors.New("content exceeds the maximum allowed size")
+	errServerRejected             = errors.New("server rejected the request; content may contain disallowed data")
+	errContentTooLargeServer      = errors.New("content exceeds the server's maximum allowed size")
+	errUnknownHTTP                = errors.New("unknown HTTP error")
+	errFileNotText                = errors.New("file is binary or not valid UTF-8 text")
+	errConfigRequired             = errors.New("config is required")
+	errUnsupportedURLScheme       = errors.New("server URL must use http or https scheme")
+	errURLMissingHost             = errors.New("server URL must include a host")
+	errTooManyRedirects           = errors.New("stopped after 10 redirects")
+	errRedirectDifferentHost      = errors.New("redirect to different host blocked")
+	errSandboxTranslationNoMounts = errors.New("sandbox path translation requested but no mounts configured")
+	errSandboxTranslationNoMatch  = errors.New("sandbox path does not match any configured mount")
 )
 
 // HTTP transport defaults.
@@ -277,14 +279,20 @@ func (c *WastebinClient) readFileContent(
 	resolvedPath := filePath
 
 	// 1. Sandbox path translation (if applicable).
-	if translateSandboxPath != nil && *translateSandboxPath && len(c.config.SandboxMounts) > 0 {
+	if translateSandboxPath != nil && *translateSandboxPath {
+		if len(c.config.SandboxMounts) == 0 {
+			return "", "", errSandboxTranslationNoMounts
+		}
+
 		translator := NewTranslator(c.config.SandboxMounts)
 
 		translated, ok := translator.Translate(resolvedPath)
-		if ok {
-			slog.Debug("translated sandbox path", "from", resolvedPath, "to", translated)
-			resolvedPath = translated
+		if !ok {
+			return "", "", fmt.Errorf("%w: %s", errSandboxTranslationNoMatch, filePath)
 		}
+
+		slog.Debug("translated sandbox path", "from", resolvedPath, "to", translated)
+		resolvedPath = translated
 	}
 
 	// 2. Validate path through the four-stage pipeline.
