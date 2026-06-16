@@ -33,7 +33,8 @@ func TestMain(m *testing.M) {
 		context.Background(),
 		"go", "build", "-o", binaryPath, ".",
 	)
-	buildCmd.Dir = "/var/home/xlion/git/wastebin-mcp-go"
+	// buildCmd.Dir defaults to the current working directory, which is the
+	// module root when running go test from the project root.
 	buildCmd.Stderr = os.Stderr
 	buildCmd.Stdout = os.Stdout
 

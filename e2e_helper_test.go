@@ -288,7 +288,7 @@ func findCreatePasteTool(ctx context.Context, t *testing.T, session *mcp.ClientS
 		t.Logf("  tool: %s - %s", t2.Name, t2.Description)
 
 		if t2.Name == "create_paste" {
-			tool = &tools.Tools[i]
+			tool = tools.Tools[i]
 
 			break
 		}

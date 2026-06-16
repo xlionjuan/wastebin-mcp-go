@@ -91,7 +91,7 @@ golangci-lint run ./...
   all AI agents must select and run the verification gate described below for
   the affected surface.
 - Build must pass before commit.
-- Run `go vet ./...` as minimum static check when `golangci-lint` is unavailable.
+- Run `go vet ./...` as a regular static check alongside the linter.
 - After adding or changing MCP tool schemas, verify with a manual MCP test or
   CLI mode test.
 - Pure documentation changes (`.md` files only) do not require the build, test,

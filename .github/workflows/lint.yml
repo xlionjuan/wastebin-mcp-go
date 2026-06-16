@@ -36,6 +36,9 @@ jobs:
           version: v2.12.2
           install-only: true
 
+      - name: go vet
+        run: go vet ./...
+
       - name: golangci-lint
         run: golangci-lint run --timeout 5m
 
