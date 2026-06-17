@@ -35,6 +35,7 @@ var (
 	errRedirectDifferentHost      = errors.New("redirect to different host blocked")
 	errSandboxTranslationNoMounts = errors.New("sandbox path translation requested but no mounts configured")
 	errSandboxTranslationNoMatch  = errors.New("sandbox path does not match any configured mount")
+	errFileReadDisabled           = errors.New("file read is disabled by configuration")
 )
 
 // HTTP transport defaults.
@@ -152,6 +153,11 @@ func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs)
 
 	if args.Content == nil && args.FilePath == nil {
 		return nil, errNeitherContentNorFilePath
+	}
+
+	// Reject file path when file read is disabled.
+	if args.FilePath != nil && !c.config.FileReadEnabled {
+		return nil, errFileReadDisabled
 	}
 
 	// Reject empty content in content mode.

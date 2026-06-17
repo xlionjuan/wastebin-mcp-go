@@ -2146,3 +2146,91 @@ func TestCreatePaste_TitleOmittedWhenNil(t *testing.T) {
 		t.Errorf("expected nil title, got %v", capturedTitle)
 	}
 }
+
+func TestCreatePaste_FileReadDisabled_RejectsFilePath(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.FileReadEnabled = false
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	filePath := "/tmp/test.txt"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath: &filePath,
+	})
+	if err == nil {
+		t.Fatal("expected error when FileReadEnabled=false, got nil")
+	}
+
+	if !errors.Is(err, errFileReadDisabled) {
+		t.Errorf("expected errFileReadDisabled, got: %v", err)
+	}
+}
+
+func TestCreatePaste_FileReadDisabled_AllowsContent(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/CONTENT"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+	cfg.FileReadEnabled = false
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test content"
+
+	resp, err := client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ID != "CONTENT" {
+		t.Errorf("expected ID CONTENT, got %q", resp.ID)
+	}
+}
+
+func TestCreatePaste_FileReadDisabled_RejectsBothContentAndFilePath(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.FileReadEnabled = false
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+	filePath := "/tmp/test.txt"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content:  &content,
+		FilePath: &filePath,
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	// Mutual exclusivity check takes priority over file read disabled check.
+	if !errors.Is(err, errBothContentAndFilePath) {
+		t.Errorf("expected errBothContentAndFilePath, got: %v", err)
+	}
+}
