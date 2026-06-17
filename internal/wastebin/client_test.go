@@ -1715,6 +1715,46 @@ func TestNewWastebinClient_RedirectDifferentHostBlocked(t *testing.T) {
 	}
 }
 
+func TestNewWastebinClient_RedirectSchemeDowngradeBlocked(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect/" {
+			//nolint:gosec // Test-only redirect to same host with scheme downgrade is intentional
+			http.Redirect(w, r, "http://"+r.Host+"/", http.StatusFound)
+
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL + "/redirect"
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	// Override transport to trust the test server's self-signed TLS cert.
+	client.httpClient.Transport = ts.Client().Transport
+
+	content := "test"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err == nil {
+		t.Fatal("expected redirect scheme downgrade error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "redirect scheme downgrade") {
+		t.Errorf("expected scheme downgrade error, got: %v", err)
+	}
+}
+
 func TestCreatePaste_NilArgs(t *testing.T) {
 	t.Parallel()
 
