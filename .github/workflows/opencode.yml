@@ -67,4 +67,4 @@ jobs:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           GH_TOKEN: ${{ github.token }}
-          OPENCODE_PERMISSION: '{"external_directory": {"~/**": "allow"}}'
+          OPENCODE_PERMISSION: '{"external_directory": {"~/**": "allow", "/tmp/**": "allow"}}'
