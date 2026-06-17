@@ -1,7 +1,7 @@
 # ADR 002: Path Validation Architecture
 
 **Status:** Active  
-**Last updated:** 2026-06-10  
+**Last updated:** 2026-06-16  
 **Supersedes:** Earlier draft with single-layer blocklist
 
 ## Context
@@ -40,19 +40,23 @@ file_path (raw user input)
     │       If configured, the resolved path MUST be under one of these.
     │       Path is resolved via filepath.EvalSymlinks before the check.
     │       Only absolute paths accepted.
+    │       When a path matches, continues to (3b) component check.
     │       Error: "file path is not under any allowed path"
     │
     ├── (3) BUILT-IN BLOCKLIST (hardcoded defaults)
-    │       Two independent sub-checks, both evaluated:
+    │       Two independent sub-checks:
     │         (3a) Absolute path prefix match
     │              Checks resolved absolute path against:
     │              /etc, /proc, /sys, /dev
     │              Error: "file path is in a blocked system directory (...)"
+    │              Bypassed by ALLOWED_PATHS (prefixes are location, not
+    │              sensitivity).
     │         (3b) Path component match
     │              Checks each path component (directory name) in the
     │              resolved path against sensitive patterns like:
-    │              .ssh, .gnupg
+    │              .ssh, .gnupg, .aws, .kube, .docker, .git
     │              Error: "file path contains a blocked component (...)"
+    │              Enforced even inside ALLOWED_PATHS (per B2 exception).
     │       Disabled by setting WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true
     │       Both sub-checks share the same disable flag.
     │
@@ -60,6 +64,7 @@ file_path (raw user input)
     │       User-defined list of absolute path prefixes.
     │       Resolved via filepath.Abs + Clean before matching.
     │       Error: "file path is in a user-blocked directory (...)"
+    │       Bypassed by ALLOWED_PATHS.
     │
     └── All passed → file is allowed
 ```
@@ -76,10 +81,15 @@ resolved to an absolute form. CLI mode is not exempt from path validation.
 
 ### Key design principles
 
-1. **ALLOWED_PATHS bypasses all blocklists.** If the resolved path is under
-   an allowed path, it is accepted immediately regardless of blocklist
-   matches. This prevents blocklists from interfering with legitimate
-   file reads in configured sandbox directories.
+1. **ALLOWED_PATHS bypasses the prefix blocklist and user blocklist, but not
+   the sensitive component blocklist (B2 exception).** If the resolved path
+   is under an allowed path, the sensitive component blocklist is still
+   checked before accepting the path. This prevents explicit ALLOWED_PATHS
+   entries from accidentally exposing credential directories (`.ssh`,
+   `.gnupg`, `.aws`, `.kube`, `.docker`, `.git`) while still allowing
+   system-directory prefixes like `/etc/nginx` to be used. See
+   [Breaking change B2](#breaking-change-b2-component-blocklist-inside-allowed_paths)
+   for details.
 
 2. **Path traversal is caught BEFORE resolution.** The raw input is checked
    for `..` components before any path resolution or symlink evaluation.
@@ -126,7 +136,9 @@ Key points:
 
 **Positive:**
 - Clear separation of concerns — each stage is independently testable.
-- ALLOWED_PATHS cannot be accidentally circumvented by blocklist entries.
+- ALLOWED_PATHS cannot be accidentally circumvented by blocklist entries
+  (prefix and user), while the component blocklist provides defence in depth
+  against credential exposure even inside allowed directories.
 - Path traversal is caught early, before resolution.
 - Cross-platform support without platform-specific code.
 
@@ -150,11 +162,48 @@ Key points:
       "/etc", "/proc", "/sys", "/dev",
   }
   var builtinBlockedComponents = []string{
-      ".ssh", ".gnupg",
+      ".ssh", ".gnupg", ".aws", ".kube", ".docker", ".git",
   }
   ```
 - Error sentinel values for each stage, enabling tests to assert the
   exact rejection reason.
+
+## Breaking change B2: Component blocklist inside ALLOWED_PATHS
+
+**Date:** 2026-06-16  
+**ID:** B2
+
+### Change
+
+Previously, ALLOWED_PATHS bypassed all blocklist stages entirely. After B2,
+the sensitive component blocklist (Stage 3b) is checked even when a path
+falls under an allowed directory. Only the system directory prefix blocklist
+(Stage 3a) and the user blocklist (Stage 4) remain bypassed.
+
+### Rationale
+
+The sensitive component blocklist protects credential files (`.ssh`,
+`.gnupg`, `.aws`, `.kube`, `.docker`, `.git`) from accidental exposure. A
+user who configures `ALLOWED_PATHS=/home/user` probably does not intend to
+make `~/.ssh/id_rsa` readable. Enforcing the component blocklist inside
+ALLOWED_PATHS provides defense in depth without breaking legitimate use
+cases (e.g., `ALLOWED_PATHS=/etc/nginx` for reading nginx configs).
+
+### Migration
+
+Existing configurations that deliberately place sensitive directories under
+ALLOWED_PATHS must either:
+1. Move the sensitive data outside the sensitive directory name, or
+2. Disable the built-in blocklist entirely with
+   `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true`.
+
+### Affected stages
+
+| Stage | Bypassed by ALLOWED_PATHS? |
+|-------|---------------------------|
+| 3a — Prefix blocklist | ✅ Yes (unchanged) |
+| 3b — Component blocklist | ❌ No (changed) |
+| 4 — User blocklist | ✅ Yes (unchanged) |
 
 ## Related documents
 
