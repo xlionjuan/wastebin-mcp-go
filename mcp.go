@@ -225,7 +225,7 @@ func runMCPMode(cfg *wastebin.Config, stdin io.Reader) error {
 	defer stop()
 
 	err = server.Run(ctx, &mcp.IOTransport{
-		Reader: io.NopCloser(io.LimitReader(stdin, mcpInitializeMaxBytes)),
+		Reader: io.NopCloser(stdin),
 		Writer: os.Stdout,
 	})
 	if err != nil {
