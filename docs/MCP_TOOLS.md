@@ -57,6 +57,12 @@ configuration. The following rules determine which parameters appear:
   `WASTEBIN_MCP_SANDBOX_TRANSPARENT=true` (automatic translation).
 - **Present** when mounts are configured and transparent mode is off (default).
 
+**Behavior in transparent mode**: When `WASTEBIN_MCP_SANDBOX_TRANSPARENT=true`,
+the server translates the sandbox path automatically without requiring the
+caller to set `translate_sandbox_path`. If the path does not match any
+configured mount, it is used as-is (no error). The path must still pass the
+allowlist + blocklist checks.
+
 > **Summary:** Agents should always check the tool schema at runtime rather
 > than hard-coding parameter names.
 
@@ -263,7 +269,7 @@ File read mode is **enabled by default** (`WASTEBIN_MCP_FILE_READ_ENABLED=true`)
 When file mode is enabled, the `file_path` parameter allows reading local files.
 This is a powerful feature that must be configured carefully.
 
-The server applies a **multi-tier path validation pipeline** (in order):
+The server applies a **five-stage path validation pipeline** (in order):
 
 1. **Path traversal detection (before sandbox translation)** — rejects paths
    containing `..` or equivalents, checked on the raw input _before_ any
@@ -274,11 +280,14 @@ The server applies a **multi-tier path validation pipeline** (in order):
    corresponding host path. After translation, the result is verified to still
    be under the matched mount's host root.
 3. **ALLOWED_PATHS (user allowlist)** — if configured, only paths under allowed
-   directories are accepted. ALLOWED_PATHS has the highest priority and skips
-   all subsequent blocklist checks.
+   directories are accepted. ALLOWED_PATHS bypasses the system directory prefix
+   blocklist and the user blocklist, but **not** the sensitive component
+   blocklist (Stage 4b).
 4. **Built-in blocklist** — two independent checks:
    - *System directory prefix*: `/etc`, `/proc`, `/sys`, `/dev`
-   - *Sensitive path component*: `.ssh`, `.gnupg`, etc.
+   - *Sensitive path component*: `.ssh`, `.gnupg`, `.aws`, `.kube`, `.docker`,
+     `.git`
+   The prefix check is bypassed by ALLOWED_PATHS; the component check is not.
    Can be disabled entirely via `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true`.
 5. **User blocklist** — configurable via `WASTEBIN_MCP_BLOCKED_PATHS`.
 
