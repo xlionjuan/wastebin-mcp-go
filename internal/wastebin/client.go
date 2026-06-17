@@ -33,6 +33,7 @@ var (
 	errURLMissingHost             = errors.New("server URL must include a host")
 	errTooManyRedirects           = errors.New("stopped after 10 redirects")
 	errRedirectDifferentHost      = errors.New("redirect to different host blocked")
+	errRedirectSchemeDowngrade    = errors.New("redirect scheme downgrade from https to http blocked")
 	errSandboxTranslationNoMounts = errors.New("sandbox path translation requested but no mounts configured")
 	errSandboxTranslationNoMatch  = errors.New("sandbox path does not match any configured mount")
 )
@@ -121,6 +122,10 @@ func NewWastebinClient(cfg *Config) (*WastebinClient, error) {
 				prev := via[len(via)-1]
 				if !strings.EqualFold(req.URL.Host, prev.URL.Host) {
 					return fmt.Errorf("%w: %s -> %s", errRedirectDifferentHost, prev.URL.Host, req.URL.Host)
+				}
+
+				if prev.URL.Scheme == "https" && req.URL.Scheme == "http" {
+					return fmt.Errorf("%w: %s (%s -> %s)", errRedirectSchemeDowngrade, req.URL.Host, prev.URL.Scheme, req.URL.Scheme)
 				}
 			}
 
