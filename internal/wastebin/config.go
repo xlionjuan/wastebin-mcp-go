@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -30,7 +31,7 @@ func DefaultConfig() *Config {
 		DefaultExpires:     defaultExpirySeconds, // 1 year
 		FileReadEnabled:    true,
 		AllowedPaths:       nil,
-		BlockedPaths:       []string{"/etc", "/proc", "/sys", "/dev"},
+		BlockedPaths:       slices.Clone([]string{"/etc", "/proc", "/sys", "/dev"}),
 		MaxContentSize:     defaultMaxContentSize, // 1 MB
 		SandboxMounts:      nil,
 		SandboxTransparent: false,

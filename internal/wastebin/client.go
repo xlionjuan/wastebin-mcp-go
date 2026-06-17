@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -128,10 +129,16 @@ func NewWastebinClient(cfg *Config) (*WastebinClient, error) {
 		},
 	}
 
+	// Store a defensive copy of the config to prevent external mutation.
+	cfgCopy := *cfg
+	cfgCopy.AllowedPaths = slices.Clone(cfg.AllowedPaths)
+	cfgCopy.BlockedPaths = slices.Clone(cfg.BlockedPaths)
+	cfgCopy.SandboxMounts = slices.Clone(cfg.SandboxMounts)
+
 	return &WastebinClient{
 		baseURL:    baseURL,
 		httpClient: httpClient,
-		config:     cfg,
+		config:     &cfgCopy,
 		postURL:    baseURL.JoinPath("/").String(),
 	}, nil
 }
@@ -264,6 +271,9 @@ func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse Wastebin response: %w", err)
 	}
+
+	// Drain response body to EOF for HTTP connection reuse.
+	_, _ = io.Copy(io.Discard, resp.Body) //nolint:errcheck // Best-effort drain of body for connection reuse
 
 	// Build PasteResponse.
 	return buildPasteResponse(c.baseURL, wastebinResp.Path, ext, args.Password != nil), nil
