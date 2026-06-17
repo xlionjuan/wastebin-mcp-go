@@ -199,8 +199,8 @@ func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err err
 	}
 
 	// Stage 4: USER BLOCKLIST.
-	if matched, blocked := isUserBlocked(resolvedPath, cfg.BlockedPaths); blocked {
-		return "", fmt.Errorf("%w (%s)", errUserBlockedPath, matched)
+	if _, blocked := isUserBlocked(resolvedPath, cfg.BlockedPaths); blocked {
+		return "", errUserBlockedPath
 	}
 
 	return resolvedPath, nil
