@@ -896,6 +896,79 @@ func TestCreatePaste_FileMode_SandboxTranslation(t *testing.T) {
 	}
 }
 
+func TestCreatePaste_FileMode_SandboxTranslation_Transparent(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create the actual file on the host side (mapped path).
+	subDir := filepath.Join(allowedDir, "sub")
+
+	err = os.Mkdir(subDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hostFilePath := filepath.Join(subDir, "transparent_test.txt")
+
+	err = os.WriteFile(hostFilePath, []byte("transparent mode content"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		err = json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		if req["text"] != "transparent mode content" {
+			t.Errorf("expected text 'transparent mode content', got %v", req["text"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/TRANSPARENT.txt"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+	cfg.AllowedPaths = []string{allowedDir}
+	cfg.SandboxMounts = []SandboxMount{
+		{HostPath: allowedDir, SandboxPath: "/workspace"},
+	}
+	cfg.SandboxTransparent = true
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	sandboxPath := "/workspace/sub/transparent_test.txt"
+
+	// TranslateSandboxPath is nil (as it would be in MCP mode when transparent
+	// removes it from the schema). Translation should still happen.
+	resp, err := client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath: &sandboxPath,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ID != "TRANSPARENT" {
+		t.Errorf("expected ID 'TRANSPARENT', got %q", resp.ID)
+	}
+}
+
 func TestCreatePaste_FileMode_SandboxTranslationWithoutFlag(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
@@ -1565,6 +1638,94 @@ func TestCreatePaste_NilArgs(t *testing.T) {
 	_, err = client.CreatePaste(context.Background(), nil)
 	if !errors.Is(err, errArgsRequired) {
 		t.Errorf("expected errArgsRequired, got: %v", err)
+	}
+}
+
+func TestShouldTranslateSandboxPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		mounts      []SandboxMount
+		transparent bool
+		requested   *bool
+		want        bool
+	}{
+		{
+			name:   "no mounts, nil requested, not transparent",
+			mounts: nil,
+			want:   false,
+		},
+		{
+			name:        "no mounts, transparent true",
+			mounts:      nil,
+			transparent: true,
+			want:        false,
+		},
+		{
+			name:        "with mounts, transparent false, requested nil",
+			mounts:      []SandboxMount{{HostPath: "/host", SandboxPath: "/sandbox"}},
+			transparent: false,
+			want:        false,
+		},
+		{
+			name:        "with mounts, transparent false, requested false",
+			mounts:      []SandboxMount{{HostPath: "/host", SandboxPath: "/sandbox"}},
+			transparent: false,
+			requested:   new(bool),
+			want:        false,
+		},
+		{
+			name:        "opt-in: with mounts, requested true",
+			mounts:      []SandboxMount{{HostPath: "/host", SandboxPath: "/sandbox"}},
+			transparent: false,
+			requested: func() *bool {
+				b := true
+
+				return &b
+			}(),
+			want: true,
+		},
+		{
+			name:        "transparent: with mounts, requested nil",
+			mounts:      []SandboxMount{{HostPath: "/host", SandboxPath: "/sandbox"}},
+			transparent: true,
+			want:        true,
+		},
+		{
+			name:        "transparent: with mounts, requested false (redundant but should still translate)",
+			mounts:      []SandboxMount{{HostPath: "/host", SandboxPath: "/sandbox"}},
+			transparent: true,
+			requested:   new(bool),
+			want:        true,
+		},
+		{
+			name:        "transparent + explicit opt-in: with mounts, requested true",
+			mounts:      []SandboxMount{{HostPath: "/host", SandboxPath: "/sandbox"}},
+			transparent: true,
+			requested: func() *bool {
+				v := true
+
+				return &v
+			}(),
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &Config{
+				SandboxMounts:      tt.mounts,
+				SandboxTransparent: tt.transparent,
+			}
+
+			got := shouldTranslateSandboxPath(cfg, tt.requested)
+			if got != tt.want {
+				t.Errorf("shouldTranslateSandboxPath() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

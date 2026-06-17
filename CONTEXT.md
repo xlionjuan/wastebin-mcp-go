@@ -264,7 +264,14 @@ rejected at startup with a clear error.
 - **opt-in** (default): Tool schema includes a `translate_sandbox_path`
   boolean parameter. The caller must explicitly set it to `true`.
 - **transparent** (`WASTEBIN_MCP_SANDBOX_TRANSPARENT=true`): Translation is
-  automatic. The `translate_sandbox_path` parameter is removed from schema.
+  automatic. The `translate_sandbox_path` parameter is removed from the
+  schema, and the server always attempts sandbox-to-host translation when
+  mounts are configured.
+
+**Behavior when a transparent-mode path matches no mount**: If the path does
+not match any configured mount, it is used as-is (no translation, no error).
+The path must still pass the allowlist + blocklist checks after translation
+(or as-is when no mount matches).
 
 In both modes, the translated path must still pass the allowlist + blocklist
 checks.
