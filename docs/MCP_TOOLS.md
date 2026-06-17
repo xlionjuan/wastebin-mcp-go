@@ -267,17 +267,27 @@ File read mode is **enabled by default** (`WASTEBIN_MCP_FILE_READ_ENABLED=true`)
 When file mode is enabled, the `file_path` parameter allows reading local files.
 This is a powerful feature that must be configured carefully.
 
-The server applies a **three-tier path validation pipeline** (in order):
+The server applies a **five-stage path validation pipeline** (in order):
 
-1. **Path traversal detection** — rejects paths containing `..` or equivalents.
-2. **ALLOWED_PATHS (user allowlist)** — if configured, only paths under allowed
-   directories are accepted. ALLOWED_PATHS has the highest priority and skips
-   all subsequent blocklist checks.
-3. **Built-in blocklist** — two independent checks:
+1. **Path traversal detection (before sandbox translation)** — rejects paths
+   containing `..` or equivalents, checked on the raw input _before_ any
+   sandbox path translation occurs. This prevents `filepath.Join` normalization
+   from silently removing `..` during translation and bypassing the check.
+2. **Sandbox path translation** — if sandbox mounts are configured and
+   `translate_sandbox_path` is enabled, the sandbox path is translated to its
+   corresponding host path. After translation, the result is verified to still
+   be under the matched mount's host root.
+3. **ALLOWED_PATHS (user allowlist)** — if configured, only paths under allowed
+   directories are accepted. ALLOWED_PATHS bypasses the system directory prefix
+   blocklist and the user blocklist, but **not** the sensitive component
+   blocklist (Stage 4b).
+4. **Built-in blocklist** — two independent checks:
    - *System directory prefix*: `/etc`, `/proc`, `/sys`, `/dev`
-   - *Sensitive path component*: `.ssh`, `.gnupg`, etc.
+   - *Sensitive path component*: `.ssh`, `.gnupg`, `.aws`, `.kube`, `.docker`,
+     `.git`
+   The prefix check is bypassed by ALLOWED_PATHS; the component check is not.
    Can be disabled entirely via `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true`.
-4. **User blocklist** — configurable via `WASTEBIN_MCP_BLOCKED_PATHS`.
+5. **User blocklist** — configurable via `WASTEBIN_MCP_BLOCKED_PATHS`.
 
 Without `WASTEBIN_MCP_ALLOWED_PATHS`, file reads **are not automatically
 refused** — they fall through to the built-in blocklist, which blocks system
@@ -304,9 +314,15 @@ out-of-the-box experience without requiring mandatory allowlist configuration.
 #### Sandbox Path Translation
 
 When `WASTEBIN_MCP_SANDBOX_MOUNTS` is configured, the server validates at
-startup that each mount's host path is covered by `WASTEBIN_MCP_ALLOWED_PATHS`.
-If not, the server prints a clear error and exits — preventing opaque
-"path not allowed" failures that agents cannot debug.
+startup that:
+
+1. Each mount's host path is covered by `WASTEBIN_MCP_ALLOWED_PATHS`. If not,
+   the server prints a clear error and exits — preventing opaque "path not
+   allowed" failures that agents cannot debug.
+2. No two mounts share overlapping sandbox paths (one sandbox path being a
+   prefix of another). Overlapping or duplicate sandbox paths are rejected at
+   startup with a clear error, eliminating the ambiguity and security risk of
+   first-match-wins resolution.
 
 #### Password-Protected Pastes
 

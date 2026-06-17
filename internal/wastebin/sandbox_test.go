@@ -99,6 +99,41 @@ func TestParseSandboxMounts_InvalidFormat(t *testing.T) {
 	}
 }
 
+func TestParseSandboxMounts_RelativeHostPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := ParseSandboxMounts("./workspace:/mnt")
+	if err == nil {
+		t.Fatal("expected error for relative host path")
+	}
+
+	_, err = ParseSandboxMounts("relative/path:/sandbox")
+	if err == nil {
+		t.Fatal("expected error for relative host path")
+	}
+}
+
+func TestParseSandboxMounts_SandboxPathCleaning(t *testing.T) {
+	t.Parallel()
+
+	mounts, err := ParseSandboxMounts("/host://sandbox//path///")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(mounts) != 1 {
+		t.Fatalf("expected 1 mount, got %d", len(mounts))
+	}
+
+	if mounts[0].HostPath != "/host" {
+		t.Errorf("expected host path /host, got %q", mounts[0].HostPath)
+	}
+
+	if mounts[0].SandboxPath != "/sandbox/path" {
+		t.Errorf("expected sandbox path /sandbox/path, got %q", mounts[0].SandboxPath)
+	}
+}
+
 func TestParseSandboxMounts_Whitespace(t *testing.T) {
 	t.Parallel()
 
@@ -195,22 +230,31 @@ func TestTranslator_PrefixNotPartial(t *testing.T) {
 	}
 }
 
-func TestTranslator_FirstMatchWins(t *testing.T) {
+func TestParseSandboxMounts_Overlapping(t *testing.T) {
 	t.Parallel()
 
-	mounts := []SandboxMount{
-		{HostPath: "/host/first", SandboxPath: "/mnt"},
-		{HostPath: "/host/second", SandboxPath: "/mnt/sub"},
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "prefix overlap",
+			input: "/host/workspace:/workspace,/host/workspace-sub:/workspace/sub",
+		},
+		{
+			name:  "same path (duplicate)",
+			input: "/host/a:/workspace,/host/b:/workspace",
+		},
 	}
-	tr := NewTranslator(mounts)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	host, ok := tr.Translate("/mnt/sub/file.txt")
-	if !ok {
-		t.Fatal("expected match")
-	}
-	// First mount matches (/mnt is prefix of /mnt/sub/file.txt).
-	if host != "/host/first/sub/file.txt" {
-		t.Errorf("got %q, want %q", host, "/host/first/sub/file.txt")
+			_, err := ParseSandboxMounts(tt.input)
+			if err == nil {
+				t.Fatal("expected error for overlapping sandbox mounts")
+			}
+		})
 	}
 }
 
@@ -230,5 +274,106 @@ func TestTranslator_MultipleMounts(t *testing.T) {
 
 	if host != "/host/config/app.yaml" {
 		t.Errorf("got %q, want %q", host, "/host/config/app.yaml")
+	}
+}
+
+func TestTranslator_PathTraversal_Rejected(t *testing.T) {
+	t.Parallel()
+
+	mounts := []SandboxMount{
+		{HostPath: "/host/workspace", SandboxPath: "/workspace"},
+	}
+	tr := NewTranslator(mounts)
+
+	// filepath.Join("/host/workspace", "../secret.txt") → "/host/secret.txt"
+	// The normalization removes ".." — the mount check after translation
+	// must prevent the escape.
+	host, ok := tr.Translate("/workspace/../secret.txt")
+	if !ok {
+		t.Fatal("expected match (translation happens before validation)")
+	}
+
+	if host == "/host/workspace/secret.txt" {
+		t.Error("expected translated path to escape workspace due to ..")
+	}
+
+	// Verify isUnderMountHost catches the escape.
+	if isUnderMountHost(host, mounts) {
+		t.Errorf("expected translated path %q to NOT be under mount host root /host/workspace", host)
+	}
+}
+
+func TestTranslator_DoubleDotDot_Rejected(t *testing.T) {
+	t.Parallel()
+
+	mounts := []SandboxMount{
+		{HostPath: "/host/workspace", SandboxPath: "/workspace"},
+	}
+	tr := NewTranslator(mounts)
+
+	host, ok := tr.Translate("/workspace/../../etc/passwd")
+	if !ok {
+		t.Fatal("expected match")
+	}
+
+	if isUnderMountHost(host, mounts) {
+		t.Errorf("expected translated path %q to NOT be under mount host root", host)
+	}
+}
+
+func TestIsUnderMountHost_ExactMatch(t *testing.T) {
+	t.Parallel()
+
+	mounts := []SandboxMount{
+		{HostPath: "/host/workspace", SandboxPath: "/workspace"},
+	}
+
+	if !isUnderMountHost("/host/workspace", mounts) {
+		t.Error("expected exact match to be under mount")
+	}
+}
+
+func TestIsUnderMountHost_Subdirectory(t *testing.T) {
+	t.Parallel()
+
+	mounts := []SandboxMount{
+		{HostPath: "/host/workspace", SandboxPath: "/workspace"},
+	}
+
+	if !isUnderMountHost("/host/workspace/subdir/file.go", mounts) {
+		t.Error("expected subdirectory to be under mount")
+	}
+}
+
+func TestIsUnderMountHost_Escaped(t *testing.T) {
+	t.Parallel()
+
+	mounts := []SandboxMount{
+		{HostPath: "/host/workspace", SandboxPath: "/workspace"},
+	}
+
+	if isUnderMountHost("/host/secret.txt", mounts) {
+		t.Error("expected /host/secret.txt to NOT be under /host/workspace")
+	}
+
+	if isUnderMountHost("/etc/passwd", mounts) {
+		t.Error("expected /etc/passwd to NOT be under /host/workspace")
+	}
+}
+
+func TestIsUnderMountHost_MultipleMounts(t *testing.T) {
+	t.Parallel()
+
+	mounts := []SandboxMount{
+		{HostPath: "/host/data", SandboxPath: "/data"},
+		{HostPath: "/host/config", SandboxPath: "/config"},
+	}
+
+	if !isUnderMountHost("/host/config/app.yaml", mounts) {
+		t.Error("expected /host/config/app.yaml to match /host/config mount")
+	}
+
+	if isUnderMountHost("/host/other/secret.txt", mounts) {
+		t.Error("expected /host/other/secret.txt to NOT match any mount")
 	}
 }

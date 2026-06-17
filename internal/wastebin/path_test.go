@@ -700,6 +700,40 @@ func TestValidateFilePath_AllowedWithAllowedPath(t *testing.T) {
 	}
 }
 
+func TestValidateFilePath_AllowedPathStillBlocksSensitiveComponent(t *testing.T) {
+	t.Parallel()
+	// ALLOWED_PATHS should NOT bypass the sensitive component blocklist.
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "workspace")
+	sshDir := filepath.Join(allowedDir, ".ssh")
+
+	err := os.MkdirAll(sshDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	keyFile := filepath.Join(sshDir, "id_rsa")
+
+	err = os.WriteFile(keyFile, []byte("ssh-key"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{
+		AllowedPaths: []string{allowedDir},
+	}
+
+	_, err = validateFilePath(keyFile, cfg)
+	if err == nil {
+		t.Fatal("expected error for .ssh component inside ALLOWED_PATHS, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedComponent) {
+		t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+	}
+}
+
 func TestValidateFilePath_AllowedPathBlockedByUserBlocklist(t *testing.T) {
 	t.Parallel()
 	// ALLOWED_PATHS should bypass even the user blocklist.
