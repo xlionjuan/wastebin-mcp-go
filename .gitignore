@@ -37,3 +37,4 @@ REPORT.md
 
 # Environment files (keep .env.example)
 .env
+.claude
