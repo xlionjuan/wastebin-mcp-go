@@ -110,9 +110,9 @@ pastes.
   for wastebin-mcp-go is uploading file contents from a workspace. Requiring
   explicit opt-in for every deployment adds friction.
 - **Security guards prevent abuse in default configuration:**
-  - Path allowlist (`WASTEBIN_MCP_ALLOWED_PATHS`): No file reads succeed
-    without explicit path configuration. When file mode is enabled and
-    ALLOWED_PATHS is empty, all file reads are refused.
+  - Path allowlist (`WASTEBIN_MCP_ALLOWED_PATHS`): When configured, only paths
+    under allowed directories are accepted. When empty, the server falls through
+    to the blocklist pipeline (built-in + user blocklists).
   - Path blocklist (`WASTEBIN_MCP_BLOCKED_PATHS`, default
     `/etc,/proc,/sys,/dev`): Sensitive system directories are blocked.
   - Symlink resolution (`filepath.EvalSymlinks`): Prevents symlink-based

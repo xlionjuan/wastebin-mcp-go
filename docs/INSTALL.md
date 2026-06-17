@@ -186,10 +186,13 @@ path must be within one of the allowed directories. When file read mode is
 enabled and `ALLOWED_PATHS` is empty, the server skips the allowlist check and
 falls through to the blocklist pipeline.
 
-**ALLOWED_PATHS bypasses all blocklists.** If the resolved path is under an
-allowed directory, it is accepted immediately — neither the built-in nor the
-user-defined blocklist is consulted. This prevents blocklists from interfering
-with legitimate file reads in configured directories.
+**ALLOWED_PATHS bypasses the system directory prefix blocklist and the user
+blocklist, but not the sensitive component blocklist.** If the resolved path
+is under an allowed directory, it is accepted immediately — but sensitive path
+components (`.ssh`, `.gnupg`, `.aws`, `.kube`, `.docker`, `.git`) are still
+checked and rejected if found. This prevents blocklists from interfering with
+legitimate file reads in configured directories while maintaining credential
+protection.
 
 ### Path Blocklist (Built-in + User-defined)
 

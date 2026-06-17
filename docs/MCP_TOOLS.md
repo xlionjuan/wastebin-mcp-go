@@ -60,8 +60,7 @@ configuration. The following rules determine which parameters appear:
 **Behavior in transparent mode**: When `WASTEBIN_MCP_SANDBOX_TRANSPARENT=true`,
 the server translates the sandbox path automatically without requiring the
 caller to set `translate_sandbox_path`. If the path does not match any
-configured mount, it is used as-is (no error). The path must still pass the
-allowlist + blocklist checks.
+configured mount, the request is rejected with an error.
 
 > **Summary:** Agents should always check the tool schema at runtime rather
 > than hard-coding parameter names.
