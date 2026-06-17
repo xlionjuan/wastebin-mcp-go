@@ -1027,6 +1027,97 @@ func TestCreatePaste_FileMode_SandboxTranslationWithoutFlag(t *testing.T) {
 	}
 }
 
+func TestCreatePaste_FileMode_SandboxTranslationNoMounts(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	sandboxPath := "/workspace/file.txt"
+	translate := true
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath:             &sandboxPath,
+		TranslateSandboxPath: &translate,
+	})
+	if err == nil {
+		t.Fatal("expected error for sandbox translation with no mounts")
+	}
+
+	if !errors.Is(err, errSandboxTranslationNoMounts) {
+		t.Errorf("expected errSandboxTranslationNoMounts, got: %v", err)
+	}
+}
+
+func TestCreatePaste_FileMode_SandboxTranslationNoMatch(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.SandboxMounts = []SandboxMount{
+		{HostPath: "/tmp", SandboxPath: "/workspace"},
+	}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	// Path does not match any configured mount.
+	sandboxPath := "/other/path/file.txt"
+	translate := true
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath:             &sandboxPath,
+		TranslateSandboxPath: &translate,
+	})
+	if err == nil {
+		t.Fatal("expected error for unmounted sandbox path")
+	}
+
+	if !errors.Is(err, errSandboxTranslationNoMatch) {
+		t.Errorf("expected errSandboxTranslationNoMatch, got: %v", err)
+	}
+}
+
+func TestCreatePaste_SandboxTranslationUnderMountHost_Rejected(t *testing.T) {
+	t.Parallel()
+
+	// When HostPath is "/", isUnderMountHost uses "//" as the prefix check.
+	// No path starts with "//", so every translated path fails the check
+	// and is rejected, even though it's technically under "/".
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.SandboxMounts = []SandboxMount{
+		{HostPath: "/", SandboxPath: "/workspace"},
+	}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	sandboxPath := "/workspace/foo"
+	translate := true
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath:             &sandboxPath,
+		TranslateSandboxPath: &translate,
+	})
+	if err == nil {
+		t.Fatal("expected error for escaped sandbox path, got nil")
+	}
+
+	if !errors.Is(err, errPathTraversal) {
+		t.Errorf("expected errPathTraversal, got: %v", err)
+	}
+}
+
 func TestCreatePaste_SandboxPathTraversal_Rejected(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
