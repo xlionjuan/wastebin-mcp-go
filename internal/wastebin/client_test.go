@@ -1088,9 +1088,11 @@ func TestCreatePaste_FileMode_SandboxTranslationNoMatch(t *testing.T) {
 func TestCreatePaste_SandboxTranslationUnderMountHost_Rejected(t *testing.T) {
 	t.Parallel()
 
-	// When HostPath is "/", isUnderMountHost uses "//" as the prefix check.
-	// No path starts with "//", so every translated path fails the check
-	// and is rejected, even though it's technically under "/".
+	// HostPath "/" used to be broken — isUnderMountHost appended "//" as the
+	// prefix check, causing every subpath to be falsely rejected. After the
+	// fix using filepath.Rel, the path is correctly recognized as under "/",
+	// so it passes the traversal check and fails only because the file does
+	// not exist.
 	cfg := DefaultConfig()
 	cfg.ServerURL = "http://localhost:12345"
 	cfg.SandboxMounts = []SandboxMount{
@@ -1110,11 +1112,13 @@ func TestCreatePaste_SandboxTranslationUnderMountHost_Rejected(t *testing.T) {
 		TranslateSandboxPath: &translate,
 	})
 	if err == nil {
-		t.Fatal("expected error for escaped sandbox path, got nil")
+		t.Fatal("expected error, got nil")
 	}
 
-	if !errors.Is(err, errPathTraversal) {
-		t.Errorf("expected errPathTraversal, got: %v", err)
+	// The path is correctly translated and passes the traversal check.
+	// It fails because the translated file does not exist on disk.
+	if errors.Is(err, errPathTraversal) {
+		t.Errorf("expected non-traversal error after root-path fix, got errPathTraversal")
 	}
 }
 

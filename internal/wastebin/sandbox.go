@@ -94,7 +94,7 @@ func isUnderMountHost(path string, mounts []SandboxMount) bool {
 
 	for _, m := range mounts {
 		hostClean := filepath.Clean(m.HostPath)
-		if cleaned == hostClean || strings.HasPrefix(cleaned, hostClean+string(filepath.Separator)) {
+		if isContainedPath(hostClean, cleaned) {
 			return true
 		}
 	}
@@ -106,14 +106,17 @@ func isUnderMountHost(path string, mounts []SandboxMount) bool {
 // Returns empty string and false if no mount matches.
 func (t *Translator) Translate(sandboxPath string) (string, bool) {
 	for _, m := range t.mounts {
-		if sandboxPath == m.SandboxPath {
+		rel, err := filepath.Rel(m.SandboxPath, sandboxPath)
+		if err != nil {
+			continue
+		}
+
+		if rel == "." {
 			return m.HostPath, true
 		}
 
-		if strings.HasPrefix(sandboxPath, m.SandboxPath+"/") {
-			rest := sandboxPath[len(m.SandboxPath)+1:]
-
-			return filepath.Join(m.HostPath, rest), true
+		if !strings.HasPrefix(rel, "..") {
+			return filepath.Join(m.HostPath, rel), true
 		}
 	}
 

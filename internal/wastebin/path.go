@@ -21,6 +21,17 @@ var (
 // builtinBlockedPrefixes are absolute path prefixes blocked by default.
 var builtinBlockedPrefixes = []string{"/etc", "/proc", "/sys", "/dev"}
 
+// isContainedPath reports whether target is under or equal to base.
+// Both paths should be cleaned before passing to this function.
+func isContainedPath(base, target string) bool {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+
+	return rel == "." || !strings.HasPrefix(rel, "..")
+}
+
 // builtinBlockedComponents are directory/file names blocked by default
 // regardless of their location in the directory tree.
 var builtinBlockedComponents = []string{".ssh", ".gnupg", ".aws", ".kube", ".docker", ".git"}
@@ -51,7 +62,7 @@ func isAllowedPath(resolvedPath string, allowedPaths []string) bool {
 	cleaned := filepath.Clean(resolvedPath)
 	for _, allowed := range allowedPaths {
 		allowed = filepath.Clean(allowed)
-		if cleaned == allowed || strings.HasPrefix(cleaned, allowed+string(filepath.Separator)) {
+		if isContainedPath(allowed, cleaned) {
 			return true
 		}
 	}
@@ -94,7 +105,7 @@ func isUserBlocked(resolvedPath string, userBlockedPaths []string) (string, bool
 	cleaned := filepath.Clean(resolvedPath)
 	for _, blocked := range userBlockedPaths {
 		blocked = filepath.Clean(blocked)
-		if cleaned == blocked || strings.HasPrefix(cleaned, blocked+string(filepath.Separator)) {
+		if isContainedPath(blocked, cleaned) {
 			return blocked, true
 		}
 	}

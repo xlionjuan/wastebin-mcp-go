@@ -285,21 +285,12 @@ func TestTranslator_PathTraversal_Rejected(t *testing.T) {
 	}
 	tr := NewTranslator(mounts)
 
-	// filepath.Join("/host/workspace", "../secret.txt") → "/host/secret.txt"
-	// The normalization removes ".." — the mount check after translation
-	// must prevent the escape.
-	host, ok := tr.Translate("/workspace/../secret.txt")
-	if !ok {
-		t.Fatal("expected match (translation happens before validation)")
-	}
-
-	if host == "/host/workspace/secret.txt" {
-		t.Error("expected translated path to escape workspace due to ..")
-	}
-
-	// Verify isUnderMountHost catches the escape.
-	if isUnderMountHost(host, mounts) {
-		t.Errorf("expected translated path %q to NOT be under mount host root /host/workspace", host)
+	// filepath.Rel normalizes ".." before computing the relative path,
+	// so Translate does not match paths with parent directory references.
+	// Path traversal is caught upstream by hasPathTraversal.
+	_, ok := tr.Translate("/workspace/../secret.txt")
+	if ok {
+		t.Fatal("expected no match — filepath.Rel normalizes .. so this is not under /workspace")
 	}
 }
 
@@ -311,13 +302,10 @@ func TestTranslator_DoubleDotDot_Rejected(t *testing.T) {
 	}
 	tr := NewTranslator(mounts)
 
-	host, ok := tr.Translate("/workspace/../../etc/passwd")
-	if !ok {
-		t.Fatal("expected match")
-	}
-
-	if isUnderMountHost(host, mounts) {
-		t.Errorf("expected translated path %q to NOT be under mount host root", host)
+	// filepath.Rel normalizes "..", so this path is not under /workspace.
+	_, ok := tr.Translate("/workspace/../../etc/passwd")
+	if ok {
+		t.Fatal("expected no match — filepath.Rel normalizes .. so this is not under /workspace")
 	}
 }
 
