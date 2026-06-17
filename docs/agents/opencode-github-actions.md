@@ -118,6 +118,11 @@ bring the PR title back into compliance before reporting the metadata work
 complete. If a title-related status check is failing, inspect the check message
 and make the new title satisfy that policy.
 
+When editing PR metadata, the agent must discover the PR number from the
+environment — the system does not inject it. Follow the "Discover PR number"
+step in `docs/agents/pull-requests.md` before running `gh pr edit`. Do not
+guess the number; guessing will target the wrong PR.
+
 Automatically appended OpenCode session links, social-card images, and GitHub
 Actions run links are allowed as supplemental metadata. They must not replace
 the normal PR body sections.

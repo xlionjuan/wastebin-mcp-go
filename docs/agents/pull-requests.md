@@ -26,6 +26,22 @@ title control, and workflow-provided git identity.
 Common commands:
 
 - **Inspect current PR context**: `gh pr view --json number,title,body,labels,files,reviewDecision,statusCheckRollup`
+- **Discover PR number**: The system does not inject the PR number into the
+  agent's context. Before editing a PR, discover it from the working tree. The
+  primary path reads it from the current branch:
+
+  ```bash
+  gh pr view --json number --jq '.number'
+  ```
+
+  If that fails or returns no result, fall back to listing PRs by head branch:
+
+  ```bash
+  gh pr list --head "$(git rev-parse --abbrev-ref HEAD)" --json number --jq '.[0].number'
+  ```
+
+  Verify the discovered number matches the PR you intend to edit (check at
+  least title and head branch) before making changes.
 - **Create a PR**: `gh pr create --title "..." --body "..."`
 - **Update PR metadata**: `gh pr edit <number> --title "..." --body "..."`
 - **Check CI**: `gh pr checks <number>`
