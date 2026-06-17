@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -339,6 +340,20 @@ func TestRunCLIMode_ConfigError(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "configuration error") {
 		t.Errorf("expected configuration error, got: %v", err)
+	}
+}
+
+func TestRunCLIMode_FileReadDisabled(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "http://localhost:12345")
+	t.Setenv("WASTEBIN_MCP_FILE_READ_ENABLED", "false")
+
+	err := runCLIMode(&CLIFlags{FilePath: "/tmp/test.txt"})
+	if err == nil {
+		t.Fatal("expected error when FileReadEnabled=false with --file-path")
+	}
+
+	if !errors.Is(err, errFileReadDisabledCLI) {
+		t.Errorf("expected errFileReadDisabledCLI, got: %v", err)
 	}
 }
 
