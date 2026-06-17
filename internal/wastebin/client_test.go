@@ -1012,6 +1012,39 @@ func TestCreatePaste_FileMode_SandboxTranslationNoMatch(t *testing.T) {
 	}
 }
 
+func TestCreatePaste_SandboxTranslationUnderMountHost_Rejected(t *testing.T) {
+	t.Parallel()
+
+	// When HostPath is "/", isUnderMountHost uses "//" as the prefix check.
+	// No path starts with "//", so every translated path fails the check
+	// and is rejected, even though it's technically under "/".
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.SandboxMounts = []SandboxMount{
+		{HostPath: "/", SandboxPath: "/workspace"},
+	}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	sandboxPath := "/workspace/foo"
+	translate := true
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath:             &sandboxPath,
+		TranslateSandboxPath: &translate,
+	})
+	if err == nil {
+		t.Fatal("expected error for escaped sandbox path, got nil")
+	}
+
+	if !errors.Is(err, errPathTraversal) {
+		t.Errorf("expected errPathTraversal, got: %v", err)
+	}
+}
+
 func TestCreatePaste_SandboxPathTraversal_Rejected(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
