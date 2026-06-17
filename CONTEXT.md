@@ -21,9 +21,11 @@ and optional sandbox path translation flag.
 hostname, paste id, and URL variants (raw, rendered).
 
 **Blocklist**: A default set of sensitive system directories (`/etc`, `/proc`,
-`/sys`, `/dev`) that are denied unless explicitly allowed via ALLOWED_PATHS.
-The allowlist takes precedence — a path under a blocked directory IS accessible
-if the user explicitly added it to ALLOWED_PATHS.
+`/sys`, `/dev`) and sensitive path components (`.ssh`, `.gnupg`, `.aws`,
+`.kube`, `.docker`, `.git`) that are denied. The allowlist bypasses system
+directory prefixes (so `ALLOWED_PATHS=/etc/nginx` works) but the sensitive
+**component** blocklist is enforced regardless of ALLOWED_PATHS — a path
+under an allowed directory that contains `.ssh` or `.git` is still denied.
 
 ### Wastebin API
 
@@ -178,12 +180,18 @@ resolved path must be within one of the allowed directories. Has no default; if
 file read mode is enabled and ALLOWED_PATHS is empty, the server skips the
 allowlist check and falls through to the blocklist pipeline instead.
 
-**Path Blocklist** (`WASTEBIN_MCP_BLOCKED_PATHS`): A comma-separated list of
+**Built-in Blocklist**: Two independent sub-checks:
+- **System directory prefixes** (`/etc`, `/proc`, `/sys`, `/dev`): Bypassed by
+  ALLOWED_PATHS. This allows e.g. `ALLOWED_PATHS=/etc/nginx` to work despite
+  `/etc` being in the prefix blocklist.
+- **Sensitive path components** (`.ssh`, `.gnupg`, `.aws`, `.kube`, `.docker`,
+  `.git`): **Not bypassed by ALLOWED_PATHS.** Even if a file is under an
+  explicitly allowed directory, it is denied if any path component matches
+  a sensitive pattern.
+
+**User Blocklist** (`WASTEBIN_MCP_BLOCKED_PATHS`): A comma-separated list of
 absolute directory paths that are denied by default. Default value:
-`/etc,/proc,/sys,/dev`. The allowlist takes precedence over the blocklist — if
-a file is under a blocked directory but explicitly inside an ALLOWED_PATHS entry,
-it IS accessible. This allows e.g. ALLOWED_PATHS=/etc/nginx to work despite `/etc`
-being blocked.
+`/etc,/proc,/sys,/dev`. The allowlist takes precedence over the user blocklist.
 
 **Path resolution**: Before any check, the path is resolved via
 `filepath.EvalSymlinks` and `filepath.Clean`. This prevents symlink-based
@@ -193,13 +201,26 @@ allowlist bypass.
 
 ```
 User-supplied file_path
+  → Path traversal detection (before sandbox translation)
+  → Sandbox translation (if enabled)
+  → Mount host root verification (after translation)
   → Resolve (EvalSymlinks + Clean)
-  → ALLOWED_PATHS check
-     ├─ Under an allowed path  → ✅  proceed to IsLikelyText
-     └─ Not under any allowed path
-        └─ BLOCKED_PATHS check
-           ├─ Under a blocked path → ❌  denied
-           └─ Not under any blocked path → ❌  denied (not authorized)
+  → Stage 1 — Path traversal detection
+     ├─ Traversal found → ❌  denied
+     └─ OK
+        → Stage 2 — ALLOWED_PATHS check
+           ├─ Under an allowed path → Stage 3b (sensitive component check)
+           │                          ├─ Blocked component found → ❌  denied
+           │                          └─ No blocked component → ✅  IsLikelyText
+           └─ Not under any allowed path
+              → Stage 3a — Built-in prefix blocklist
+              │  ├─ Blocked → ❌  denied
+              │  └─ OK → Stage 3b — Built-in component blocklist
+              │          ├─ Blocked → ❌  denied
+              │          └─ OK → Stage 4 — User blocklist
+              │                  ├─ Blocked → ❌  denied
+              │                  └─ OK → ❌  denied (not authorized)
+              └─ (end)
 ```
 
 **File validation (text detection: IsLikelyText)**:
@@ -235,11 +256,22 @@ container/sandbox-internal paths to host paths before file reading.
 comma-separated. Example:
 `/home/user/.hermes/profiles/neko/sandboxes/default/workspace:/workspace`
 
+Sandbox mount paths must be unique and non-overlapping — one mount's sandbox
+path cannot be a prefix of another's. Overlapping or duplicate paths are
+rejected at startup with a clear error.
+
 **Translation Modes**:
 - **opt-in** (default): Tool schema includes a `translate_sandbox_path`
   boolean parameter. The caller must explicitly set it to `true`.
 - **transparent** (`WASTEBIN_MCP_SANDBOX_TRANSPARENT=true`): Translation is
-  automatic. The `translate_sandbox_path` parameter is removed from schema.
+  automatic. The `translate_sandbox_path` parameter is removed from the
+  schema, and the server always attempts sandbox-to-host translation when
+  mounts are configured.
+
+**Behavior when a transparent-mode path matches no mount**: If the path does
+not match any configured mount, it is used as-is (no translation, no error).
+The path must still pass the allowlist + blocklist checks after translation
+(or as-is when no mount matches).
 
 In both modes, the translated path must still pass the allowlist + blocklist
 checks.
@@ -249,6 +281,11 @@ server validates at startup that each mount's `host_path` component is covered
 by at least one entry in `WASTEBIN_MCP_ALLOWED_PATHS`. If not, the server prints
 a clear error and exits. This prevents opaque "path not allowed" failures that
 an agent cannot debug.
+
+**Security**: Path traversal (`..`) is detected on the original sandbox path
+_before_ any translation occurs. After translation, the result is verified to
+still be under the matched mount's host root. This prevents an attacker from
+using `filepath.Join` normalization to bypass the traversal check.
 
 ### Gating Summary
 

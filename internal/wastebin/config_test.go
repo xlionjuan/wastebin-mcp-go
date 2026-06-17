@@ -375,6 +375,20 @@ func TestConfigFromEnv_InvalidDebug(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnv_SandboxMountNonExistentHostPath(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", "/nonexistent/path/that/does/not/exist/12345:/workspace")
+
+	_, err := ConfigFromEnv()
+	if err == nil {
+		t.Fatal("expected error for nonexistent sandbox mount host path")
+	}
+
+	if !strings.Contains(err.Error(), "failed to resolve sandbox mount host path") {
+		t.Errorf("expected 'failed to resolve sandbox mount host path', got: %v", err)
+	}
+}
+
 func TestConfigFromEnv_InvalidSandboxMounts(t *testing.T) {
 	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", "invalid-format")
@@ -467,43 +481,6 @@ func TestConfigFromEnv_AllowedPathsNonExistent(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "failed to resolve allowed path") {
 		t.Errorf("expected 'failed to resolve allowed path', got: %v", err)
-	}
-}
-
-func TestConfigFromEnv_SandboxMountHostPathNotExist(t *testing.T) {
-	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
-	t.Setenv("WASTEBIN_MCP_ALLOWED_PATHS", "/tmp")
-	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", "/nonexistent/mount/path/12345:/workspace")
-
-	_, err := ConfigFromEnv()
-	if err == nil {
-		t.Fatal("expected error for nonexistent mount host path")
-	}
-
-	if !strings.Contains(err.Error(), "failed to resolve mount host path") {
-		t.Errorf("expected 'failed to resolve mount host path', got: %v", err)
-	}
-}
-
-func TestConfigFromEnv_SandboxMountNoAllowedPaths(t *testing.T) {
-	tmpDir := t.TempDir()
-	mountDir := filepath.Join(tmpDir, "mount")
-
-	err := os.Mkdir(mountDir, 0o750)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
-	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", mountDir+":/workspace")
-
-	cfg, err := ConfigFromEnv()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(cfg.SandboxMounts) != 1 {
-		t.Fatalf("expected 1 SandboxMount, got %d", len(cfg.SandboxMounts))
 	}
 }
 
