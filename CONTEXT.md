@@ -271,9 +271,7 @@ rejected at startup with a clear error.
   mounts are configured.
 
 **Behavior when a transparent-mode path matches no mount**: If the path does
-not match any configured mount, it is used as-is (no translation, no error).
-The path must still pass the allowlist + blocklist checks after translation
-(or as-is when no mount matches).
+not match any configured mount, the request is rejected with an error.
 
 In both modes, the translated path must still pass the allowlist + blocklist
 checks.
