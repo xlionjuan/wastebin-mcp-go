@@ -123,6 +123,7 @@ func TestParseExpiration_Negative(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected error for input %q", tt.input)
 			}
+
 			if tt.wantMsg != "" && err.Error() != tt.wantMsg {
 				t.Errorf("got error %q, want %q", err.Error(), tt.wantMsg)
 			}
@@ -228,6 +229,7 @@ func TestParseExpiration_HugeSeconds(t *testing.T) {
 
 func TestParseExpiration_OverflowYears(t *testing.T) {
 	t.Parallel()
+
 	if strconv.IntSize < 64 {
 		t.Skip("test requires 64-bit int")
 	}
@@ -263,6 +265,7 @@ func FuzzParseExpiration(f *testing.F) {
 		if err != nil {
 			return
 		}
+
 		if n < 0 {
 			t.Errorf("ParseExpiration(%q, 3600) = %d, want >= 0", s, n)
 		}
