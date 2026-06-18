@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 )
 
@@ -2276,5 +2278,560 @@ func TestCreatePaste_FileReadDisabled_RejectsBothContentAndFilePath(t *testing.T
 	// Mutual exclusivity check takes priority over file read disabled check.
 	if !errors.Is(err, errBothContentAndFilePath) {
 		t.Errorf("expected errBothContentAndFilePath, got: %v", err)
+	}
+}
+
+func TestCreatePaste_FileMode_OpenError(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	filePath := filepath.Join(allowedDir, "noread.txt")
+
+	err = os.WriteFile(filePath, []byte("content"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Remove read permission — os.Open should fail with EACCES while
+	// validateFilePath (EvalSymlinks) still succeeds.
+	err = os.Chmod(filePath, 0o000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify we aren't running as root (which ignores permissions).
+	f, openErr := os.Open(filePath) //nolint:gosec // Test helper — intentional unreadable file
+	if openErr == nil {
+		_ = f.Close() //nolint:errcheck // Best-effort close before skip
+
+		t.Skip("skipping: running as root — permission checks are bypassed")
+	}
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.AllowedPaths = []string{allowedDir}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath: &filePath,
+	})
+	if err == nil {
+		t.Fatal("expected error for unopenable file")
+	}
+
+	if !errors.Is(err, errFilePathCannotBeUsed) {
+		t.Errorf("expected errFilePathCannotBeUsed, got: %v", err)
+	}
+}
+
+func TestCreatePaste_FileMode_NonRegularFileRejected(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fifoPath := filepath.Join(allowedDir, "nonregular.fifo")
+
+	err = syscall.Mkfifo(fifoPath, 0o600)
+	if err != nil {
+		t.Skipf("skipping: cannot create FIFO: %v", err)
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		w, wErr := os.OpenFile(fifoPath, os.O_WRONLY, 0) //nolint:gosec // Test helper — FIFO writer
+		if wErr != nil {
+			return
+		}
+
+		_, _ = w.WriteString("data") //nolint:errcheck // Test helper — FIFO write
+		_ = w.Close()                //nolint:errcheck // Test helper — FIFO close
+	}()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.AllowedPaths = []string{allowedDir}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath: &fifoPath,
+	})
+	if err == nil {
+		t.Fatal("expected error for non-regular file (FIFO)")
+	}
+
+	if !errors.Is(err, errFilePathCannotBeUsed) {
+		t.Errorf("expected errFilePathCannotBeUsed, got: %v", err)
+	}
+
+	<-done
+}
+
+// TestCreatePaste_SymlinkSwapRace verifies that a post-validation symlink
+// swap does not cause blocked-directory content to be uploaded.  An attacker
+// goroutine rapidly flips the victim file between a regular file (with
+// allowed content) and a symlink to a blocked-path file.  Under the old code
+// (os.Open without O_NOFOLLOW) this would occasionally read blocked content;
+// under the fix the fd-based openat+O_NOFOLLOW traversal only ever reads the
+// original file or fails with an error — blocked content is never uploaded.
+//
+//nolint:paralleltest // Uses shared filesystem; goroutine coordination relies on global state
+func TestCreatePaste_SymlinkSwapRace(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+	blockedDir := filepath.Join(tmpDir, "blocked")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Mkdir(blockedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write blocked content that must never reach the server.
+	blockedContent := "BLOCKED-SECRET-DATA-" + t.Name()
+
+	blockedFile := filepath.Join(blockedDir, "secret.txt")
+
+	err = os.WriteFile(blockedFile, []byte(blockedContent), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Allowed file content.
+	realContent := "allowed-public-content-" + t.Name()
+
+	victimFile := filepath.Join(allowedDir, "victim.txt")
+
+	// Start with the real file.
+	err = os.WriteFile(victimFile, []byte(realContent), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		mu              sync.Mutex
+		blockedObserved bool
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		_ = json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck // Test helper — best-effort decode
+
+		if text, ok := req["text"].(string); ok {
+			mu.Lock()
+			if text == blockedContent {
+				blockedObserved = true
+			}
+			mu.Unlock()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/RESULT.txt"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+	cfg.AllowedPaths = []string{allowedDir}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Attacker goroutine: rapidly flips the victim file between a regular
+	// file and a symlink to the blocked file.  The rapid switching creates
+	// a realistic TOCTOU window between validateFilePath and the open call.
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			// Replace with symlink.
+			_ = os.Remove(victimFile)               //nolint:errcheck // Test helper — best-effort
+			_ = os.Symlink(blockedFile, victimFile) //nolint:errcheck // Test helper — best-effort
+
+			// Swap back to regular file.
+			_ = os.Remove(victimFile)                                //nolint:errcheck // Test helper — best-effort
+			_ = os.WriteFile(victimFile, []byte(realContent), 0o600) //nolint:errcheck // Test helper — best-effort
+		}
+	}()
+
+	// Run many CreatePaste attempts.  Statistically, some will hit the
+	// window where validateFilePath sees the real file but open sees
+	// the symlink.  With O_NOFOLLOW, those attempts simply fail — the
+	// blocked content is never read.
+	for range 200 {
+		fp := victimFile
+
+		_, _ = client.CreatePaste(ctx, &CreatePasteArgs{ //nolint:errcheck // Test helper — errors expected
+			FilePath: &fp,
+		})
+	}
+
+	cancel()
+
+	mu.Lock()
+	if blockedObserved {
+		t.Error("blocked content was uploaded — symlink swap protection failed")
+	}
+	mu.Unlock()
+}
+
+// TestCreatePaste_SymlinkSwapRace_NoAllowedPaths tests the case where
+// ALLOWED_PATHS is empty and an intermediate directory (flipDir) is rapidly
+// swapped between a real directory and a symlink to a blocked directory.  The
+// openat+O_NOFOLLOW walk from / must reject the swapped intermediate component
+// (ELOOP) rather than follow it to the blocked directory.
+//
+//nolint:paralleltest // Uses shared filesystem; goroutine coordination
+func TestCreatePaste_SymlinkSwapRace_NoAllowedPaths(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	flipDir := filepath.Join(tmpDir, "flip")
+	blockedDir := filepath.Join(tmpDir, "blocked")
+
+	err := os.MkdirAll(flipDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.MkdirAll(blockedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	targetFile := "victim.txt"
+	safeContent := "safe-data-" + t.Name()
+	blockedContent := "BLOCKED-SECRET-" + t.Name()
+
+	// Same filename in both directories — if the symlink is followed, the
+	// blocked file with the same name would be opened.
+	err = os.WriteFile(filepath.Join(flipDir, targetFile), []byte(safeContent), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.WriteFile(filepath.Join(blockedDir, targetFile), []byte(blockedContent), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	victimPath := filepath.Join(flipDir, targetFile)
+
+	var (
+		mu              sync.Mutex
+		blockedObserved bool
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		_ = json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck // Test helper — best-effort decode
+
+		if text, ok := req["text"].(string); ok {
+			mu.Lock()
+			if text == blockedContent {
+				blockedObserved = true
+			}
+			mu.Unlock()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/RESULT.txt"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+	cfg.BlockedPaths = []string{blockedDir}
+	// AllowedPaths is deliberately empty — exercises the no-ALLOWED_PATHS
+	// branch of openFileResolved which walks from / with openat+O_NOFOLLOW.
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var racerDone sync.WaitGroup
+
+	racerDone.Add(1)
+
+	// Attacker goroutine: rapidly flips flipDir between a real directory
+	// (containing the safe victim.txt) and a symlink to blockedDir (which
+	// also contains a victim.txt with blocked content).  A TOCTOU window
+	// exists between validateFilePath (which calls EvalSymlinks) and the
+	// openat+O_NOFOLLOW walk.
+	//nolint:modernize // sync.WaitGroup.Go doesn't exist; plain go+Add pattern
+	go func() {
+		defer racerDone.Done()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			_ = os.RemoveAll(flipDir)           //nolint:errcheck // Test helper — best-effort
+			_ = os.Symlink(blockedDir, flipDir) //nolint:errcheck // Test helper — best-effort
+			_ = os.RemoveAll(flipDir)           //nolint:errcheck // Test helper — best-effort
+			_ = os.MkdirAll(flipDir, 0o750)     //nolint:errcheck // Test helper — best-effort
+			_ = os.WriteFile(                   //nolint:errcheck,nolintlint,gosec // Test helper
+				filepath.Join(flipDir, targetFile),
+				[]byte(safeContent), 0o600,
+			)
+		}
+	}()
+
+	for range 200 {
+		fp := victimPath
+
+		_, _ = client.CreatePaste(ctx, &CreatePasteArgs{ //nolint:errcheck // Test helper — errors expected
+			FilePath: &fp,
+		})
+	}
+
+	cancel()
+	racerDone.Wait()
+
+	mu.Lock()
+	if blockedObserved {
+		t.Error("blocked content was uploaded — intermediate symlink swap protection failed")
+	}
+	mu.Unlock()
+}
+
+// TestCreatePaste_FileMode_PostReadSizeCheck_Race verifies that the
+// post-read size check catches files that grow between f.Stat() and
+// io.ReadAll.  A concurrent writer rapidly toggles the file between
+// MaxContentSize bytes and 3×MaxContentSize bytes, so that some
+// CreatePaste calls will see fi.Size() ≤ MaxContentSize (pre-check
+// passes) but then actually read more (post-check catches).
+//
+//nolint:paralleltest // Shared filesystem; goroutine coordination
+func TestCreatePaste_FileMode_PostReadSizeCheck_Race(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	filePath := filepath.Join(allowedDir, "growing.txt")
+	maxSize := int64(50)
+
+	smallContent := make([]byte, maxSize)
+
+	err = os.WriteFile(filePath, smallContent, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		mu                 sync.Mutex
+		oversizeUploaded   bool
+		errContentTooLarge bool
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		_ = json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck // Test helper — best-effort decode
+
+		if text, ok := req["text"].(string); ok {
+			mu.Lock()
+			if int64(len(text)) > maxSize {
+				oversizeUploaded = true
+			}
+			mu.Unlock()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/RESULT.txt"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+	cfg.AllowedPaths = []string{allowedDir}
+	cfg.MaxContentSize = maxSize
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Writer goroutine: rapidly toggle file size between small and large.
+	largeContent := make([]byte, maxSize*3)
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			_ = os.WriteFile(filePath, largeContent, 0o600) //nolint:errcheck // Test helper — best-effort
+			_ = os.WriteFile(filePath, smallContent, 0o600) //nolint:errcheck // Test helper — best-effort
+		}
+	}()
+
+	for range 500 {
+		fp := filePath
+
+		_, err := client.CreatePaste(ctx, &CreatePasteArgs{
+			FilePath: &fp,
+		})
+		if err != nil && strings.Contains(err.Error(), "content exceeds the maximum allowed size") {
+			mu.Lock()
+			errContentTooLarge = true
+			mu.Unlock()
+		}
+	}
+
+	cancel()
+
+	mu.Lock()
+	if oversizeUploaded {
+		t.Error("content exceeding MaxContentSize was uploaded — post-read size check race protection failed")
+	}
+
+	if !errContentTooLarge {
+		t.Log("warning: race window not hit in 500 iterations; post-read size check not verified (non-deterministic)")
+	}
+	mu.Unlock()
+}
+
+// TestCreatePaste_FileMode_AllowedRootParentSymlinkSwap verifies that an
+// ALLOWED_PATHS parent-directory symlink swap does NOT cause blocked content
+// to be uploaded.  Unlike the race-based tests (which rely on timing), this
+// test is deterministic: the symlink swap happens BEFORE openFileResolved is
+// called.  findAllowedRoot performs string-based matching and still considers
+// the path allowed, but the openat+O_NOFOLLOW walk from / rejects the
+// symlinked intermediate component with ELOOP, causing openFileResolved to
+// fail rather than follow the symlink to the blocked tree.
+//
+//nolint:paralleltest // Uses shared filesystem
+func TestCreatePaste_FileMode_AllowedRootParentSymlinkSwap(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Directory structure:
+	//   real-parent/allowed/victim.txt        (safe — should be readable)
+	//   blocked-parent/allowed/victim.txt     (should never be read)
+	realParentDir := filepath.Join(tmpDir, "real-parent")
+	blockedParentDir := filepath.Join(tmpDir, "blocked-parent")
+	allowedDir := filepath.Join(realParentDir, "allowed")
+	blockedAllowedDir := filepath.Join(blockedParentDir, "allowed")
+
+	err := os.MkdirAll(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.MkdirAll(blockedAllowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	safeContent := "safe-content-" + t.Name()
+	blockedContent := "BLOCKED-SECRET-" + t.Name()
+
+	victimFile := filepath.Join(allowedDir, "victim.txt")
+	blockedVictim := filepath.Join(blockedAllowedDir, "victim.txt")
+
+	err = os.WriteFile(victimFile, []byte(safeContent), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.WriteFile(blockedVictim, []byte(blockedContent), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The resolved path as computed by validateFilePath while real-parent is real.
+	resolvedPath := victimFile
+
+	// Now swap real-parent to a symlink to blocked-parent.
+	// After this swap, resolvedPath is no longer reachable via the real
+	// filesystem — instead, walking resolvedPath would end up at blockedVictim.
+	err = os.RemoveAll(realParentDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Symlink(blockedParentDir, realParentDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Call openFileResolved with allowedPaths set to the original allowed dir.
+	// findAllowedRoot uses string matching and still accepts resolvedPath.
+	// But the openat+O_NOFOLLOW walk from / will fail on the "real-parent"
+	// component because it is now a symlink.  The test asserts an error.
+	f, openErr := openFileResolved(resolvedPath, []string{allowedDir})
+	if openErr == nil {
+		_ = f.Close() //nolint:errcheck // Cleanup; not relevant to the assertion
+
+		t.Fatal("expected error after parent-directory symlink swap, got nil")
+	}
+
+	// Also verify: if we bypass the regex test and try to open resolvedPath
+	// directly through openFileResolved a second time, it should also fail
+	// for the same reason (intermediate component is a symlink).
+	f2, openErr2 := openFileResolved(resolvedPath, []string{allowedDir})
+	if openErr2 == nil {
+		_ = f2.Close() //nolint:errcheck // Cleanup
+
+		t.Error("expected error even on second call — symlink should still be rejected")
 	}
 }

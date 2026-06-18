@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -350,9 +349,25 @@ func (c *WastebinClient) readFileContent(
 		return "", "", err
 	}
 
-	// 3. Pre-check file size before reading (OOM prevention).
-	fi, statErr := os.Stat(resolvedPath)
+	// 3. Open via fd-based symlink-safe traversal, stat the fd, and read
+	//    through LimitReader.  When allowed paths are configured we walk
+	//    every component from a pinned root fd with openat+O_NOFOLLOW so
+	//    a post-validation symlink swap cannot cause a blocked-path read.
+	f, openErr := openFileResolved(resolvedPath, c.config.AllowedPaths)
+	if openErr != nil {
+		return "", "", errFilePathCannotBeUsed
+	}
+	defer f.Close() //nolint:errcheck // Read-only file; close error non-critical
+
+	fi, statErr := f.Stat()
 	if statErr != nil {
+		return "", "", errFilePathCannotBeUsed
+	}
+
+	// Reject non-regular files — ensures the opened object is a plain
+	// file and not a symlink (already prevented by O_NOFOLLOW above),
+	// directory, FIFO, device, or other special inode.
+	if !fi.Mode().IsRegular() {
 		return "", "", errFilePathCannotBeUsed
 	}
 
@@ -361,10 +376,16 @@ func (c *WastebinClient) readFileContent(
 			errContentTooLarge, fi.Size(), c.config.MaxContentSize)
 	}
 
-	// 4. Read file content.
-	data, readErr := os.ReadFile(resolvedPath) //nolint:gosec // Path already validated through validateFilePath pipeline
+	data, readErr := io.ReadAll(io.LimitReader(f, c.config.MaxContentSize+1))
 	if readErr != nil {
 		return "", "", errFilePathCannotBeUsed
+	}
+
+	// Post-read size check — catches the case where LimitReader truncated
+	// a file that exceeds MaxContentSize.
+	if int64(len(data)) > c.config.MaxContentSize {
+		return "", "", fmt.Errorf("%w: file size %d bytes exceeds limit of %d bytes",
+			errContentTooLarge, len(data), c.config.MaxContentSize)
 	}
 
 	// 5. IsLikelyText check on the read data (single read to avoid TOCTOU).
