@@ -2642,3 +2642,111 @@ func TestCreatePaste_SymlinkSwapRace_NoAllowedPaths(t *testing.T) {
 	}
 	mu.Unlock()
 }
+
+// TestCreatePaste_FileMode_PostReadSizeCheck_Race verifies that the
+// post-read size check catches files that grow between f.Stat() and
+// io.ReadAll.  A concurrent writer rapidly toggles the file between
+// MaxContentSize bytes and 3×MaxContentSize bytes, so that some
+// CreatePaste calls will see fi.Size() ≤ MaxContentSize (pre-check
+// passes) but then actually read more (post-check catches).
+//
+//nolint:paralleltest // Shared filesystem; goroutine coordination
+func TestCreatePaste_FileMode_PostReadSizeCheck_Race(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	filePath := filepath.Join(allowedDir, "growing.txt")
+	maxSize := int64(50)
+
+	smallContent := make([]byte, maxSize)
+
+	err = os.WriteFile(filePath, smallContent, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		mu                 sync.Mutex
+		oversizeUploaded   bool
+		errContentTooLarge bool
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		_ = json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck // Test helper — best-effort decode
+
+		if text, ok := req["text"].(string); ok {
+			mu.Lock()
+			if int64(len(text)) > maxSize {
+				oversizeUploaded = true
+			}
+			mu.Unlock()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/RESULT.txt"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+	cfg.AllowedPaths = []string{allowedDir}
+	cfg.MaxContentSize = maxSize
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Writer goroutine: rapidly toggle file size between small and large.
+	largeContent := make([]byte, maxSize*3)
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			_ = os.WriteFile(filePath, largeContent, 0o600) //nolint:errcheck // Test helper — best-effort
+			_ = os.WriteFile(filePath, smallContent, 0o600) //nolint:errcheck // Test helper — best-effort
+		}
+	}()
+
+	for range 500 {
+		fp := filePath
+
+		_, err := client.CreatePaste(ctx, &CreatePasteArgs{
+			FilePath: &fp,
+		})
+		if err != nil && strings.Contains(err.Error(), "content exceeds the maximum allowed size") {
+			mu.Lock()
+			errContentTooLarge = true
+			mu.Unlock()
+		}
+	}
+
+	cancel()
+
+	mu.Lock()
+	if oversizeUploaded {
+		t.Error("content exceeding MaxContentSize was uploaded — post-read size check race protection failed")
+	}
+
+	if !errContentTooLarge {
+		t.Log("warning: race window not hit in 500 iterations; post-read size check not verified (non-deterministic)")
+	}
+	mu.Unlock()
+}

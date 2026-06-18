@@ -1,0 +1,1508 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>wastebin: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">wastebin-mcp-go/internal/wastebin/client.go (94.4%)</option>
+				
+				<option value="file1">wastebin-mcp-go/internal/wastebin/config.go (98.8%)</option>
+				
+				<option value="file2">wastebin-mcp-go/internal/wastebin/expiration.go (100.0%)</option>
+				
+				<option value="file3">wastebin-mcp-go/internal/wastebin/open.go (78.3%)</option>
+				
+				<option value="file4">wastebin-mcp-go/internal/wastebin/path.go (96.9%)</option>
+				
+				<option value="file5">wastebin-mcp-go/internal/wastebin/sandbox.go (97.3%)</option>
+				
+				<option value="file6">wastebin-mcp-go/internal/wastebin/text.go (100.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">no coverage</span>
+				<span class="cov1">low coverage</span>
+				<span class="cov2">*</span>
+				<span class="cov3">*</span>
+				<span class="cov4">*</span>
+				<span class="cov5">*</span>
+				<span class="cov6">*</span>
+				<span class="cov7">*</span>
+				<span class="cov8">*</span>
+				<span class="cov9">*</span>
+				<span class="cov10">high coverage</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package wastebin
+
+import (
+        "bytes"
+        "context"
+        "encoding/json"
+        "errors"
+        "fmt"
+        "io"
+        "log/slog"
+        "net"
+        "net/http"
+        "net/url"
+        "path/filepath"
+        "slices"
+        "strings"
+        "time"
+)
+
+// Sentinel errors for the WastebinClient.
+var (
+        errBothContentAndFilePath     = errors.New("provide either 'content' or 'file_path', not both")
+        errNeitherContentNorFilePath  = errors.New("provide either 'content' or 'file_path'")
+        errContentEmpty               = errors.New("content cannot be empty")
+        errArgsRequired               = errors.New("args is required")
+        errContentTooLarge            = errors.New("content exceeds the maximum allowed size")
+        errServerRejected             = errors.New("server rejected the request; content may contain disallowed data")
+        errContentTooLargeServer      = errors.New("content exceeds the server's maximum allowed size")
+        errUnknownHTTP                = errors.New("unknown HTTP error")
+        errFileNotText                = errors.New("file is binary or not valid UTF-8 text")
+        errConfigRequired             = errors.New("config is required")
+        errUnsupportedURLScheme       = errors.New("server URL must use http or https scheme")
+        errURLMissingHost             = errors.New("server URL must include a host")
+        errTooManyRedirects           = errors.New("stopped after 10 redirects")
+        errRedirectDifferentHost      = errors.New("redirect to different host blocked")
+        errRedirectSchemeDowngrade    = errors.New("redirect scheme downgrade from https to http blocked")
+        errSandboxTranslationNoMounts = errors.New("sandbox path translation requested but no mounts configured")
+        errSandboxTranslationNoMatch  = errors.New("sandbox path does not match any configured mount")
+        errFileReadDisabled           = errors.New("file read is disabled by configuration")
+)
+
+// HTTP transport defaults.
+const (
+        clientTimeout         = 30 * time.Second
+        dialTimeout           = 10 * time.Second
+        keepAlive             = 30 * time.Second
+        tlsHandshakeTimeout   = 10 * time.Second
+        responseHeaderTimeout = 30 * time.Second
+        idleConnTimeout       = 90 * time.Second
+        maxIdleConns          = 100
+        maxIdleConnsPerHost   = 10
+        maxRedirects          = 10
+)
+
+// WastebinClient handles HTTP communication with the Wastebin server.
+//
+//nolint:revive // stutters as wastebin.WastebinClient, kept for consistency
+type WastebinClient struct {
+        baseURL    *url.URL
+        httpClient *http.Client
+        config     *Config
+        postURL    string
+}
+
+// wastebinRequest is the JSON body sent to the Wastebin API.
+type wastebinRequest struct {
+        Text      string `json:"text"`
+        Extension string `json:"extension,omitempty"`
+        Expires   int    `json:"expires,omitempty"`
+        Title     string `json:"title,omitempty"`
+        //nolint:tagliatelle // intentional, wastebin API uses snake_case
+        BurnAfterReading bool   `json:"burn_after_reading,omitempty"`
+        Password         string `json:"password,omitempty"`
+}
+
+// wastebinResponse is the JSON response from the Wastebin API.
+type wastebinResponse struct {
+        Path string `json:"path"`
+}
+
+// NewWastebinClient creates a new client from Config.
+func NewWastebinClient(cfg *Config) (*WastebinClient, error) <span class="cov6" title="56">{
+        if cfg == nil </span><span class="cov1" title="1">{
+                return nil, errConfigRequired
+        }</span>
+
+        <span class="cov6" title="55">if cfg.ServerURL == "" </span><span class="cov1" title="1">{
+                return nil, errServerURLRequired
+        }</span>
+
+        <span class="cov6" title="54">baseURL, err := url.Parse(cfg.ServerURL)
+        if err != nil </span><span class="cov1" title="1">{
+                return nil, fmt.Errorf("invalid server URL: %w", err)
+        }</span>
+
+        <span class="cov6" title="53">if baseURL.Scheme != "http" &amp;&amp; baseURL.Scheme != "https" </span><span class="cov2" title="2">{
+                return nil, errUnsupportedURLScheme
+        }</span>
+
+        <span class="cov6" title="51">if baseURL.Host == "" </span><span class="cov2" title="2">{
+                return nil, errURLMissingHost
+        }</span>
+
+        <span class="cov6" title="49">httpClient := &amp;http.Client{
+                Timeout: clientTimeout,
+                Transport: &amp;http.Transport{
+                        DialContext: (&amp;net.Dialer{
+                                Timeout:   dialTimeout,
+                                KeepAlive: keepAlive,
+                        }).DialContext,
+                        TLSHandshakeTimeout:   tlsHandshakeTimeout,
+                        ResponseHeaderTimeout: responseHeaderTimeout,
+                        IdleConnTimeout:       idleConnTimeout,
+                        MaxIdleConns:          maxIdleConns,
+                        MaxIdleConnsPerHost:   maxIdleConnsPerHost,
+                },
+                CheckRedirect: func(req *http.Request, via []*http.Request) error </span><span class="cov2" title="3">{
+                        if len(via) &gt;= maxRedirects </span><span class="cov0" title="0">{
+                                return errTooManyRedirects
+                        }</span>
+
+                        <span class="cov2" title="3">if len(via) &gt; 0 </span><span class="cov2" title="3">{
+                                prev := via[len(via)-1]
+                                if !strings.EqualFold(req.URL.Host, prev.URL.Host) </span><span class="cov1" title="1">{
+                                        return fmt.Errorf("%w: %s -&gt; %s", errRedirectDifferentHost, prev.URL.Host, req.URL.Host)
+                                }</span>
+
+                                <span class="cov2" title="2">if prev.URL.Scheme == "https" &amp;&amp; req.URL.Scheme == "http" </span><span class="cov1" title="1">{
+                                        return fmt.Errorf("%w: %s (%s -&gt; %s)", errRedirectSchemeDowngrade, req.URL.Host, prev.URL.Scheme, req.URL.Scheme)
+                                }</span>
+                        }
+
+                        <span class="cov1" title="1">return nil</span>
+                },
+        }
+
+        // Store a defensive copy of the config to prevent external mutation.
+        <span class="cov6" title="49">cfgCopy := *cfg
+        cfgCopy.AllowedPaths = slices.Clone(cfg.AllowedPaths)
+        cfgCopy.BlockedPaths = slices.Clone(cfg.BlockedPaths)
+        cfgCopy.SandboxMounts = slices.Clone(cfg.SandboxMounts)
+
+        return &amp;WastebinClient{
+                baseURL:    baseURL,
+                httpClient: httpClient,
+                config:     &amp;cfgCopy,
+                postURL:    baseURL.JoinPath("/").String(),
+        }, nil</span>
+}
+
+// CreatePaste sends a paste to the Wastebin server.
+// It handles content mode (Content field set) or file mode (FilePath set),
+// including file reading, path validation, sandbox translation,
+// expiration parsing, and response construction.
+func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs) (*PasteResponse, error) <span class="cov10" title="448">{
+        if args == nil </span><span class="cov1" title="1">{
+                return nil, errArgsRequired
+        }</span>
+
+        // Mutual exclusivity check.
+        <span class="cov9" title="447">if args.Content != nil &amp;&amp; args.FilePath != nil </span><span class="cov2" title="2">{
+                return nil, errBothContentAndFilePath
+        }</span>
+
+        <span class="cov9" title="445">if args.Content == nil &amp;&amp; args.FilePath == nil </span><span class="cov1" title="1">{
+                return nil, errNeitherContentNorFilePath
+        }</span>
+
+        // Reject file path when file read is disabled.
+        <span class="cov9" title="444">if args.FilePath != nil &amp;&amp; !c.config.FileReadEnabled </span><span class="cov1" title="1">{
+                return nil, errFileReadDisabled
+        }</span>
+
+        // Reject empty content in content mode.
+        <span class="cov9" title="443">if args.Content != nil &amp;&amp; *args.Content == "" </span><span class="cov1" title="1">{
+                return nil, errContentEmpty
+        }</span>
+
+        <span class="cov9" title="442">var (
+                content string
+                ext     string
+        )
+
+        if args.FilePath != nil </span><span class="cov9" title="421">{
+                var err error
+
+                content, ext, err = c.readFileContent(*args.FilePath, args.TranslateSandboxPath, args.Extension)
+                if err != nil </span><span class="cov9" title="409">{
+                        return nil, err
+                }</span>
+        } else<span class="cov5" title="21"> {
+                // Content mode.
+                content = *args.Content
+                if args.Extension != nil </span><span class="cov3" title="4">{
+                        ext = *args.Extension
+                }</span>
+        }
+
+        // Content size pre-check.
+        <span class="cov6" title="33">if int64(len(content)) &gt; c.config.MaxContentSize </span><span class="cov1" title="1">{
+                return nil, fmt.Errorf("%w: %d bytes exceeds limit of %d bytes",
+                        errContentTooLarge, len(content), c.config.MaxContentSize)
+        }</span>
+
+        // Parse expiration.
+        <span class="cov6" title="32">expires := c.config.DefaultExpires
+        if args.Expires != nil &amp;&amp; *args.Expires != "" </span><span class="cov2" title="2">{
+                parsed, err := ParseExpiration(*args.Expires, c.config.DefaultExpires)
+                if err != nil </span><span class="cov1" title="1">{
+                        return nil, fmt.Errorf("invalid expiration: %w", err)
+                }</span>
+
+                <span class="cov1" title="1">expires = parsed</span>
+        }
+
+        // Build request body.
+        <span class="cov6" title="31">reqBody := wastebinRequest{
+                Text:      content,
+                Extension: ext,
+                Expires:   expires,
+        }
+        if args.Title != nil </span><span class="cov1" title="1">{
+                reqBody.Title = *args.Title
+        }</span>
+
+        <span class="cov6" title="31">if args.BurnAfterReading != nil </span><span class="cov1" title="1">{
+                reqBody.BurnAfterReading = *args.BurnAfterReading
+        }</span>
+
+        <span class="cov6" title="31">if args.Password != nil </span><span class="cov1" title="1">{
+                reqBody.Password = *args.Password
+
+                if c.baseURL.Scheme == "http" </span><span class="cov1" title="1">{
+                        slog.Warn("password is being sent over an unencrypted HTTP connection")
+                }</span>
+        }
+
+        <span class="cov6" title="31">bodyBytes, err := json.Marshal(reqBody) //nolint:gosec // JSON marshaling is safe; no user-controlled structure
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to marshal request body: %w", err)
+        }</span>
+
+        // HTTP POST to Wastebin.
+        <span class="cov6" title="31">reqURL := c.postURL
+
+        req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(bodyBytes))
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+        }</span>
+
+        <span class="cov6" title="31">req.Header.Set("Content-Type", "application/json")
+
+        slog.Debug("sending paste to Wastebin", "url", reqURL, "size", len(bodyBytes))
+
+        resp, err := c.httpClient.Do(req)
+        if err != nil </span><span class="cov2" title="3">{
+                if isDNSError(err) </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("cannot resolve the server hostname: %w", err)
+                }</span>
+
+                <span class="cov2" title="3">if isConnectionError(err) </span><span class="cov1" title="1">{
+                        return nil, fmt.Errorf("cannot connect to Wastebin server; verify the server is running: %w", err)
+                }</span>
+
+                <span class="cov2" title="2">return nil, fmt.Errorf("HTTP request failed: %w", err)</span>
+        }
+        <span class="cov5" title="28">defer closeResponseBody(resp)
+
+        // Handle error status codes.
+        if resp.StatusCode != http.StatusOK </span><span class="cov2" title="3">{
+                body, _ := io.ReadAll(resp.Body) //nolint:errcheck // Best-effort read of error body for diagnostics
+                msg := strings.TrimSpace(string(body))
+
+                return nil, translateHTTPError(resp.StatusCode, msg)
+        }</span>
+
+        // Parse response body.
+        <span class="cov5" title="25">var wastebinResp wastebinResponse
+
+        err = json.NewDecoder(resp.Body).Decode(&amp;wastebinResp)
+        if err != nil </span><span class="cov1" title="1">{
+                return nil, fmt.Errorf("failed to parse Wastebin response: %w", err)
+        }</span>
+
+        // Drain response body to EOF for HTTP connection reuse.
+        <span class="cov5" title="24">_, _ = io.Copy(io.Discard, resp.Body) //nolint:errcheck // Best-effort drain of body for connection reuse
+
+        // Build PasteResponse.
+        return buildPasteResponse(c.baseURL, wastebinResp.Path, ext, args.Password != nil), nil</span>
+}
+
+// shouldTranslateSandboxPath determines whether sandbox path translation should
+// be applied. Translation is enabled when:
+//   - the config has SandboxTransparent set (automatic translation), OR
+//   - the caller explicitly set TranslateSandboxPath to true (opt-in).
+//
+// If no sandbox mounts are configured, translation is never enabled.
+func shouldTranslateSandboxPath(cfg *Config, requested *bool) bool <span class="cov9" title="428">{
+        if len(cfg.SandboxMounts) == 0 </span><span class="cov9" title="415">{
+                return false
+        }</span>
+
+        <span class="cov4" title="13">return cfg.SandboxTransparent || (requested != nil &amp;&amp; *requested)</span>
+}
+
+// readFileContent reads file content from the given path, handling sandbox
+// translation, path validation, text detection, and extension detection.
+//
+//nolint:nonamedreturns // Both returns are string — named disambiguates.
+func (c *WastebinClient) readFileContent(
+        filePath string, translateSandboxPath *bool, extArg *string,
+) (content, ext string, err error) <span class="cov9" title="421">{
+        resolvedPath := filePath
+
+        // 1. Sandbox path translation (if applicable).
+        if translateSandboxPath != nil &amp;&amp; *translateSandboxPath &amp;&amp; len(c.config.SandboxMounts) == 0 </span><span class="cov1" title="1">{
+                return "", "", errSandboxTranslationNoMounts
+        }</span>
+
+        <span class="cov9" title="420">if shouldTranslateSandboxPath(c.config, translateSandboxPath) </span><span class="cov3" title="6">{
+                // Check path traversal on the original sandbox path BEFORE any
+                // translation occurs. Translate uses filepath.Join which normalizes
+                // ".." out of the result, so we must catch traversal here first.
+                if hasPathTraversal(resolvedPath) </span><span class="cov2" title="2">{
+                        return "", "", errPathTraversal
+                }</span>
+
+                <span class="cov3" title="4">translator := NewTranslator(c.config.SandboxMounts)
+
+                translated, ok := translator.Translate(resolvedPath)
+                if !ok </span><span class="cov1" title="1">{
+                        return "", "", fmt.Errorf("%w: %s", errSandboxTranslationNoMatch, filePath)
+                }</span>
+
+                // Defense-in-depth: verify the translated path is still under
+                // a configured mount's host root. Prevents any filepath.Join
+                // normalization from escaping the intended sandbox scope.
+                <span class="cov2" title="3">if !isUnderMountHost(translated, c.config.SandboxMounts) </span><span class="cov0" title="0">{
+                        return "", "", errPathTraversal
+                }</span>
+
+                <span class="cov2" title="3">slog.Debug("translated sandbox path", "from", resolvedPath, "to", translated)
+                resolvedPath = translated</span>
+        }
+
+        // 2. Validate path through the four-stage pipeline.
+        <span class="cov9" title="417">resolvedPath, err = validateFilePath(resolvedPath, c.config)
+        if err != nil </span><span class="cov9" title="264">{
+                return "", "", err
+        }</span>
+
+        // 3. Open via fd-based symlink-safe traversal, stat the fd, and read
+        //    through LimitReader.  When allowed paths are configured we walk
+        //    every component from a pinned root fd with openat+O_NOFOLLOW so
+        //    a post-validation symlink swap cannot cause a blocked-path read.
+        <span class="cov8" title="153">f, openErr := openFileResolved(resolvedPath, c.config.AllowedPaths)
+        if openErr != nil </span><span class="cov8" title="138">{
+                return "", "", errFilePathCannotBeUsed
+        }</span>
+        <span class="cov4" title="15">defer f.Close() //nolint:errcheck // Read-only file; close error non-critical
+
+        fi, statErr := f.Stat()
+        if statErr != nil </span><span class="cov0" title="0">{
+                return "", "", errFilePathCannotBeUsed
+        }</span>
+
+        // Reject non-regular files — ensures the opened object is a plain
+        // file and not a symlink (already prevented by O_NOFOLLOW above),
+        // directory, FIFO, device, or other special inode.
+        <span class="cov4" title="15">if !fi.Mode().IsRegular() </span><span class="cov1" title="1">{
+                return "", "", errFilePathCannotBeUsed
+        }</span>
+
+        <span class="cov4" title="14">if fi.Size() &gt; c.config.MaxContentSize </span><span class="cov1" title="1">{
+                return "", "", fmt.Errorf("%w: file size %d bytes exceeds limit of %d bytes",
+                        errContentTooLarge, fi.Size(), c.config.MaxContentSize)
+        }</span>
+
+        <span class="cov4" title="13">data, readErr := io.ReadAll(io.LimitReader(f, c.config.MaxContentSize+1))
+        if readErr != nil </span><span class="cov0" title="0">{
+                return "", "", errFilePathCannotBeUsed
+        }</span>
+
+        // Post-read size check — catches the case where LimitReader truncated
+        // a file that exceeds MaxContentSize.
+        <span class="cov4" title="13">if int64(len(data)) &gt; c.config.MaxContentSize </span><span class="cov0" title="0">{
+                return "", "", fmt.Errorf("%w: file size %d bytes exceeds limit of %d bytes",
+                        errContentTooLarge, len(data), c.config.MaxContentSize)
+        }</span>
+
+        // 5. IsLikelyText check on the read data (single read to avoid TOCTOU).
+        <span class="cov4" title="13">if !IsLikelyText(data) </span><span class="cov1" title="1">{
+                return "", "", errFileNotText
+        }</span>
+
+        <span class="cov4" title="12">content = string(data)
+
+        // 6. Extension: extArg takes priority, otherwise detect from original file path.
+        if extArg != nil &amp;&amp; *extArg != "" </span><span class="cov1" title="1">{
+                ext = *extArg
+        }</span> else<span class="cov4" title="11"> {
+                ext = strings.TrimPrefix(filepath.Ext(filePath), ".")
+        }</span>
+
+        <span class="cov4" title="12">return content, ext, nil</span>
+}
+
+// buildPasteResponse constructs a PasteResponse from the Wastebin API response path.
+func buildPasteResponse(baseURL *url.URL, wastebinPath, ext string, passwordSet bool) *PasteResponse <span class="cov5" title="29">{
+        cleanPath := strings.TrimPrefix(wastebinPath, "/")
+
+        // Extract the ID from the path (strip the trailing extension).
+        id := cleanPath
+        if idx := strings.Index(cleanPath, "."); idx &gt; 0 </span><span class="cov5" title="18">{
+                id = cleanPath[:idx]
+        }</span>
+
+        <span class="cov5" title="29">hostname := strings.TrimRight(baseURL.String(), "/")
+
+        resp := &amp;PasteResponse{
+                Hostname: hostname,
+                ID:       id,
+                URL:      wastebinPath,
+                Raw:      "/raw/" + cleanPath,
+        }
+
+        // Add markdown_rendered if extension is .md or .markdown.
+        if ext == "md" || ext == "markdown" </span><span class="cov3" title="4">{
+                resp.MarkdownRendered = "/md/" + cleanPath
+        }</span>
+
+        // Add hint if extension is unknown (not provided).
+        <span class="cov5" title="29">if ext == "" </span><span class="cov4" title="10">{
+                resp.Hint = "Extension not detected; syntax highlighting may not apply"
+        }</span>
+
+        // Add password hint if the paste is password-protected.
+        <span class="cov5" title="29">if passwordSet </span><span class="cov1" title="1">{
+                resp.PasswordHint = "This paste is password-protected. " +
+                        "Retrieve raw content via the Wastebin-Password header:\n" +
+                        "  curl -H 'Wastebin-Password: YOUR_PASSWORD' " + hostname + "/raw/" + cleanPath + "\n" +
+                        "Or as a query parameter:\n" +
+                        "  curl '" + hostname + "/raw/" + cleanPath + "?password=YOUR_PASSWORD'\n" +
+                        "(Replace YOUR_PASSWORD with the actual password.)"
+        }</span>
+
+        <span class="cov5" title="29">return resp</span>
+}
+
+// translateHTTPError maps HTTP status codes to user-friendly error messages.
+func translateHTTPError(statusCode int, _ string) error <span class="cov2" title="3">{
+        switch statusCode </span>{
+        case http.StatusForbidden:<span class="cov1" title="1">
+                return errServerRejected</span>
+        case http.StatusRequestEntityTooLarge:<span class="cov1" title="1">
+                return errContentTooLargeServer</span>
+        default:<span class="cov1" title="1">
+                return fmt.Errorf("%w: HTTP %d", errUnknownHTTP, statusCode)</span>
+        }
+}
+
+// isConnectionError checks if the error is a connection-level error
+// (connection refused, timeout, etc.).
+func isConnectionError(err error) bool <span class="cov3" title="4">{
+        var opErr *net.OpError
+        if errors.As(err, &amp;opErr) </span><span class="cov1" title="1">{
+                return opErr.Op == "dial"
+        }</span>
+
+        <span class="cov2" title="3">return false</span>
+}
+
+// isDNSError checks if the error is a DNS resolution failure.
+func isDNSError(err error) bool <span class="cov2" title="3">{
+        var dnsErr *net.DNSError
+
+        return errors.As(err, &amp;dnsErr)
+}</span>
+
+// closeResponseBody closes the response body with debug logging on failure.
+func closeResponseBody(resp *http.Response) <span class="cov5" title="29">{
+        if resp == nil || resp.Body == nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+
+        <span class="cov5" title="29">err := resp.Body.Close()
+        if err != nil </span><span class="cov1" title="1">{
+                slog.Debug("failed to close response body", "error", err)
+        }</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package wastebin
+
+import (
+        "errors"
+        "fmt"
+        "os"
+        "path/filepath"
+        "slices"
+        "strconv"
+        "strings"
+)
+
+// Sentinel errors for configuration validation.
+var (
+        errServerURLRequired              = errors.New("WASTEBIN_SERVER_URL is required and must not be empty")
+        errNegativeDefaultExpires         = errors.New("WASTEBIN_MCP_DEFAULT_EXPIRES cannot be negative")
+        errMaxContentSizeTooSmall         = errors.New("WASTEBIN_MCP_MAX_CONTENT_SIZE must be at least 1")
+        errSandboxMountNotAllowed         = errors.New("sandbox mount host_path is not under any allowed path")
+        errInvalidDisableBuiltinBlocklist = errors.New("invalid WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST")
+)
+
+const (
+        defaultExpirySeconds  = 31536000 // 1 year
+        defaultMaxContentSize = 1048576  // 1 MB
+)
+
+// DefaultConfig returns Config with safe defaults.
+func DefaultConfig() *Config <span class="cov10" title="75">{
+        return &amp;Config{
+                ServerURL:          "",
+                DefaultExpires:     defaultExpirySeconds, // 1 year
+                FileReadEnabled:    true,
+                AllowedPaths:       nil,
+                BlockedPaths:       slices.Clone([]string{"/etc", "/proc", "/sys", "/dev"}),
+                MaxContentSize:     defaultMaxContentSize, // 1 MB
+                SandboxMounts:      nil,
+                SandboxTransparent: false,
+                Debug:              false,
+        }
+}</span>
+
+// ConfigFromEnv reads and validates config from environment variables.
+// Returns validated Config or error.
+func ConfigFromEnv() (*Config, error) <span class="cov7" title="22">{
+        cfg := DefaultConfig()
+
+        // Server URL (required).
+        cfg.ServerURL = os.Getenv("WASTEBIN_SERVER_URL")
+        if cfg.ServerURL == "" </span><span class="cov1" title="1">{
+                return nil, errServerURLRequired
+        }</span>
+
+        // Default expires.
+        <span class="cov7" title="21">if v := os.Getenv("WASTEBIN_MCP_DEFAULT_EXPIRES"); v != "" </span><span class="cov3" title="3">{
+                n, err := strconv.Atoi(v)
+                if err != nil </span><span class="cov1" title="1">{
+                        return nil, fmt.Errorf("invalid WASTEBIN_MCP_DEFAULT_EXPIRES: %w", err)
+                }</span>
+
+                <span class="cov2" title="2">if n &lt; 0 </span><span class="cov1" title="1">{
+                        return nil, errNegativeDefaultExpires
+                }</span>
+
+                <span class="cov1" title="1">cfg.DefaultExpires = n</span>
+        }
+
+        // File read enabled.
+        <span class="cov7" title="19">if v := os.Getenv("WASTEBIN_MCP_FILE_READ_ENABLED"); v != "" </span><span class="cov3" title="3">{
+                b, err := strconv.ParseBool(v)
+                if err != nil </span><span class="cov1" title="1">{
+                        return nil, fmt.Errorf("invalid WASTEBIN_MCP_FILE_READ_ENABLED: %w", err)
+                }</span>
+
+                <span class="cov2" title="2">cfg.FileReadEnabled = b</span>
+        }
+
+        // Allowed paths (comma-separated, resolved with EvalSymlinks + Clean).
+        <span class="cov7" title="18">if v := os.Getenv("WASTEBIN_MCP_ALLOWED_PATHS"); v != "" </span><span class="cov5" title="7">{
+                parts := strings.SplitSeq(v, ",")
+                for p := range parts </span><span class="cov5" title="9">{
+                        p = strings.TrimSpace(p)
+                        if p == "" </span><span class="cov1" title="1">{
+                                continue</span>
+                        }
+
+                        <span class="cov5" title="8">resolved, err := filepath.EvalSymlinks(p)
+                        if err != nil </span><span class="cov1" title="1">{
+                                return nil, fmt.Errorf("failed to resolve allowed path %q: %w", p, err)
+                        }</span>
+
+                        <span class="cov5" title="7">cfg.AllowedPaths = append(cfg.AllowedPaths, filepath.Clean(resolved))</span>
+                }
+        }
+
+        // Blocked paths (comma-separated; defaults to /etc,/proc,/sys,/dev).
+        <span class="cov6" title="17">if v := os.Getenv("WASTEBIN_MCP_BLOCKED_PATHS"); v != "" </span><span class="cov3" title="3">{
+                cfg.BlockedPaths = nil
+
+                parts := strings.SplitSeq(v, ",")
+                for p := range parts </span><span class="cov5" title="7">{
+                        p = strings.TrimSpace(p)
+                        if p == "" </span><span class="cov1" title="1">{
+                                continue</span>
+                        }
+
+                        <span class="cov4" title="6">cfg.BlockedPaths = append(cfg.BlockedPaths, p)</span>
+                }
+        }
+        // Resolve all blocked paths to absolute, cleaned paths.
+        <span class="cov6" title="17">var resolvedBlocked []string
+
+        for _, p := range cfg.BlockedPaths </span><span class="cov9" title="62">{
+                abs, err := filepath.Abs(p)
+                if err != nil </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("failed to resolve blocked path %q: %w", p, err)
+                }</span>
+
+                <span class="cov9" title="62">resolvedBlocked = append(resolvedBlocked, filepath.Clean(abs))</span>
+        }
+
+        <span class="cov6" title="17">cfg.BlockedPaths = resolvedBlocked
+
+        // Max content size.
+        if v := os.Getenv("WASTEBIN_MCP_MAX_CONTENT_SIZE"); v != "" </span><span class="cov3" title="3">{
+                n, err := strconv.ParseInt(v, 10, 64)
+                if err != nil </span><span class="cov1" title="1">{
+                        return nil, fmt.Errorf("invalid WASTEBIN_MCP_MAX_CONTENT_SIZE: %w", err)
+                }</span>
+
+                <span class="cov2" title="2">if n &lt; 1 </span><span class="cov1" title="1">{
+                        return nil, errMaxContentSizeTooSmall
+                }</span>
+
+                <span class="cov1" title="1">cfg.MaxContentSize = n</span>
+        }
+
+        // Sandbox mounts.
+        <span class="cov6" title="15">if v := os.Getenv("WASTEBIN_MCP_SANDBOX_MOUNTS"); v != "" </span><span class="cov4" title="5">{
+                mounts, err := ParseSandboxMounts(v)
+                if err != nil </span><span class="cov1" title="1">{
+                        return nil, fmt.Errorf("invalid WASTEBIN_MCP_SANDBOX_MOUNTS: %w", err)
+                }</span>
+
+                <span class="cov3" title="4">cfg.SandboxMounts = mounts
+
+                err = resolveAndValidateMounts(cfg.SandboxMounts, cfg.AllowedPaths)
+                if err != nil </span><span class="cov2" title="2">{
+                        return nil, err
+                }</span>
+        }
+
+        // Sandbox transparent.
+        <span class="cov6" title="12">if v := os.Getenv("WASTEBIN_MCP_SANDBOX_TRANSPARENT"); v != "" </span><span class="cov2" title="2">{
+                b, err := strconv.ParseBool(v)
+                if err != nil </span><span class="cov1" title="1">{
+                        return nil, fmt.Errorf("invalid WASTEBIN_MCP_SANDBOX_TRANSPARENT: %w", err)
+                }</span>
+
+                <span class="cov1" title="1">cfg.SandboxTransparent = b</span>
+        }
+
+        // Disable built-in blocklist.
+        <span class="cov5" title="11">if v := os.Getenv("WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST"); v != "" </span><span class="cov2" title="2">{
+                b, err := strconv.ParseBool(v)
+                if err != nil </span><span class="cov1" title="1">{
+                        return nil, fmt.Errorf("%w: %s", errInvalidDisableBuiltinBlocklist, v)
+                }</span>
+
+                <span class="cov1" title="1">cfg.DisableBuiltinBlocklist = b</span>
+        }
+
+        // Debug.
+        <span class="cov5" title="10">if v := os.Getenv("DEBUG"); v != "" </span><span class="cov2" title="2">{
+                b, err := strconv.ParseBool(v)
+                if err != nil </span><span class="cov1" title="1">{
+                        return nil, fmt.Errorf("invalid DEBUG: %w", err)
+                }</span>
+
+                <span class="cov1" title="1">cfg.Debug = b</span>
+        }
+
+        <span class="cov5" title="9">return cfg, nil</span>
+}
+
+// resolveAndValidateMounts resolves mount host paths with EvalSymlinks and
+// validates them against allowed paths.
+func resolveAndValidateMounts(mounts []SandboxMount, allowedPaths []string) error <span class="cov3" title="4">{
+        for i := range mounts </span><span class="cov3" title="4">{
+                resolved, err := filepath.EvalSymlinks(mounts[i].HostPath)
+                if err != nil </span><span class="cov1" title="1">{
+                        return fmt.Errorf(
+                                "failed to resolve sandbox mount host path %q: %w",
+                                mounts[i].HostPath, err,
+                        )
+                }</span>
+
+                <span class="cov3" title="3">mounts[i].HostPath = filepath.Clean(resolved)</span>
+        }
+
+        <span class="cov3" title="3">if len(allowedPaths) &gt; 0 </span><span class="cov3" title="3">{
+                for _, m := range mounts </span><span class="cov3" title="3">{
+                        if !isAllowedPath(m.HostPath, allowedPaths) </span><span class="cov1" title="1">{
+                                return fmt.Errorf(
+                                        "%w: host_path %q is not under any allowed path; "+
+                                                "each mount host_path must be covered by WASTEBIN_MCP_ALLOWED_PATHS",
+                                        errSandboxMountNotAllowed, m.HostPath,
+                                )
+                        }</span>
+                }
+        }
+
+        <span class="cov2" title="2">return nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package wastebin
+
+import (
+        "errors"
+        "fmt"
+        "strconv"
+        "strings"
+)
+
+// Sentinel errors for expiration parsing.
+var (
+        errNegativeExpiration    = errors.New("expiration cannot be negative")
+        errUnknownExpirationUnit = errors.New("unknown expiration unit")
+        errInvalidExpirationFmt  = errors.New("invalid expiration format")
+        errExpirationOverflow    = errors.New("expiration overflow")
+)
+
+// ParseExpiration parses an expiration string to seconds.
+// Bare number -&gt; seconds.
+// Number + unit suffix -&gt; translated.
+// Units: s, m, h, d, w, M (30d), y (365d).
+func ParseExpiration(s string, defaultSeconds int) (int, error) <span class="cov8" title="44">{
+        s = strings.TrimSpace(s)
+        if s == "" </span><span class="cov2" title="2">{
+                return defaultSeconds, nil
+        }</span>
+
+        // If it starts with a digit or minus sign, try parsing.
+        <span class="cov7" title="42">if s[0] &gt;= '0' &amp;&amp; s[0] &lt;= '9' || s[0] == '-' </span><span class="cov7" title="39">{
+                return parseNumberWithUnit(s)
+        }</span>
+
+        <span class="cov3" title="3">return 0, fmt.Errorf("%w: %q", errInvalidExpirationFmt, s)</span>
+}
+
+// parseNumberWithUnit extracts the numeric value and optional unit suffix from
+// an expiration string like "3600", "1h", "7d", and returns the value in seconds.
+func parseNumberWithUnit(s string) (int, error) <span class="cov7" title="39">{
+        // Find the boundary between the number and optional unit suffix.
+        numEnd := 0
+
+        for i, c := range s </span><span class="cov10" title="125">{
+                if c &gt;= '0' &amp;&amp; c &lt;= '9' || i == 0 &amp;&amp; c == '-' </span><span class="cov9" title="101">{
+                        numEnd = i + 1
+                }</span> else<span class="cov6" title="24"> {
+                        break</span>
+                }
+        }
+
+        <span class="cov7" title="39">numStr := s[:numEnd]
+        unitStr := s[numEnd:]
+
+        n, err := strconv.Atoi(numStr)
+        if err != nil </span><span class="cov3" title="3">{
+                return 0, fmt.Errorf("invalid expiration number: %w", err)
+        }</span>
+
+        <span class="cov7" title="36">if n &lt; 0 </span><span class="cov3" title="3">{
+                return 0, errNegativeExpiration
+        }</span>
+
+        <span class="cov7" title="33">if unitStr == "" </span><span class="cov5" title="11">{
+                // Bare number.
+                return n, nil
+        }</span>
+
+        // Number with unit suffix.
+        <span class="cov6" title="22">multiplier, ok := unitMultiplier(unitStr)
+        if !ok </span><span class="cov2" title="2">{
+                return 0, fmt.Errorf("%w: %q", errUnknownExpirationUnit, unitStr)
+        }</span>
+
+        <span class="cov6" title="20">result := n * multiplier
+        if multiplier != 0 &amp;&amp; result/multiplier != n </span><span class="cov1" title="1">{
+                return 0, errExpirationOverflow
+        }</span>
+
+        <span class="cov6" title="19">return result, nil</span>
+}
+
+// Time multipliers in seconds.
+const (
+        secondsPerMinute = 60
+        secondsPerHour   = 3600
+        secondsPerDay    = 86400
+        secondsPerWeek   = 604800
+        secondsPerMonth  = 2592000  // 30 days
+        secondsPerYear   = 31536000 // 365 days
+)
+
+// unitMultiplier returns the multiplier in seconds for the given unit string.
+func unitMultiplier(unit string) (int, bool) <span class="cov6" title="22">{
+        switch unit </span>{
+        case "s":<span class="cov1" title="1">
+                return 1, true</span>
+        case "m":<span class="cov2" title="2">
+                return secondsPerMinute, true</span>
+        case "h":<span class="cov3" title="4">
+                return secondsPerHour, true</span>
+        case "d":<span class="cov3" title="4">
+                return secondsPerDay, true</span>
+        case "w":<span class="cov1" title="1">
+                return secondsPerWeek, true</span>
+        case "M":<span class="cov3" title="4">
+                return secondsPerMonth, true</span> // 30 days
+        case "y":<span class="cov3" title="4">
+                return secondsPerYear, true</span> // 365 days
+        default:<span class="cov2" title="2">
+                return 0, false</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package wastebin
+
+import (
+        "errors"
+        "os"
+        "path/filepath"
+        "strings"
+
+        "golang.org/x/sys/unix"
+)
+
+var errOpenEmptyPath = errors.New("open: empty relative path")
+
+// openFileResolved opens a file with symlink-safe semantics:
+//   - When allowed paths are configured, uses openat(2) with O_NOFOLLOW from each
+//     candidate root directory's pinned fd, so that a post-validation symlink swap
+//     can only cause the open to fail (ELOOP) rather than follow a symlink to a
+//     blocked path.
+//   - When no allowed paths are configured, walks every path component from the
+//     root directory / using openat(2) with O_NOFOLLOW, providing the same level
+//     of protection against intermediate symlink swaps.
+func openFileResolved(resolvedPath string, allowedPaths []string) (*os.File, error) <span class="cov8" title="153">{
+        if len(allowedPaths) &gt; 0 </span><span class="cov8" title="115">{
+                return openFileFromRoot(resolvedPath, allowedPaths)
+        }</span>
+
+        // Walk from / with openat+O_NOFOLLOW so that no component — intermediate
+        // or final — can be a symlink.  This is equivalent to treating "/" as
+        // the implicit allowed root.
+        <span class="cov6" title="38">return openFileFromRoot(resolvedPath, []string{"/"})</span>
+}
+
+// openFileFromRoot opens resolvedPath by locating the narrowest allowed root
+// that contains it, pinning that root directory with an os.File, and then
+// walking every path component via openat(2) with O_NOFOLLOW from the pinned
+// fd.  This guarantees that the final fd refers to the same inode as the
+// allowed root, even if the filesystem is concurrently modified.
+func openFileFromRoot(resolvedPath string, allowedPaths []string) (*os.File, error) <span class="cov8" title="153">{
+        rootPath, relPath, ok := findAllowedRoot(resolvedPath, allowedPaths)
+        if !ok </span><span class="cov0" title="0">{
+                return nil, errPathNotAllowed
+        }</span>
+
+        //nolint:gosec // rootPath comes from validated allowed paths
+        <span class="cov8" title="153">root, err := os.OpenFile(rootPath, os.O_RDONLY|unix.O_NOFOLLOW, 0)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+        <span class="cov8" title="153">defer root.Close() //nolint:errcheck // Read-only directory; close error non-critical
+
+        return openRelNoFollow(root, relPath)</span>
+}
+
+// findAllowedRoot finds the first allowed path that contains resolvedPath and
+// returns that root along with the relative path from it.  Both inputs and
+// outputs are cleaned, absolute paths.
+func findAllowedRoot(resolvedPath string, allowedPaths []string) (string, string, bool) <span class="cov8" title="153">{
+        cleaned := filepath.Clean(resolvedPath)
+        for _, allowed := range allowedPaths </span><span class="cov8" title="153">{
+                a := filepath.Clean(allowed)
+                if isContainedPath(a, cleaned) </span><span class="cov8" title="153">{
+                        rel, err := filepath.Rel(a, cleaned)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return "", "", false
+                        }</span>
+
+                        <span class="cov8" title="153">return a, rel, true</span>
+                }
+        }
+
+        <span class="cov0" title="0">return "", "", false</span>
+}
+
+// openRelNoFollow walks every component of relPath from the directory fd dir
+// using openat(2) with O_RDONLY|O_NOFOLLOW|O_CLOEXEC.  Intermediate components
+// are verified to be directories; the final component is returned as an
+// *os.File.  If any component is a symlink (or is replaced by one concurrently)
+// the call fails with ELOOP instead of following it.
+func openRelNoFollow(dir *os.File, relPath string) (*os.File, error) <span class="cov8" title="153">{
+        parts := splitPath(relPath)
+        if len(parts) == 0 </span><span class="cov1" title="1">{
+                return nil, errOpenEmptyPath
+        }</span>
+
+        <span class="cov8" title="152">firstFd := int(dir.Fd())
+        parentFd := firstFd
+
+        for i, part := range parts </span><span class="cov9" title="287">{
+                isLast := i == len(parts)-1
+                flags := unix.O_RDONLY | unix.O_NOFOLLOW | unix.O_CLOEXEC
+
+                fd, err := unix.Openat(parentFd, part, flags, 0)
+                if err != nil </span><span class="cov8" title="137">{
+                        if parentFd != firstFd </span><span class="cov6" title="37">{
+                                _ = unix.Close(parentFd) //nolint:errcheck // Best-effort close during error unwind
+                        }</span>
+
+                        <span class="cov8" title="137">return nil, err</span>
+                }
+
+                <span class="cov8" title="150">if isLast </span><span class="cov5" title="15">{
+                        if parentFd != firstFd </span><span class="cov2" title="3">{
+                                _ = unix.Close(parentFd) //nolint:errcheck // Best-effort close; fd copied into os.File
+                        }</span>
+
+                        <span class="cov5" title="15">return os.NewFile(uintptr(fd), filepath.Join(dir.Name(), relPath)), nil</span>
+                }
+
+                // Verify intermediate component is a directory.
+                <span class="cov8" title="135">var stat unix.Stat_t
+
+                fstatErr := unix.Fstat(fd, &amp;stat)
+                if fstatErr != nil </span><span class="cov0" title="0">{
+                        _ = unix.Close(fd) //nolint:errcheck // Best-effort close during error unwind
+
+                        if parentFd != firstFd </span><span class="cov0" title="0">{
+                                _ = unix.Close(parentFd) //nolint:errcheck // Best-effort close during error unwind
+                        }</span>
+
+                        <span class="cov0" title="0">return nil, fstatErr</span>
+                }
+
+                <span class="cov8" title="135">if stat.Mode&amp;unix.S_IFMT != unix.S_IFDIR </span><span class="cov0" title="0">{
+                        _ = unix.Close(fd) //nolint:errcheck // Best-effort close for unexpected type
+
+                        if parentFd != firstFd </span><span class="cov0" title="0">{
+                                _ = unix.Close(parentFd) //nolint:errcheck // Best-effort close; no longer needed
+                        }</span>
+
+                        <span class="cov0" title="0">return nil, errFilePathCannotBeUsed</span>
+                }
+
+                <span class="cov8" title="135">if parentFd != firstFd </span><span class="cov8" title="95">{
+                        _ = unix.Close(parentFd) //nolint:errcheck // Parent fd closed after child opened
+                }</span>
+
+                <span class="cov8" title="135">parentFd = fd</span>
+        }
+
+        <span class="cov0" title="0">return nil, errOpenEmptyPath</span>
+}
+
+// splitPath splits a relative path into non-empty components.
+func splitPath(relPath string) []string <span class="cov8" title="153">{
+        cleaned := filepath.ToSlash(filepath.Clean(relPath))
+        parts := strings.Split(cleaned, "/")
+
+        var result []string
+
+        for _, p := range parts </span><span class="cov10" title="307">{
+                if p != "" &amp;&amp; p != "." </span><span class="cov9" title="306">{
+                        result = append(result, p)
+                }</span>
+        }
+
+        <span class="cov8" title="153">return result</span>
+}
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">package wastebin
+
+import (
+        "errors"
+        "fmt"
+        "path/filepath"
+        "slices"
+        "strings"
+)
+
+// Stage-specific sentinel errors for the path validation pipeline.
+var (
+        errPathTraversal           = errors.New("path traversal is not allowed")
+        errPathNotAllowed          = errors.New("file path is not under any allowed path")
+        errBuiltinBlockedPrefix    = errors.New("file path is in a blocked system directory")
+        errBuiltinBlockedComponent = errors.New("file path contains a blocked component")
+        errUserBlockedPath         = errors.New("file path is in a user-blocked directory")
+        errFilePathCannotBeUsed    = errors.New("file path cannot be used")
+)
+
+// builtinBlockedPrefixes are absolute path prefixes blocked by default.
+var builtinBlockedPrefixes = []string{"/etc", "/proc", "/sys", "/dev"}
+
+// isContainedPath reports whether target is under or equal to base.
+// Both paths should be cleaned before passing to this function.
+func isContainedPath(base, target string) bool <span class="cov7" title="358">{
+        rel, err := filepath.Rel(base, target)
+        if err != nil </span><span class="cov0" title="0">{
+                return false
+        }</span>
+
+        <span class="cov7" title="358">return rel == "." || !strings.HasPrefix(rel, "..")</span>
+}
+
+// builtinBlockedComponents are directory/file names blocked by default
+// regardless of their location in the directory tree.
+var builtinBlockedComponents = []string{".ssh", ".gnupg", ".aws", ".kube", ".docker", ".git"}
+
+// normalizePath normalizes Windows backslashes to forward slashes.
+func normalizePath(path string) string <span class="cov8" title="880">{
+        return strings.ReplaceAll(path, "\\", "/")
+}</span>
+
+// hasPathTraversal checks for '..' in the normalized raw input.
+// This is performed before any path resolution or sandbox translation.
+func hasPathTraversal(path string) bool <span class="cov7" title="447">{
+        normalized := normalizePath(path)
+
+        for part := range strings.SplitSeq(normalized, "/") </span><span class="cov10" title="2610">{
+                if part == ".." </span><span class="cov3" title="9">{
+                        return true
+                }</span>
+        }
+
+        <span class="cov7" title="438">return false</span>
+}
+
+// isAllowedPath checks if a resolved (cleaned, absolute) path falls under
+// one of the allowed paths. Returns true if the path is allowed.
+// This is Stage 2 of the validation pipeline.
+func isAllowedPath(resolvedPath string, allowedPaths []string) bool <span class="cov6" title="137">{
+        cleaned := filepath.Clean(resolvedPath)
+        for _, allowed := range allowedPaths </span><span class="cov6" title="136">{
+                allowed = filepath.Clean(allowed)
+                if isContainedPath(allowed, cleaned) </span><span class="cov6" title="126">{
+                        return true
+                }</span>
+        }
+
+        <span class="cov3" title="11">return false</span>
+}
+
+// isBuiltinBlocked checks the resolved path against the built-in blocklist.
+// It checks both absolute path prefixes (Stage 3a) and path components (Stage 3b).
+// Returns (reason, true) if blocked, ("", false) if not blocked.
+func isBuiltinBlocked(resolvedPath string) (string, bool) <span class="cov5" title="69">{
+        cleaned := filepath.Clean(resolvedPath)
+
+        // Stage 3a: Absolute path prefix match.
+        for _, prefix := range builtinBlockedPrefixes </span><span class="cov7" title="261">{
+                prefix = filepath.Clean(prefix)
+                if cleaned == prefix || strings.HasPrefix(cleaned, prefix+string(filepath.Separator)) </span><span class="cov3" title="7">{
+                        return prefix, true
+                }</span>
+        }
+
+        // Stage 3b: Path component match.
+        <span class="cov5" title="62">for part := range strings.SplitSeq(cleaned, string(filepath.Separator)) </span><span class="cov7" title="342">{
+                if slices.Contains(builtinBlockedComponents, part) </span><span class="cov3" title="11">{
+                        return part, true
+                }</span>
+        }
+
+        <span class="cov5" title="51">return "", false</span>
+}
+
+// isUserBlocked checks the resolved path against the user-defined blocklist
+// (WASTEBIN_MCP_BLOCKED_PATHS). Returns (matchedPath, true) if blocked,
+// ("", false) if not blocked.
+func isUserBlocked(resolvedPath string, userBlockedPaths []string) (string, bool) <span class="cov5" title="58">{
+        if len(userBlockedPaths) == 0 </span><span class="cov2" title="4">{
+                return "", false
+        }</span>
+
+        <span class="cov5" title="54">cleaned := filepath.Clean(resolvedPath)
+        for _, blocked := range userBlockedPaths </span><span class="cov5" title="58">{
+                blocked = filepath.Clean(blocked)
+                if isContainedPath(blocked, cleaned) </span><span class="cov3" title="13">{
+                        return blocked, true
+                }</span>
+        }
+
+        <span class="cov5" title="41">return "", false</span>
+}
+
+// isComponentBlocked checks the resolved path against the built-in sensitive
+// component blocklist only (Stage 3b). Unlike isBuiltinBlocked, it does NOT
+// check absolute path prefixes. This allows ALLOWED_PATHS to bypass prefix
+// checks while still blocking sensitive path components.
+func isComponentBlocked(resolvedPath string) (string, bool) <span class="cov6" title="119">{
+        cleaned := filepath.Clean(resolvedPath)
+
+        for part := range strings.SplitSeq(cleaned, string(filepath.Separator)) </span><span class="cov8" title="717">{
+                if slices.Contains(builtinBlockedComponents, part) </span><span class="cov1" title="1">{
+                        return part, true
+                }</span>
+        }
+
+        <span class="cov6" title="118">return "", false</span>
+}
+
+// validateFilePath runs the four-stage path validation pipeline:
+//
+//        Stage 1: Path traversal detection on the raw input (before resolution).
+//        Stage 2: ALLOWED_PATHS check — if configured and path is under one,
+//                 the prefix blocklist and user blocklist are bypassed, but the
+//                 sensitive component blocklist (Stage 3b) is still enforced.
+//        Stage 3: BUILT-IN BLOCKLIST check (prefix + component) — unless
+//                 cfg.DisableBuiltinBlocklist is true.
+//        Stage 4: USER BLOCKLIST check (WASTEBIN_MCP_BLOCKED_PATHS).
+//
+// Path traversal detection (Stage 1) runs on the path as received — callers
+// must apply sandbox path translation AFTER the traversal check has already
+// been performed on the original sandbox path (see readFileContent).
+//
+//nolint:nonamedreturns // Named returns improve godoc clarity
+func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err error) <span class="cov7" title="431">{
+        // Stage 1: Path traversal detection on the raw input.
+        if hasPathTraversal(rawPath) </span><span class="cov1" title="2">{
+                return "", errPathTraversal
+        }</span>
+
+        // Resolve the path via EvalSymlinks.
+        <span class="cov7" title="429">normalized := normalizePath(rawPath)
+
+        resolved, err := filepath.EvalSymlinks(normalized)
+        if err != nil </span><span class="cov7" title="250">{
+                return "", errFilePathCannotBeUsed
+        }</span>
+
+        <span class="cov6" title="179">resolvedPath = filepath.Clean(resolved)
+
+        // Convert to absolute path for consistent comparison with allowlist/blocklist.
+        resolvedPath, err = filepath.Abs(resolvedPath)
+        if err != nil </span><span class="cov0" title="0">{
+                return "", errFilePathCannotBeUsed
+        }</span>
+
+        // Stage 2: ALLOWED_PATHS check.
+        <span class="cov6" title="179">if len(cfg.AllowedPaths) &gt; 0 </span><span class="cov6" title="125">{
+                if !isAllowedPath(resolvedPath, cfg.AllowedPaths) </span><span class="cov3" title="6">{
+                        return "", errPathNotAllowed
+                }</span>
+
+                // ALLOWED_PATHS bypasses the prefix blocklist and user blocklist,
+                // but not the sensitive component blocklist.
+                <span class="cov6" title="119">if !cfg.DisableBuiltinBlocklist </span><span class="cov6" title="119">{
+                        if reason, blocked := isComponentBlocked(resolvedPath); blocked </span><span class="cov1" title="1">{
+                                return "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+                        }</span>
+                }
+
+                <span class="cov6" title="118">return resolvedPath, nil</span>
+        }
+
+        // Stage 3: BUILT-IN BLOCKLIST.
+        <span class="cov5" title="54">if !cfg.DisableBuiltinBlocklist </span><span class="cov5" title="51">{
+                if reason, blocked := isBuiltinBlocked(resolvedPath); blocked </span><span class="cov2" title="3">{
+                        // Determine whether it was a prefix or component match.
+                        for _, prefix := range builtinBlockedPrefixes </span><span class="cov3" title="9">{
+                                if reason == filepath.Clean(prefix) || reason == prefix </span><span class="cov1" title="1">{
+                                        return "", fmt.Errorf("%w (%s)", errBuiltinBlockedPrefix, reason)
+                                }</span>
+                        }
+
+                        // If not matched by prefix, it's a component match.
+                        <span class="cov1" title="2">return "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)</span>
+                }
+        }
+
+        // Stage 4: USER BLOCKLIST.
+        <span class="cov5" title="51">if _, blocked := isUserBlocked(resolvedPath, cfg.BlockedPaths); blocked </span><span class="cov3" title="10">{
+                return "", errUserBlockedPath
+        }</span>
+
+        <span class="cov5" title="41">return resolvedPath, nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file5" style="display: none">package wastebin
+
+import (
+        "errors"
+        "fmt"
+        "path"
+        "path/filepath"
+        "strings"
+)
+
+// errInvalidSandboxMount is returned when a mount string does not match host:sandbox format.
+var (
+        errInvalidSandboxMount = errors.New("invalid sandbox mount format")
+        errOverlappingMounts   = errors.New("overlapping sandbox mount paths")
+)
+
+// SandboxMount maps a host path to a sandbox path.
+type SandboxMount struct {
+        HostPath    string
+        SandboxPath string
+}
+
+// ParseSandboxMounts parses the WASTEBIN_MCP_SANDBOX_MOUNTS env var format:
+// "host1:sand1,host2:sand2".
+func ParseSandboxMounts(s string) ([]SandboxMount, error) <span class="cov9" title="18">{
+        if s == "" </span><span class="cov1" title="1">{
+                return nil, nil
+        }</span>
+
+        <span class="cov9" title="17">var mounts []SandboxMount
+
+        pairs := strings.Split(s, ",")
+        for i, pair := range pairs </span><span class="cov10" title="23">{
+                pair = strings.TrimSpace(pair)
+                if pair == "" </span><span class="cov1" title="1">{
+                        continue</span>
+                }
+
+                <span class="cov9" title="22">parts := strings.SplitN(pair, ":", 2) //nolint:mnd // splitting into 2 parts is inherent to the format
+                if len(parts) != 2 || parts[0] == "" || parts[1] == "" </span><span class="cov4" title="4">{
+                        return nil, fmt.Errorf(
+                                "%w at index %d: %q (expected host:sandbox format)",
+                                errInvalidSandboxMount, i, pair,
+                        )
+                }</span>
+
+                <span class="cov9" title="18">hostPath := strings.TrimSpace(parts[0])
+                sandboxPath := strings.TrimSpace(parts[1])
+
+                if !strings.HasPrefix(hostPath, "/") </span><span class="cov2" title="2">{
+                        return nil, fmt.Errorf(
+                                "%w at index %d: host path %q must be absolute",
+                                errInvalidSandboxMount, i, hostPath,
+                        )
+                }</span>
+
+                <span class="cov8" title="16">mounts = append(mounts, SandboxMount{
+                        HostPath:    hostPath,
+                        SandboxPath: path.Clean(sandboxPath),
+                })</span>
+        }
+
+        // Validate that no sandbox path is a prefix of another (overlapping mounts).
+        <span class="cov7" title="11">for i, a := range mounts </span><span class="cov8" title="14">{
+                for j, b := range mounts </span><span class="cov9" title="22">{
+                        if i != j &amp;&amp; (strings.HasPrefix(a.SandboxPath+"/", b.SandboxPath+"/") ||
+                                strings.HasPrefix(b.SandboxPath+"/", a.SandboxPath+"/")) </span><span class="cov2" title="2">{
+                                return nil, fmt.Errorf(
+                                        "%w: sandbox mount %d (%q) overlaps with mount %d (%q); "+
+                                                "each mount's sandbox path must be unique and non-overlapping",
+                                        errOverlappingMounts, i, a.SandboxPath, j, b.SandboxPath,
+                                )
+                        }</span>
+                }
+        }
+
+        <span class="cov7" title="9">return mounts, nil</span>
+}
+
+// Translator translates sandbox paths to host paths.
+type Translator struct {
+        mounts []SandboxMount
+}
+
+// NewTranslator creates a new Translator from the given mounts.
+func NewTranslator(mounts []SandboxMount) *Translator <span class="cov8" title="12">{
+        return &amp;Translator{mounts: mounts}
+}</span>
+
+// isUnderMountHost checks whether the given path is under any configured
+// mount's HostPath (either equal to it or a subdirectory).
+func isUnderMountHost(path string, mounts []SandboxMount) bool <span class="cov7" title="9">{
+        cleaned := filepath.Clean(path)
+
+        for _, m := range mounts </span><span class="cov7" title="11">{
+                hostClean := filepath.Clean(m.HostPath)
+                if isContainedPath(hostClean, cleaned) </span><span class="cov6" title="6">{
+                        return true
+                }</span>
+        }
+
+        <span class="cov4" title="3">return false</span>
+}
+
+// Translate converts sandbox path to host path.
+// Returns empty string and false if no mount matches.
+func (t *Translator) Translate(sandboxPath string) (string, bool) <span class="cov8" title="12">{
+        for _, m := range t.mounts </span><span class="cov8" title="12">{
+                rel, err := filepath.Rel(m.SandboxPath, sandboxPath)
+                if err != nil </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                <span class="cov8" title="12">if rel == "." </span><span class="cov1" title="1">{
+                        return m.HostPath, true
+                }</span>
+
+                <span class="cov7" title="11">if !strings.HasPrefix(rel, "..") </span><span class="cov5" title="5">{
+                        return filepath.Join(m.HostPath, rel), true
+                }</span>
+        }
+
+        <span class="cov6" title="6">return "", false</span>
+}
+</pre>
+		
+		<pre class="file" id="file6" style="display: none">package wastebin
+
+import (
+        "errors"
+        "fmt"
+        "io"
+        "os"
+        "unicode/utf8"
+)
+
+const (
+        sniffSize       = 8192
+        binaryThreshold = 0.05 // max ratio of control chars to still consider text
+)
+
+// IsLikelyText checks if content looks like text.
+// Reads first 8KB of data and checks:
+// 1. Valid UTF-8
+// 2. No null bytes
+// 3. Control character ratio (excluding \n\r\t) &lt; 5%.
+func IsLikelyText(data []byte) bool <span class="cov3" title="25">{
+        if len(data) == 0 </span><span class="cov1" title="2">{
+                return true
+        }</span>
+
+        <span class="cov3" title="23">size := min(len(data), sniffSize)
+
+        buf := data[:size]
+
+        if !utf8.Valid(buf) </span><span class="cov2" title="3">{
+                return false
+        }</span>
+
+        <span class="cov3" title="20">var ctrlCount int
+
+        for _, b := range buf </span><span class="cov10" title="17027">{
+                if b == 0 </span><span class="cov1" title="1">{
+                        return false
+                }</span>
+
+                <span class="cov9" title="17026">if b &lt;= 0x1F &amp;&amp; b != '\n' &amp;&amp; b != '\r' &amp;&amp; b != '\t' </span><span class="cov3" title="13">{
+                        ctrlCount++
+                }</span>
+        }
+
+        <span class="cov3" title="19">return float64(ctrlCount)/float64(len(buf)) &lt; binaryThreshold</span>
+}
+
+// IsLikelyTextFile reads first 8KB from path and calls IsLikelyText.
+func IsLikelyTextFile(path string) (bool, error) <span class="cov2" title="6">{
+        f, err := os.Open(path) //nolint:gosec // Path validated through validateFilePath pipeline
+        if err != nil </span><span class="cov1" title="2">{
+                return false, fmt.Errorf("failed to open file: %w", err)
+        }</span>
+        <span class="cov2" title="4">defer func() </span><span class="cov2" title="4">{ _ = f.Close() }</span>() //nolint:errcheck // Close failure is non-critical; file was already read successfully
+
+        <span class="cov2" title="4">buf := make([]byte, sniffSize)
+
+        n, err := io.ReadFull(f, buf)
+        if err != nil </span><span class="cov2" title="3">{
+                if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) </span><span class="cov1" title="2">{
+                        // File is smaller than the buffer; n may be 0.
+                        return IsLikelyText(buf[:n]), nil
+                }</span>
+
+                <span class="cov1" title="1">return false, fmt.Errorf("failed to read file: %w", err)</span>
+        }
+
+        <span class="cov1" title="1">return IsLikelyText(buf[:n]), nil</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
