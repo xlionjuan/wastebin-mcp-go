@@ -30,25 +30,31 @@ func openFileResolved(resolvedPath string, allowedPaths []string) (*os.File, err
 	return openFileFromRoot(resolvedPath, []string{"/"})
 }
 
-// openFileFromRoot opens resolvedPath by locating the narrowest allowed root
-// that contains it, pinning that root directory with an os.File, and then
-// walking every path component via openat(2) with O_NOFOLLOW from the pinned
-// fd.  This guarantees that the final fd refers to the same inode as the
-// allowed root, even if the filesystem is concurrently modified.
+// openFileFromRoot opens resolvedPath after verifying it is under one of the
+// allowed roots.  Instead of opening the root path directly (which would be
+// subject to a TOCTOU race if an intermediate parent directory is swapped to
+// a symlink), it opens / with O_NOFOLLOW and walks every path component via
+// openat(2) with O_NOFOLLOW.  This guarantees that no component — including
+// the root path's parents — can be a symlink at open time.
 func openFileFromRoot(resolvedPath string, allowedPaths []string) (*os.File, error) {
-	rootPath, relPath, ok := findAllowedRoot(resolvedPath, allowedPaths)
+	_, _, ok := findAllowedRoot(resolvedPath, allowedPaths)
 	if !ok {
 		return nil, errPathNotAllowed
 	}
 
-	//nolint:gosec // rootPath comes from validated allowed paths
-	root, err := os.OpenFile(rootPath, os.O_RDONLY|unix.O_NOFOLLOW, 0)
+	// Open / as the trusted starting point.  O_NOFOLLOW on "/" is defensive
+	// (the root directory cannot be a symlink on Linux).
+	root, err := os.OpenFile("/", os.O_RDONLY|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return nil, err
 	}
 	defer root.Close() //nolint:errcheck // Read-only directory; close error non-critical
 
-	return openRelNoFollow(root, relPath)
+	// Walk every component from / to the resolved path with openat+O_NOFOLLOW.
+	// Any intermediate symlink swap causes ELOOP instead of following.
+	relFromRoot := strings.TrimPrefix(resolvedPath, "/")
+
+	return openRelNoFollow(root, relFromRoot)
 }
 
 // findAllowedRoot finds the first allowed path that contains resolvedPath and

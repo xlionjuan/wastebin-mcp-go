@@ -2750,3 +2750,88 @@ func TestCreatePaste_FileMode_PostReadSizeCheck_Race(t *testing.T) {
 	}
 	mu.Unlock()
 }
+
+// TestCreatePaste_FileMode_AllowedRootParentSymlinkSwap verifies that an
+// ALLOWED_PATHS parent-directory symlink swap does NOT cause blocked content
+// to be uploaded.  Unlike the race-based tests (which rely on timing), this
+// test is deterministic: the symlink swap happens BEFORE openFileResolved is
+// called.  findAllowedRoot performs string-based matching and still considers
+// the path allowed, but the openat+O_NOFOLLOW walk from / rejects the
+// symlinked intermediate component with ELOOP, causing openFileResolved to
+// fail rather than follow the symlink to the blocked tree.
+//
+//nolint:paralleltest // Uses shared filesystem
+func TestCreatePaste_FileMode_AllowedRootParentSymlinkSwap(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Directory structure:
+	//   real-parent/allowed/victim.txt        (safe — should be readable)
+	//   blocked-parent/allowed/victim.txt     (should never be read)
+	realParentDir := filepath.Join(tmpDir, "real-parent")
+	blockedParentDir := filepath.Join(tmpDir, "blocked-parent")
+	allowedDir := filepath.Join(realParentDir, "allowed")
+	blockedAllowedDir := filepath.Join(blockedParentDir, "allowed")
+
+	err := os.MkdirAll(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.MkdirAll(blockedAllowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	safeContent := "safe-content-" + t.Name()
+	blockedContent := "BLOCKED-SECRET-" + t.Name()
+
+	victimFile := filepath.Join(allowedDir, "victim.txt")
+	blockedVictim := filepath.Join(blockedAllowedDir, "victim.txt")
+
+	err = os.WriteFile(victimFile, []byte(safeContent), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.WriteFile(blockedVictim, []byte(blockedContent), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The resolved path as computed by validateFilePath while real-parent is real.
+	resolvedPath := victimFile
+
+	// Now swap real-parent to a symlink to blocked-parent.
+	// After this swap, resolvedPath is no longer reachable via the real
+	// filesystem — instead, walking resolvedPath would end up at blockedVictim.
+	err = os.RemoveAll(realParentDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Symlink(blockedParentDir, realParentDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Call openFileResolved with allowedPaths set to the original allowed dir.
+	// findAllowedRoot uses string matching and still accepts resolvedPath.
+	// But the openat+O_NOFOLLOW walk from / will fail on the "real-parent"
+	// component because it is now a symlink.  The test asserts an error.
+	f, openErr := openFileResolved(resolvedPath, []string{allowedDir})
+	if openErr == nil {
+		_ = f.Close() //nolint:errcheck // Cleanup; not relevant to the assertion
+
+		t.Fatal("expected error after parent-directory symlink swap, got nil")
+	}
+
+	// Also verify: if we bypass the regex test and try to open resolvedPath
+	// directly through openFileResolved a second time, it should also fail
+	// for the same reason (intermediate component is a symlink).
+	f2, openErr2 := openFileResolved(resolvedPath, []string{allowedDir})
+	if openErr2 == nil {
+		_ = f2.Close() //nolint:errcheck // Cleanup
+
+		t.Error("expected error even on second call — symlink should still be rejected")
+	}
+}
