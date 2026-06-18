@@ -2515,3 +2515,130 @@ func TestCreatePaste_SymlinkSwapRace(t *testing.T) {
 	}
 	mu.Unlock()
 }
+
+// TestCreatePaste_SymlinkSwapRace_NoAllowedPaths tests the case where
+// ALLOWED_PATHS is empty and an intermediate directory (flipDir) is rapidly
+// swapped between a real directory and a symlink to a blocked directory.  The
+// openat+O_NOFOLLOW walk from / must reject the swapped intermediate component
+// (ELOOP) rather than follow it to the blocked directory.
+//
+//nolint:paralleltest // Uses shared filesystem; goroutine coordination
+func TestCreatePaste_SymlinkSwapRace_NoAllowedPaths(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	flipDir := filepath.Join(tmpDir, "flip")
+	blockedDir := filepath.Join(tmpDir, "blocked")
+
+	err := os.MkdirAll(flipDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.MkdirAll(blockedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	targetFile := "victim.txt"
+	safeContent := "safe-data-" + t.Name()
+	blockedContent := "BLOCKED-SECRET-" + t.Name()
+
+	// Same filename in both directories — if the symlink is followed, the
+	// blocked file with the same name would be opened.
+	err = os.WriteFile(filepath.Join(flipDir, targetFile), []byte(safeContent), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.WriteFile(filepath.Join(blockedDir, targetFile), []byte(blockedContent), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	victimPath := filepath.Join(flipDir, targetFile)
+
+	var (
+		mu              sync.Mutex
+		blockedObserved bool
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		_ = json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck // Test helper — best-effort decode
+
+		if text, ok := req["text"].(string); ok {
+			mu.Lock()
+			if text == blockedContent {
+				blockedObserved = true
+			}
+			mu.Unlock()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/RESULT.txt"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+	cfg.BlockedPaths = []string{blockedDir}
+	// AllowedPaths is deliberately empty — exercises the no-ALLOWED_PATHS
+	// branch of openFileResolved which walks from / with openat+O_NOFOLLOW.
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var racerDone sync.WaitGroup
+
+	racerDone.Add(1)
+
+	// Attacker goroutine: rapidly flips flipDir between a real directory
+	// (containing the safe victim.txt) and a symlink to blockedDir (which
+	// also contains a victim.txt with blocked content).  A TOCTOU window
+	// exists between validateFilePath (which calls EvalSymlinks) and the
+	// openat+O_NOFOLLOW walk.
+	//nolint:modernize // sync.WaitGroup.Go doesn't exist; plain go+Add pattern
+	go func() {
+		defer racerDone.Done()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			_ = os.RemoveAll(flipDir)           //nolint:errcheck // Test helper — best-effort
+			_ = os.Symlink(blockedDir, flipDir) //nolint:errcheck // Test helper — best-effort
+			_ = os.RemoveAll(flipDir)           //nolint:errcheck // Test helper — best-effort
+			_ = os.MkdirAll(flipDir, 0o750)     //nolint:errcheck // Test helper — best-effort
+			_ = os.WriteFile(                   //nolint:errcheck,nolintlint,gosec // Test helper
+				filepath.Join(flipDir, targetFile),
+				[]byte(safeContent), 0o600,
+			)
+		}
+	}()
+
+	for range 200 {
+		fp := victimPath
+
+		_, _ = client.CreatePaste(ctx, &CreatePasteArgs{ //nolint:errcheck // Test helper — errors expected
+			FilePath: &fp,
+		})
+	}
+
+	cancel()
+	racerDone.Wait()
+
+	mu.Lock()
+	if blockedObserved {
+		t.Error("blocked content was uploaded — intermediate symlink swap protection failed")
+	}
+	mu.Unlock()
+}

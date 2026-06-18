@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -17,17 +16,18 @@ var errOpenEmptyPath = errors.New("open: empty relative path")
 //     candidate root directory's pinned fd, so that a post-validation symlink swap
 //     can only cause the open to fail (ELOOP) rather than follow a symlink to a
 //     blocked path.
-//   - When no allowed paths are configured, falls back to O_NOFOLLOW on the final
-//     component.  This does not protect intermediate components, but is strictly
-//     better than the plain os.Open alternative.
+//   - When no allowed paths are configured, walks every path component from the
+//     root directory / using openat(2) with O_NOFOLLOW, providing the same level
+//     of protection against intermediate symlink swaps.
 func openFileResolved(resolvedPath string, allowedPaths []string) (*os.File, error) {
 	if len(allowedPaths) > 0 {
 		return openFileFromRoot(resolvedPath, allowedPaths)
 	}
 
-	return os.OpenFile( //nolint:gosec // Path validated upstream before this call
-		resolvedPath, os.O_RDONLY|syscall.O_NOFOLLOW, 0,
-	)
+	// Walk from / with openat+O_NOFOLLOW so that no component — intermediate
+	// or final — can be a symlink.  This is equivalent to treating "/" as
+	// the implicit allowed root.
+	return openFileFromRoot(resolvedPath, []string{"/"})
 }
 
 // openFileFromRoot opens resolvedPath by locating the narrowest allowed root
@@ -41,7 +41,8 @@ func openFileFromRoot(resolvedPath string, allowedPaths []string) (*os.File, err
 		return nil, errPathNotAllowed
 	}
 
-	root, err := os.Open(rootPath) //nolint:gosec // rootPath comes from validated allowed paths
+	//nolint:gosec // rootPath comes from validated allowed paths
+	root, err := os.OpenFile(rootPath, os.O_RDONLY|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return nil, err
 	}
