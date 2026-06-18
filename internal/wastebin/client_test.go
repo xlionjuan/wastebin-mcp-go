@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -2277,4 +2278,119 @@ func TestCreatePaste_FileReadDisabled_RejectsBothContentAndFilePath(t *testing.T
 	if !errors.Is(err, errBothContentAndFilePath) {
 		t.Errorf("expected errBothContentAndFilePath, got: %v", err)
 	}
+}
+
+func TestCreatePaste_FileMode_OpenError(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	filePath := filepath.Join(allowedDir, "noread.txt")
+
+	err = os.WriteFile(filePath, []byte("content"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Remove read permission — os.Open should fail with EACCES while
+	// validateFilePath (EvalSymlinks) still succeeds.
+	err = os.Chmod(filePath, 0o000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify we aren't running as root (which ignores permissions).
+	f, openErr := os.Open(filePath) //nolint:gosec // Test helper — intentional unreadable file
+	if openErr == nil {
+		_ = f.Close() //nolint:errcheck // Best-effort close before skip
+
+		t.Skip("skipping: running as root — permission checks are bypassed")
+	}
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.AllowedPaths = []string{allowedDir}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath: &filePath,
+	})
+	if err == nil {
+		t.Fatal("expected error for unopenable file")
+	}
+
+	if !errors.Is(err, errFilePathCannotBeUsed) {
+		t.Errorf("expected errFilePathCannotBeUsed, got: %v", err)
+	}
+}
+
+func TestCreatePaste_FileMode_PostReadSizeCheck(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fifoPath := filepath.Join(allowedDir, "sizecheck.fifo")
+
+	err = syscall.Mkfifo(fifoPath, 0o600)
+	if err != nil {
+		t.Skipf("skipping: cannot create FIFO: %v", err)
+	}
+
+	// Writer goroutine: opens the FIFO for writing, writes MaxContentSize+1 bytes,
+	// then closes. This unblocks the reader side after os.Open and supplies data
+	// that exceeds the pre-check's stat-based guard (FIFO reports size 0).
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		w, wErr := os.OpenFile(fifoPath, os.O_WRONLY, 0) //nolint:gosec // Test helper — FIFO writer
+		if wErr != nil {
+			return
+		}
+
+		_, _ = w.WriteString("12345678901") //nolint:errcheck // Test helper — FIFO write
+		_ = w.Close()                       //nolint:errcheck // Test helper — FIFO close
+	}()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.AllowedPaths = []string{allowedDir}
+	cfg.MaxContentSize = 10 // 11 > 10 triggers the post-read check
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath: &fifoPath,
+	})
+	if err == nil {
+		t.Fatal("expected error for oversized FIFO content")
+	}
+
+	if !strings.Contains(err.Error(), "content exceeds the maximum allowed size") {
+		t.Errorf("expected content too large error, got: %v", err)
+	}
+
+	<-done
 }
