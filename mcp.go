@@ -139,7 +139,7 @@ func buildToolDescription() string {
 		"field appears with the rendered view URL. " +
 		"Password-protected pastes require the Wastebin-Password header " +
 		"or password query parameter for retrieval. " +
-		"File mode requires ALLOWED_PATHS configuration."
+		"File mode validates paths against an allowlist (when configured) and blocklist pipeline."
 }
 
 type mcpInitializeMessage struct {

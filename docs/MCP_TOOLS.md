@@ -19,8 +19,9 @@ use to reconstruct full retrieval URLs.
   `Wastebin-Password` header or as a `password` query parameter. There is no
   `get_paste`
   tool — agents must use `curl` directly.
-- File mode applies a three-tier path validation pipeline: traversal detection,
-  allowlist (`WASTEBIN_MCP_ALLOWED_PATHS`), and blocklist (built-in + user).
+- File mode applies a five-stage path validation pipeline: traversal detection,
+  sandbox translation, allowlist (`WASTEBIN_MCP_ALLOWED_PATHS`), built-in
+  blocklist, and user blocklist.
   See [Security Notes](#security-notes) for details.
 
 ### Parameters
