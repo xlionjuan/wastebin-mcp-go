@@ -160,10 +160,9 @@ When a paste creation fails, the error message is constructed as follows:
 | Sandbox translation requested, no mounts | "sandbox path translation requested but no mounts configured" |
 | Sandbox path matches no mount | "sandbox path does not match any configured mount: <path>" |
 
-**Unknown/ambiguous errors**: Returned as-is with the HTTP status code and any
-additional upstream error message:
+**Unknown/ambiguous errors**: Returned with the HTTP status code:
 
-`"Unknown error: HTTP {CODE} - {additional server error message}"`
+`"unknown HTTP error: HTTP {CODE}"`
 
 **Format**: Errors are always reported via `IsError: true` in the MCP tool result
 with a plain text description.
