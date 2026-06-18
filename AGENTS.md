@@ -8,7 +8,7 @@ a configured Wastebin pastebin.
 
 - Entry points: `main.go`, `cli.go`, `mcp.go`
 - Core package: `internal/wastebin/`
-- Unit tests: root `*_test.go`
+- Unit tests: root `*_test.go` and `internal/wastebin/*_test.go`
 - CI and release workflows: `.github/workflows/`
 - Domain context and terminology: `CONTEXT.md`
 
@@ -53,6 +53,9 @@ go test -race -shuffle=on ./...
 
 # Lint
 golangci-lint run ./...
+
+# E2E tests (requires Wastebin server)
+go test -tags=e2e ./...
 ```
 
 ### Editing

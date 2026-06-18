@@ -18,6 +18,10 @@ wastebin-mcp-go create --content "hello world" --extension md
 wastebin-mcp-go create --file-path /tmp/doc.md
 ```
 
+**Flags**: `--help` and `--version` are available as top-level flags. The `create` subcommand also accepts `--help`.
+
+**Exit codes**: 0 = success, 1 = CLI error, 2 = MCP server error.
+
 ## Features
 
 - **Content mode**: paste text directly

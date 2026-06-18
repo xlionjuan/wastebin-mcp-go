@@ -139,8 +139,8 @@ returning structured JSON responses. Activated when no CLI subcommand is given.
 flags, executes a one-shot paste creation, and prints the result to stdout, then
 exits. Output format: JSON (same as MCP mode response).
 
-**Debug Mode**: Activated by `--debug` or `DEBUG=1` — logs HTTP request/response
-details to stderr.
+**Debug Mode**: Activated by `DEBUG=1` env var in MCP mode, or `--debug` flag on
+the `create` subcommand — logs HTTP request/response details to stderr.
 
 ### Error Handling
 
@@ -292,7 +292,7 @@ using `filepath.Join` normalization to bypass the traversal check.
 | Feature | ENV | Default |
 |---------|-----|---------|
 | File read mode | `WASTEBIN_MCP_FILE_READ_ENABLED` | true |
-| Path allowlist | `WASTEBIN_MCP_ALLOWED_PATHS` | — (required for file reads) |
+| Path allowlist | `WASTEBIN_MCP_ALLOWED_PATHS` | — (optional — when empty, falls through to blocklist pipeline) |
 | Path blocklist | `WASTEBIN_MCP_BLOCKED_PATHS` | `/etc,/proc,/sys,/dev` |
 | Max content size | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | 1 MB |
 | Sandbox mounts | `WASTEBIN_MCP_SANDBOX_MOUNTS` | — |
