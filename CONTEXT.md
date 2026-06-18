@@ -212,23 +212,23 @@ User-supplied file_path
   → Path traversal detection (before sandbox translation)
   → Sandbox translation (if enabled)
   → Mount host root verification (after translation)
-  → Resolve (EvalSymlinks + Clean)
   → Stage 1 — Path traversal detection
      ├─ Traversal found → ❌  denied
      └─ OK
-        → Stage 2 — ALLOWED_PATHS check
-           ├─ Under an allowed path → Stage 3b (sensitive component check)
-           │                          ├─ Blocked component found → ❌  denied
-           │                          └─ No blocked component → ✅  IsLikelyText
-           └─ Not under any allowed path
-              → Stage 3a — Built-in prefix blocklist
-              │  ├─ Blocked → ❌  denied
-              │  └─ OK → Stage 3b — Built-in component blocklist
-              │          ├─ Blocked → ❌  denied
-              │          └─ OK → Stage 4 — User blocklist
-              │                  ├─ Blocked → ❌  denied
-              │                  └─ OK → ❌  denied (not authorized)
-              └─ (end)
+        → Resolve (EvalSymlinks + Clean)
+           → Stage 2 — ALLOWED_PATHS check
+              ├─ Under an allowed path → Stage 3b (sensitive component check)
+              │                          ├─ Blocked component found → ❌  denied
+              │                          └─ No blocked component → ✅  IsLikelyText
+              └─ Not under any allowed path
+                 → Stage 3a — Built-in prefix blocklist
+                 │  ├─ Blocked → ❌  denied
+                 │  └─ OK → Stage 3b — Built-in component blocklist
+                 │          ├─ Blocked → ❌  denied
+                 │          └─ OK → Stage 4 — User blocklist
+                 │                  ├─ Blocked → ❌  denied
+                 │                  └─ OK → ❌  denied (not authorized)
+                 └─ (end)
 ```
 
 **File validation (text detection: IsLikelyText)**:
