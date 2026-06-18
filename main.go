@@ -22,7 +22,7 @@ const (
 var errContentEmptyCLI = errors.New("--content must not be empty")
 
 var (
-	version = "v0.9.0"
+	version = "v0.10.0"
 	commit  = "none"
 	date    = "unknown"
 )
