@@ -56,11 +56,13 @@ wastebin-mcp-go create --file-path /tmp/doc.md
   "url": "/FTuutJssdSh.md",
   "raw": "/raw/FTuutJssdSh.md",
   "markdown_rendered": "/md/FTuutJssdSh.md",
+  "hint": "Extension not detected; syntax highlighting may not apply",
   "password_hint": "curl -H 'Wastebin-Password: <password>' https://bin-staging.xlion.tw/raw/FTuutJssdSh.md"
 }
 ```
 
 - `markdown_rendered` is only present when extension is `.md` or `.markdown`.
+- `hint` is only present when extension is unknown (fuzzy match hint).
 - `password_hint` is only present when the paste is password-protected; it provides the curl command to retrieve the paste.
 
 ## Security
