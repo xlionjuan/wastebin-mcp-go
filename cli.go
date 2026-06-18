@@ -3,17 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 
 	"wastebin-mcp-go/internal/wastebin"
-)
-
-// errFileReadDisabledCLI is returned when --file-path is used with file read disabled.
-var errFileReadDisabledCLI = errors.New(
-	"--file-path is not allowed when file read is disabled (WASTEBIN_MCP_FILE_READ_ENABLED=false)",
 )
 
 // printCLIHelp prints the help text showing the create subcommand usage, all
@@ -63,10 +57,6 @@ func runCLIMode(flags *CLIFlags) error {
 
 	if cfg.Debug {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
-	}
-
-	if flags.FilePath != "" && !cfg.FileReadEnabled {
-		return errFileReadDisabledCLI
 	}
 
 	client, err := wastebin.NewWastebinClient(cfg)
