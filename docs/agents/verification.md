@@ -22,10 +22,13 @@
 
 | Command | Scope |
 |---------|-------|
+| `go mod verify && go mod download` | Verify and download dependencies |
+| `go mod tidy && git diff --exit-code go.mod go.sum` | Check module files are tidy |
 | `go build ./...` | Build all packages |
-| `go test ./...` | Run unit tests |
-| `go test -race -shuffle=on ./...` | CI-style test run with race detector |
+| `go test -race -shuffle=on -coverprofile=coverage.out ./...` | CI-style test run with race detector and coverage |
+| `go tool govulncheck ./...` | Known vulnerability scan |
 | `golangci-lint run ./...` | Lint; CI uses v2.12.2 |
+| `golangci-lint fmt --diff` | Check formatting (gofumpt / goimports / gci) |
 | `go vet ./...` | Static analysis fallback |
 
 ## Completion Gate for AI Agents
@@ -37,9 +40,14 @@ For Go code, Go tests, Go dependencies, Go-related scripts, or workflow changes
 that alter Go setup, Go commands, test/lint commands, or required environment
 for Go execution:
 
+- `go mod verify`
+- `go mod download`
+- `go mod tidy` + `git diff --exit-code go.mod go.sum`
 - `go build ./...`
-- `go test -race -shuffle=on ./...`
+- `go test -race -shuffle=on -coverprofile=coverage.out ./...`
+- `go tool govulncheck ./...`
 - `golangci-lint run ./...`
+- `golangci-lint fmt --diff`
 - `go vet ./...`
 
 For MCP tool schema changes, also verify with a CLI mode test or manual MCP

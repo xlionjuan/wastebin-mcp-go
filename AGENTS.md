@@ -42,17 +42,31 @@ Single-context. See `docs/agents/domain.md`.
 ### Build and Test
 
 ```bash
+# Verify and download dependencies
+go mod verify
+go mod download
+
+# Check module files are tidy
+go mod tidy
+git diff --exit-code go.mod go.sum
+
 # Build all packages
 go build ./...
 
-# Run tests
-go test ./...
+# CI-style test run with race detector and coverage
+go test -race -shuffle=on -coverprofile=coverage.out ./...
 
-# CI-style run with race detector
-go test -race -shuffle=on ./...
+# Known vulnerability scan
+go tool govulncheck ./...
 
 # Lint
 golangci-lint run ./...
+
+# Check formatting (gofumpt / goimports / gci)
+golangci-lint fmt --diff
+
+# Static analysis fallback (when golangci-lint is unavailable)
+go vet ./...
 
 # E2E tests (requires Wastebin server)
 go test -tags=e2e ./...
