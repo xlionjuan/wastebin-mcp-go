@@ -55,11 +55,13 @@ wastebin-mcp-go create --file-path /tmp/doc.md
   "id": "FTuutJssdSh",
   "url": "/FTuutJssdSh.md",
   "raw": "/raw/FTuutJssdSh.md",
-  "markdown_rendered": "/md/FTuutJssdSh.md"
+  "markdown_rendered": "/md/FTuutJssdSh.md",
+  "password_hint": "curl -H 'Wastebin-Password: <password>' https://bin-staging.xlion.tw/raw/FTuutJssdSh.md"
 }
 ```
 
-`markdown_rendered` is only present when extension is `.md` or `.markdown`.
+- `markdown_rendered` is only present when extension is `.md` or `.markdown`.
+- `password_hint` is only present when the paste is password-protected; it provides the curl command to retrieve the paste.
 
 ## Security
 

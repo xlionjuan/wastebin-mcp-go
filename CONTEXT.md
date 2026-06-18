@@ -97,22 +97,25 @@ Examples: `3600`, `1h`, `7d`, `30d`, `1y`.
   "hostname": "https://bin-staging.xlion.tw",
   "id": "FTuutJssdSh",
   "url": "/FTuutJssdSh.md",
-  "raw": "/raw/FTuutJssdSh.md"
+  "raw": "/raw/FTuutJssdSh.md",
+  "markdown_rendered": "/md/FTuutJssdSh.md",
+  "password_hint": "curl -H 'Wastebin-Password: <password>' https://bin-staging.xlion.tw/raw/FTuutJssdSh.md"
 }
 ```
 
-| Scenario | extension | markdown_rendered | hint |
-|----------|-----------|-------------------|------|
-| Content mode + ext=.md | from caller | ✅ | ❌ |
-| Content mode + ext≠.md | from caller | ❌ | ❌ |
-| Content mode + no ext | unset | ❌ | ✅ |
-| File mode + .md extension | from path | ✅ | ❌ |
-| File mode + non-.md ext | from path | ❌ | ❌ |
-| File mode + no extension | unset | ❌ | ✅ |
+| Scenario | extension | markdown_rendered | hint | password_hint |
+|----------|-----------|-------------------|------|---------------|
+| Content mode + ext=.md | from caller | ✅ | ❌ | when password set |
+| Content mode + ext≠.md | from caller | ❌ | ❌ | when password set |
+| Content mode + no ext | unset | ❌ | ✅ | when password set |
+| File mode + .md extension | from path | ✅ | ❌ | when password set |
+| File mode + non-.md ext | from path | ❌ | ❌ | when password set |
+| File mode + no extension | unset | ❌ | ✅ | when password set |
 
 - `id` is included for agents to construct custom URLs (e.g. `curl`).
 - `markdown_rendered` only appears when extension is `.md` or `.markdown`.
 - `hint` only appears when extension is unknown (fuzzy case).
+- `password_hint` only appears when the paste is password-protected.
 - URLs are relative (`hostname` is separate). The tool description instructs
   agents to reconstruct full URLs as `{hostname}{url}`.
 
