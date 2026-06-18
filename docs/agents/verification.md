@@ -28,7 +28,7 @@
 | `go test -race -shuffle=on -coverprofile=coverage.out ./...` | CI-style test run with race detector and coverage |
 | `go tool govulncheck ./...` | Known vulnerability scan |
 | `golangci-lint run ./...` | Lint; CI uses v2.12.2 |
-| `golangci-lint fmt --diff` | Check formatting (gofumpt / goimports / gci) |
+| `golangci-lint fmt --diff` | Check formatting (gofumpt / gofmt / gci) |
 | `go vet ./...` | Static analysis fallback |
 
 ## Completion Gate for AI Agents

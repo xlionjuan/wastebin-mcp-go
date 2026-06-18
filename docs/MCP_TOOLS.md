@@ -94,7 +94,7 @@ The tool returns a JSON object with the following fields:
   "url": "/FTuutJssdSh.md",
   "raw": "/raw/FTuutJssdSh.md",
   "markdown_rendered": "/md/FTuutJssdSh.md",
-  "hint": "optional hint"
+  "hint": "Extension not detected; syntax highlighting may not apply"
 }
 ```
 
@@ -259,7 +259,7 @@ MCP tool result with a plain text description.
   "content": [
     {
       "type": "text",
-      "text": "Create paste error: Provide either 'content' or 'file_path', not both."
+      "text": "Create paste error: provide either 'content' or 'file_path', not both"
     }
   ],
   "isError": true

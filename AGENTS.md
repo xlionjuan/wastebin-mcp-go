@@ -62,7 +62,7 @@ go tool govulncheck ./...
 # Lint
 golangci-lint run ./...
 
-# Check formatting (gofumpt / goimports / gci)
+# Check formatting (gofumpt / gofmt / gci)
 golangci-lint fmt --diff
 
 # Static analysis fallback (when golangci-lint is unavailable)
