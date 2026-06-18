@@ -1,6 +1,7 @@
 package wastebin //nolint:testpackage // white-box tests need access to unexported types/functions
 
 import (
+	"strconv"
 	"testing"
 )
 
@@ -105,22 +106,28 @@ func TestParseExpiration_Whitespace(t *testing.T) {
 func TestParseExpiration_Negative(t *testing.T) {
 	t.Parallel()
 
-	_, err := ParseExpiration("-1", 0)
-	if err == nil {
-		t.Fatal("expected error for negative expiration")
+	tests := []struct {
+		name    string
+		input   string
+		wantMsg string
+	}{
+		{"bare minus", "-", ""},
+		{"bare number", "-1", "expiration cannot be negative"},
+		{"with unit", "-1h", "expiration cannot be negative"},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	if err.Error() != "expiration cannot be negative" {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
+			_, err := ParseExpiration(tt.input, 0)
+			if err == nil {
+				t.Fatalf("expected error for input %q", tt.input)
+			}
 
-func TestParseExpiration_NegativeWithUnit(t *testing.T) {
-	t.Parallel()
-
-	_, err := ParseExpiration("-1h", 0)
-	if err == nil {
-		t.Fatal("expected error for negative expiration with unit")
+			if tt.wantMsg != "" && err.Error() != tt.wantMsg {
+				t.Errorf("got error %q, want %q", err.Error(), tt.wantMsg)
+			}
+		})
 	}
 }
 
@@ -222,6 +229,11 @@ func TestParseExpiration_HugeSeconds(t *testing.T) {
 
 func TestParseExpiration_OverflowYears(t *testing.T) {
 	t.Parallel()
+
+	if strconv.IntSize < 64 {
+		t.Skip("test requires 64-bit int")
+	}
+
 	// Large year value — 999,999,999 × 31,536,000 ≈ 3.15×10¹⁶,
 	// which fits within int64 range (≈9.22×10¹⁸). Verify no overflow.
 	n, err := ParseExpiration("999999999y", 3600)
@@ -232,4 +244,30 @@ func TestParseExpiration_OverflowYears(t *testing.T) {
 	if n <= 0 {
 		t.Error("expected positive expiration for large year value")
 	}
+}
+
+func FuzzParseExpiration(f *testing.F) {
+	f.Add("")
+	f.Add("0")
+	f.Add("3600")
+	f.Add("1h")
+	f.Add("7d")
+	f.Add("1M")
+	f.Add("1y")
+	f.Add("-1")
+	f.Add("-")
+	f.Add("abc")
+	f.Add("10x")
+	f.Add("  3600  ")
+
+	f.Fuzz(func(t *testing.T, s string) {
+		n, err := ParseExpiration(s, 3600)
+		if err != nil {
+			return
+		}
+
+		if n < 0 {
+			t.Errorf("ParseExpiration(%q, 3600) = %d, want >= 0", s, n)
+		}
+	})
 }
