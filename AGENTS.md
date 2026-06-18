@@ -172,3 +172,10 @@ If `which go` fails, report and stop — do not install, download, or work aroun
 - **SDK**: `github.com/modelcontextprotocol/go-sdk` (same as searxng-mcp-go).
 - **Error messages**: English.
 - **All docs**: English.
+- **No `# main` on SHA-pinned actions** — do NOT append `# main` or any branch
+  name comment after `uses:` lines that use a commit SHA. The upstream repo
+  `xlionjuan/opencode-github-actions` has no version tags and never will; a
+  `# main` comment after its SHA pin would break Renovate automation. Renovate
+  interprets `# main` as a version and will try to update the SHA based on the
+  `main` branch, which is wrong for repos without tags. This rule applies to
+  all SHA-pinned actions from repos without version tags.

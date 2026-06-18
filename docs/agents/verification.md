@@ -56,7 +56,8 @@ inspection after the build gate.
 For workflow-only changes that do not affect Go execution, use targeted
 workflow validation instead of the Go completion gate. At minimum, inspect the
 diff and run `git diff --check`; also run `actionlint` or a YAML parser when
-available.
+available. Check that no SHA-pinned `uses:` lines have `# main` or branch
+comments appended (see AGENTS.md Key Constraints — those break Renovate).
 
 Pure documentation changes (`.md` files only) do not require the build, test,
 lint, or vet gates.
