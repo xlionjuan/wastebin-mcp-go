@@ -108,7 +108,7 @@ go test -tags=e2e ./...
 
 ### Go Skill Corpus
 
-- When the optional `cc-skills-golang` corpus is available (`~/.agents/skills/cc-skills-golang/`),
+- When the optional `cc-skills-golang` series is available,
   every AI agent working on Go code must locate and read the relevant skill
   files before editing, reviewing, or claiming completion.
 - For coding tasks, first identify the implementation domains involved, such as
