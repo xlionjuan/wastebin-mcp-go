@@ -350,8 +350,16 @@ func (c *WastebinClient) readFileContent(
 		return "", "", err
 	}
 
-	// 3. Pre-check file size before reading (OOM prevention).
-	fi, statErr := os.Stat(resolvedPath)
+	// 3. Open file, stat the fd, and read through LimitReader.
+	//    Opening once and reading via the fd eliminates the TOCTOU window
+	//    between stat and read, and LimitReader provides genuine OOM protection.
+	f, openErr := os.Open(resolvedPath) //nolint:gosec // Path already validated through validateFilePath pipeline
+	if openErr != nil {
+		return "", "", errFilePathCannotBeUsed
+	}
+	defer f.Close() //nolint:errcheck // Read-only file; close error non-critical
+
+	fi, statErr := f.Stat()
 	if statErr != nil {
 		return "", "", errFilePathCannotBeUsed
 	}
@@ -361,10 +369,16 @@ func (c *WastebinClient) readFileContent(
 			errContentTooLarge, fi.Size(), c.config.MaxContentSize)
 	}
 
-	// 4. Read file content.
-	data, readErr := os.ReadFile(resolvedPath) //nolint:gosec // Path already validated through validateFilePath pipeline
+	data, readErr := io.ReadAll(io.LimitReader(f, c.config.MaxContentSize+1))
 	if readErr != nil {
 		return "", "", errFilePathCannotBeUsed
+	}
+
+	// Post-read size check — catches the case where LimitReader truncated
+	// a file that exceeds MaxContentSize.
+	if int64(len(data)) > c.config.MaxContentSize {
+		return "", "", fmt.Errorf("%w: file size %d bytes exceeds limit of %d bytes",
+			errContentTooLarge, len(data), c.config.MaxContentSize)
 	}
 
 	// 5. IsLikelyText check on the read data (single read to avoid TOCTOU).
