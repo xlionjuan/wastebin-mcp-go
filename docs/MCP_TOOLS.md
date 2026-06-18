@@ -238,7 +238,7 @@ MCP tool result with a plain text description.
 | File path rejected by allowlist | `"Create paste error: file path is not under any allowed path"` |
 | File path rejected by built-in blocklist (system prefix) | `"Create paste error: file path is in a blocked system directory (<path>)"` |
 | File path rejected by built-in blocklist (sensitive component) | `"Create paste error: file path contains a blocked component (<name>)"` |
-| File path rejected by user blocklist | `"Create paste error: file path is in a user-blocked directory (<path>)"` |
+| File path rejected by user blocklist | `"Create paste error: file path is in a user-blocked directory"` |
 | File is binary or non-UTF-8 | `"Create paste error: file is binary or not valid UTF-8 text"` |
 | File cannot be read (not found, permissions, symlink error) | `"Create paste error: file path cannot be used"` |
 | Sandbox translation requested but no mounts configured | `"Create paste error: sandbox path translation requested but no mounts configured"` |
