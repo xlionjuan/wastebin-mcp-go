@@ -199,7 +199,11 @@ absolute directory paths that are denied by default. Default value:
 
 **Path resolution**: Before any check, the path is resolved via
 `filepath.EvalSymlinks` and `filepath.Clean`. This prevents symlink-based
-allowlist bypass.
+allowlist bypass in the validation layer. After validation passes, the file
+is opened using `openat(2)` with `O_NOFOLLOW`, walking every path component
+from a trusted root fd (`/`). This two-layer approach prevents TOCTOU
+symlink-swap attacks where a validated path is replaced with a symlink
+between validation and the actual file open.
 
 **Validation flow:**
 

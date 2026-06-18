@@ -205,7 +205,49 @@ ALLOWED_PATHS must either:
 | 3b — Component blocklist | ❌ No (changed) |
 | 4 — User blocklist | ✅ Yes (unchanged) |
 
-## Related documents
+## Post-validation TOCTOU protection (openat+O_NOFOLLOW)
 
-- `CONTEXT.md` — project domain context
+While ADR 002 describes the validation pipeline (Stages 1-4), the validation
+only determines *whether* a path is allowed. The actual file open is a separate
+step with its own security properties.
+
+### Implementation
+
+After validation passes, the file is opened via the `openFileResolved` function
+in `internal/wastebin/open.go`:
+
+1. **Trusted root**: `/` is opened with `os.O_RDONLY|unix.O_NOFOLLOW` as a
+   pinned directory fd. (The root directory cannot be a symlink on Linux, but
+   `O_NOFOLLOW` is applied defensively.)
+
+2. **Component walk**: Each path component is opened relative to the previous
+   one using `unix.Openat(parentFd, component, O_RDONLY|O_NOFOLLOW|O_CLOEXEC,
+   0)`. Intermediate components are verified to be directories via `Fstat`.
+
+3. **Result**: The final component is returned as an `*os.File`. If any
+   component is (or becomes) a symlink, `openat` returns `ELOOP` instead of
+   following it.
+
+### Security model
+
+- **Pre-validation (EvalSymlinks)**: Eliminates symlink-based evasion of the
+  allowlist/blocklist at validation time.
+- **Post-validation (openat+O_NOFOLLOW)**: Eliminates TOCTOU symlink-swap
+  attacks where an attacker replaces a validated directory component with a
+  symlink between validation and the file open.
+
+Without the post-validation step, a concurrent attacker could:
+- Create a legitimate path `/home/user/allowed/file.txt`
+- Wait for validation to pass
+- Replace `/home/user/allowed` with a symlink to `/etc/passwd`
+- The file open would follow the symlink and read the blocked path
+
+With `openat+O_NOFOLLOW`, Step 3 causes `ELOOP` — the open fails rather than
+following the swapped symlink.
+
+### Related documents
+
+- `internal/wastebin/open.go` — full implementation
+- `CONTEXT.md` — project domain context with file-read pipeline description
+- `docs/MCP_TOOLS.md` — MCP tool documentation with security notes
 - `AGENTS.md` — agent behaviour constraints

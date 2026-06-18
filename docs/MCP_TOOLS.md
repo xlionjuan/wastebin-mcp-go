@@ -310,8 +310,11 @@ out-of-the-box experience without requiring mandatory allowlist configuration.
 - **Review the built-in blocklist defaults** — if your paths legitimately
   contain `.ssh` or similar components, you may need to adjust the component
   blocklist or disable the built-in blocklist entirely.
-- **Symlink protection** — all paths are resolved via `EvalSymlinks` and
-  `Clean` before validation.
+- **Symlink protection (two-layer)** — (1) All paths are resolved via
+  `EvalSymlinks` and `Clean` before validation. (2) The actual file open uses
+  `openat(2)` with `O_NOFOLLOW`, walking every path component from a trusted
+  root fd (`/`). This prevents TOCTOU symlink-swap attacks where a validated
+  path is replaced with a symlink between validation and the file open.
 - **Binary detection** — files are checked for valid UTF-8 and control
   character ratio; binary and non-UTF-8 files are rejected.
 

@@ -215,7 +215,10 @@ any path resolution occurs. This prevents `../` from being used to reach
 sensitive paths even when the final resolved path would pass blocklist checks.
 
 All paths are resolved via `filepath.EvalSymlinks` and `filepath.Clean` before
-validation, preventing symlink-based bypass of the allowlist or blocklist.
+validation, preventing symlink-based bypass of the allowlist or blocklist. For
+defence in depth, the actual file open uses `openat(2)` with `O_NOFOLLOW` to
+walk every path component from a trusted root fd (`/`), preventing TOCTOU
+symlink-swap attacks between validation and file open.
 
 ### Binary Detection
 
