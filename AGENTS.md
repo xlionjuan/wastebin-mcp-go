@@ -62,7 +62,7 @@ go tool govulncheck ./...
 # Lint
 golangci-lint run ./...
 
-# Check formatting (gofumpt / gofmt / gci)
+# Check formatting (gofumpt / goimports / gci)
 golangci-lint fmt --diff
 
 # Static analysis fallback (when golangci-lint is unavailable)
@@ -172,12 +172,3 @@ If `which go` fails, report and stop — do not install, download, or work aroun
 - **SDK**: `github.com/modelcontextprotocol/go-sdk` (same as searxng-mcp-go).
 - **Error messages**: English.
 - **All docs**: English.
-- **Keep `# main` on `xlionjuan/opencode-github-actions`** — the `# main`
-  comment after the SHA pin is REQUIRED and must NOT be removed. Do NOT append
-  any additional words or comments after `# main`. The upstream repo
-  `xlionjuan/opencode-github-actions` has no version tags and never will; the
-  `# main` comment is purely informational for humans. Renovate will not touch
-  SHA-pinned actions from a repo without version tags, but if anything is
-  appended after `# main` it would misinterpret the trailing text as a version
-  identifier. This rule applies to all SHA-pinned actions from repos without
-  version tags.

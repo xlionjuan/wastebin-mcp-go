@@ -28,7 +28,7 @@
 | `go test -race -shuffle=on -coverprofile=coverage.out ./...` | CI-style test run with race detector and coverage |
 | `go tool govulncheck ./...` | Known vulnerability scan |
 | `golangci-lint run ./...` | Lint; CI uses v2.12.2 |
-| `golangci-lint fmt --diff` | Check formatting (gofumpt / gofmt / gci) |
+| `golangci-lint fmt --diff` | Check formatting (gofumpt / goimports / gci) |
 | `go vet ./...` | Static analysis fallback |
 
 ## Completion Gate for AI Agents
@@ -56,9 +56,7 @@ inspection after the build gate.
 For workflow-only changes that do not affect Go execution, use targeted
 workflow validation instead of the Go completion gate. At minimum, inspect the
 diff and run `git diff --check`; also run `actionlint` or a YAML parser when
-available. Verify that `# main` is present on `xlionjuan/opencode-github-actions`
-SHA-pinned lines and that no additional text follows it (see AGENTS.md Key
-Constraints).
+available.
 
 Pure documentation changes (`.md` files only) do not require the build, test,
 lint, or vet gates.
