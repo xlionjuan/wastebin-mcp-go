@@ -243,6 +243,13 @@ MCP tool result with a plain text description.
 | Sandbox translation requested but no mounts configured | `"Create paste error: sandbox path translation requested but no mounts configured"` |
 | Sandbox path does not match any configured mount | `"Create paste error: sandbox path does not match any configured mount: <path>"` |
 | Unknown HTTP error | `"Create paste error: unknown HTTP error: HTTP <CODE>"` |
+| Invalid expiration format | `"Create paste error: invalid expiration: <reason>"` (reason: `expiration cannot be negative`, `unknown expiration unit`, `invalid expiration format`, `expiration overflow`) |
+| Server returns malformed JSON | `"Create paste error: failed to parse Wastebin response: <details>"` |
+| Cross-host redirect blocked | `"Create paste error: redirect to different host blocked: <from> -> <to>"` |
+| Redirect scheme downgrade from https to http | `"Create paste error: redirect scheme downgrade from https to http blocked: <host> (https -> http)"` |
+| Too many redirects (>10) | `"Create paste error: stopped after 10 redirects"` |
+| `args` is nil | `"Create paste error: args is required"` |
+| File read disabled by configuration | `"Create paste error: file read is disabled by configuration"` |
 
 #### Error Response Format (as received by MCP client)
 
