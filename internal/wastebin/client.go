@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -350,10 +349,11 @@ func (c *WastebinClient) readFileContent(
 		return "", "", err
 	}
 
-	// 3. Open file, stat the fd, and read through LimitReader.
-	//    Opening once and reading via the fd eliminates the TOCTOU window
-	//    between stat and read, and LimitReader provides genuine OOM protection.
-	f, openErr := os.Open(resolvedPath) //nolint:gosec // Path already validated through validateFilePath pipeline
+	// 3. Open via fd-based symlink-safe traversal, stat the fd, and read
+	//    through LimitReader.  When allowed paths are configured we walk
+	//    every component from a pinned root fd with openat+O_NOFOLLOW so
+	//    a post-validation symlink swap cannot cause a blocked-path read.
+	f, openErr := openFileResolved(resolvedPath, c.config.AllowedPaths)
 	if openErr != nil {
 		return "", "", errFilePathCannotBeUsed
 	}
@@ -361,6 +361,13 @@ func (c *WastebinClient) readFileContent(
 
 	fi, statErr := f.Stat()
 	if statErr != nil {
+		return "", "", errFilePathCannotBeUsed
+	}
+
+	// Reject non-regular files — ensures the opened object is a plain
+	// file and not a symlink (already prevented by O_NOFOLLOW above),
+	// directory, FIFO, device, or other special inode.
+	if !fi.Mode().IsRegular() {
 		return "", "", errFilePathCannotBeUsed
 	}
 

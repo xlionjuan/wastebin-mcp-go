@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 )
@@ -2335,7 +2336,7 @@ func TestCreatePaste_FileMode_OpenError(t *testing.T) {
 	}
 }
 
-func TestCreatePaste_FileMode_PostReadSizeCheck(t *testing.T) {
+func TestCreatePaste_FileMode_NonRegularFileRejected(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -2347,16 +2348,13 @@ func TestCreatePaste_FileMode_PostReadSizeCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fifoPath := filepath.Join(allowedDir, "sizecheck.fifo")
+	fifoPath := filepath.Join(allowedDir, "nonregular.fifo")
 
 	err = syscall.Mkfifo(fifoPath, 0o600)
 	if err != nil {
 		t.Skipf("skipping: cannot create FIFO: %v", err)
 	}
 
-	// Writer goroutine: opens the FIFO for writing, writes MaxContentSize+1 bytes,
-	// then closes. This unblocks the reader side after os.Open and supplies data
-	// that exceeds the pre-check's stat-based guard (FIFO reports size 0).
 	done := make(chan struct{})
 
 	go func() {
@@ -2367,14 +2365,13 @@ func TestCreatePaste_FileMode_PostReadSizeCheck(t *testing.T) {
 			return
 		}
 
-		_, _ = w.WriteString("12345678901") //nolint:errcheck // Test helper — FIFO write
-		_ = w.Close()                       //nolint:errcheck // Test helper — FIFO close
+		_, _ = w.WriteString("data") //nolint:errcheck // Test helper — FIFO write
+		_ = w.Close()                //nolint:errcheck // Test helper — FIFO close
 	}()
 
 	cfg := DefaultConfig()
 	cfg.ServerURL = "http://localhost:12345"
 	cfg.AllowedPaths = []string{allowedDir}
-	cfg.MaxContentSize = 10 // 11 > 10 triggers the post-read check
 
 	client, err := NewWastebinClient(cfg)
 	if err != nil {
@@ -2385,12 +2382,136 @@ func TestCreatePaste_FileMode_PostReadSizeCheck(t *testing.T) {
 		FilePath: &fifoPath,
 	})
 	if err == nil {
-		t.Fatal("expected error for oversized FIFO content")
+		t.Fatal("expected error for non-regular file (FIFO)")
 	}
 
-	if !strings.Contains(err.Error(), "content exceeds the maximum allowed size") {
-		t.Errorf("expected content too large error, got: %v", err)
+	if !errors.Is(err, errFilePathCannotBeUsed) {
+		t.Errorf("expected errFilePathCannotBeUsed, got: %v", err)
 	}
 
 	<-done
+}
+
+// TestCreatePaste_SymlinkSwapRace verifies that a post-validation symlink
+// swap does not cause blocked-directory content to be uploaded.  An attacker
+// goroutine rapidly flips the victim file between a regular file (with
+// allowed content) and a symlink to a blocked-path file.  Under the old code
+// (os.Open without O_NOFOLLOW) this would occasionally read blocked content;
+// under the fix the fd-based openat+O_NOFOLLOW traversal only ever reads the
+// original file or fails with an error — blocked content is never uploaded.
+//
+//nolint:paralleltest // Uses shared filesystem; goroutine coordination relies on global state
+func TestCreatePaste_SymlinkSwapRace(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+	blockedDir := filepath.Join(tmpDir, "blocked")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Mkdir(blockedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write blocked content that must never reach the server.
+	blockedContent := "BLOCKED-SECRET-DATA-" + t.Name()
+
+	blockedFile := filepath.Join(blockedDir, "secret.txt")
+
+	err = os.WriteFile(blockedFile, []byte(blockedContent), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Allowed file content.
+	realContent := "allowed-public-content-" + t.Name()
+
+	victimFile := filepath.Join(allowedDir, "victim.txt")
+
+	// Start with the real file.
+	err = os.WriteFile(victimFile, []byte(realContent), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		mu              sync.Mutex
+		blockedObserved bool
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		_ = json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck // Test helper — best-effort decode
+
+		if text, ok := req["text"].(string); ok {
+			mu.Lock()
+			if text == blockedContent {
+				blockedObserved = true
+			}
+			mu.Unlock()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/RESULT.txt"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+	cfg.AllowedPaths = []string{allowedDir}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Attacker goroutine: rapidly flips the victim file between a regular
+	// file and a symlink to the blocked file.  The rapid switching creates
+	// a realistic TOCTOU window between validateFilePath and the open call.
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			// Replace with symlink.
+			_ = os.Remove(victimFile)               //nolint:errcheck // Test helper — best-effort
+			_ = os.Symlink(blockedFile, victimFile) //nolint:errcheck // Test helper — best-effort
+
+			// Swap back to regular file.
+			_ = os.Remove(victimFile)                                //nolint:errcheck // Test helper — best-effort
+			_ = os.WriteFile(victimFile, []byte(realContent), 0o600) //nolint:errcheck // Test helper — best-effort
+		}
+	}()
+
+	// Run many CreatePaste attempts.  Statistically, some will hit the
+	// window where validateFilePath sees the real file but open sees
+	// the symlink.  With O_NOFOLLOW, those attempts simply fail — the
+	// blocked content is never read.
+	for range 200 {
+		fp := victimFile
+
+		_, _ = client.CreatePaste(ctx, &CreatePasteArgs{ //nolint:errcheck // Test helper — errors expected
+			FilePath: &fp,
+		})
+	}
+
+	cancel()
+
+	mu.Lock()
+	if blockedObserved {
+		t.Error("blocked content was uploaded — symlink swap protection failed")
+	}
+	mu.Unlock()
 }
