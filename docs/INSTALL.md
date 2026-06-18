@@ -40,7 +40,7 @@ go build -ldflags="-X main.version=$(git describe --tags --always)" -o wastebin-
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `WASTEBIN_SERVER_URL` | ✅ | — | Wastebin server URL (e.g. `https://bin-staging.xlion.tw`) |
+| `WASTEBIN_SERVER_URL` | ✅ | — | Wastebin server URL (e.g. `https://bin-staging.xlion.tw`). When using `http://` with a password, the password is sent in cleartext — prefer `https://` for production use. |
 | `WASTEBIN_MCP_FILE_READ_ENABLED` | | `true` | Enable file-reading mode; set to `false` to restrict to inline content only |
 | `WASTEBIN_MCP_DEFAULT_EXPIRES` | | `31536000` | Default paste expiration in seconds when no `expires` parameter is given |
 | `WASTEBIN_MCP_ALLOWED_PATHS` | | — | Comma-separated absolute directory paths allowed for file reads. When set, only paths under these directories are accepted. When empty, skips allowlist and falls through to blocklist checks |

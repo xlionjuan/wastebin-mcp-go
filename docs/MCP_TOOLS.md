@@ -358,6 +358,11 @@ When creating a password-protected paste via the `create_paste` tool, the
 response includes a `password_hint` field with concrete curl examples for
 reconstructing the retrieval commands.
 
+> **⚠️ Security warning:** When the Wastebin server URL uses `http://`
+> (not recommended), the password is sent in cleartext over the network.
+> A warning is logged to stderr at paste creation time, but MCP clients
+> never see it. Prefer `https://` for production use.
+
 ---
 
 ## Implementation Details
