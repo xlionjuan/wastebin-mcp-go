@@ -27,6 +27,23 @@ func TestIsLikelyText_ValidUTF8(t *testing.T) {
 	}
 }
 
+func TestIsLikelyText_TruncatedMultiByte(t *testing.T) {
+	t.Parallel()
+
+	data := make([]byte, 8194)
+	for i := range 8191 {
+		data[i] = 'A'
+	}
+
+	data[8191] = 0xE4
+	data[8192] = 0xB8
+	data[8193] = 0xAD
+
+	if !IsLikelyText(data) {
+		t.Error("expected UTF-8 data split at the sniff boundary to be likely text")
+	}
+}
+
 func TestIsLikelyText_InvalidUTF8(t *testing.T) {
 	t.Parallel()
 	// Invalid UTF-8 sequence: 0xFF is not valid UTF-8.
