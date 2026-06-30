@@ -1,4 +1,4 @@
-# ADR-002: MCP Tool Error Verbosity — Design Principle
+# ADR 003: MCP Tool Error Verbosity — Design Principle
 
 ## Status
 
