@@ -22,7 +22,6 @@ var (
 	errBothContentAndFilePath     = errors.New("provide either 'content' or 'file_path', not both")
 	errNeitherContentNorFilePath  = errors.New("provide either 'content' or 'file_path'")
 	errContentEmpty               = errors.New("content cannot be empty")
-	errArgsRequired               = errors.New("args is required")
 	errContentTooLarge            = errors.New("content exceeds the maximum allowed size")
 	errServerRejected             = errors.New("server rejected the request; content may contain disallowed data")
 	errContentTooLargeServer      = errors.New("content exceeds the server's maximum allowed size")
