@@ -22,14 +22,13 @@ var (
 	errBothContentAndFilePath     = errors.New("provide either 'content' or 'file_path', not both")
 	errNeitherContentNorFilePath  = errors.New("provide either 'content' or 'file_path'")
 	errContentEmpty               = errors.New("content cannot be empty")
-	errArgsRequired               = errors.New("args is required")
 	errContentTooLarge            = errors.New("content exceeds the maximum allowed size")
 	errServerRejected             = errors.New("server rejected the request; content may contain disallowed data")
 	errContentTooLargeServer      = errors.New("content exceeds the server's maximum allowed size")
 	errUnknownHTTP                = errors.New("unknown HTTP error")
 	errFileNotText                = errors.New("file is binary or not valid UTF-8 text")
-	errConfigRequired             = errors.New("config is required")
 	errServerValidation           = errors.New("server rejected the request due to a validation error")
+	errConfigRequired             = errors.New("config is required")
 	errUnsupportedURLScheme       = errors.New("server URL must use http or https scheme")
 	errURLMissingHost             = errors.New("server URL must include a host")
 	errTooManyRedirects           = errors.New("stopped after 10 redirects")
@@ -162,10 +161,6 @@ func NewWastebinClient(cfg *Config) (*WastebinClient, error) {
 // including file reading, path validation, sandbox translation,
 // expiration parsing, and response construction.
 func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs) (*PasteResponse, error) {
-	if args == nil {
-		return nil, errArgsRequired
-	}
-
 	// Mutual exclusivity check.
 	if args.Content != nil && args.FilePath != nil {
 		return nil, errBothContentAndFilePath

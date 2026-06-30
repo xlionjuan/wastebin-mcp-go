@@ -18,7 +18,8 @@ Single-context repo:
 ├── CONTEXT.md
 ├── docs/adr/
 │   ├── 001-use-go-sdk.md
-│   └── 002-path-validation.md
+│   ├── 002-path-validation.md
+│   └── 003-error-verbosity.md
 ├── cli.go
 ├── mcp.go
 ├── main.go

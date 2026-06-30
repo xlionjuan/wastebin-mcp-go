@@ -2009,23 +2009,6 @@ func TestNewWastebinClient_RedirectSchemeDowngradeBlocked(t *testing.T) {
 	}
 }
 
-func TestCreatePaste_NilArgs(t *testing.T) {
-	t.Parallel()
-
-	cfg := DefaultConfig()
-	cfg.ServerURL = "http://localhost:12345"
-
-	client, err := NewWastebinClient(cfg)
-	if err != nil {
-		t.Fatalf("failed to create client: %v", err)
-	}
-
-	_, err = client.CreatePaste(context.Background(), nil)
-	if !errors.Is(err, errArgsRequired) {
-		t.Errorf("expected errArgsRequired, got: %v", err)
-	}
-}
-
 func TestShouldTranslateSandboxPath(t *testing.T) {
 	t.Parallel()
 
