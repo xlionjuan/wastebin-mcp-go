@@ -21,6 +21,10 @@ const (
 // errContentEmptyCLI is returned when --content flag is explicitly set to empty.
 var errContentEmptyCLI = errors.New("--content must not be empty")
 
+// errUnexpectedArgs is returned when positional arguments are provided to a
+// subcommand that does not accept them.
+var errUnexpectedArgs = errors.New("unexpected arguments")
+
 var (
 	version = "v0.10.0"
 	commit  = "none"
@@ -54,14 +58,20 @@ func main() {
 		flags, err := parseCreateFlags(args[1:])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: %v\n\n", err)
-			printCLIHelp()
+			printCLIHelp(os.Stderr)
 			os.Exit(exitCodeCLIError)
 		}
 
 		if flags.Help {
-			printCLIHelp()
+			printCLIHelp(os.Stdout)
 
 			return
+		}
+
+		if flags.Content == "" && flags.FilePath == "" {
+			fmt.Fprintf(os.Stderr, "ERROR: either --content or --file-path must be provided\n\n")
+			printCLIHelp(os.Stderr)
+			os.Exit(exitCodeCLIError)
 		}
 
 		err = runCLIMode(flags)
@@ -70,12 +80,12 @@ func main() {
 			os.Exit(exitCodeCLIError)
 		}
 	case "--help":
-		printCLIHelp()
+		printCLIHelp(os.Stdout)
 	case "--version":
 		fmt.Printf("wastebin-mcp-go version %s (commit: %s, built: %s)\n", version, commit, date)
 	default:
 		fmt.Fprintf(os.Stderr, "ERROR: unknown command or flag: %q\n\n", args[0])
-		printCLIHelp()
+		printCLIHelp(os.Stderr)
 		os.Exit(exitCodeCLIError)
 	}
 }
@@ -102,6 +112,11 @@ func parseCreateFlags(args []string) (*CLIFlags, error) {
 	err := fs.Parse(args)
 	if err != nil {
 		return nil, err
+	}
+
+	// Reject positional arguments — create takes flags only.
+	if len(fs.Args()) > 0 {
+		return nil, fmt.Errorf("%w: %v", errUnexpectedArgs, fs.Args())
 	}
 
 	// Detect if --content was explicitly set to empty string.

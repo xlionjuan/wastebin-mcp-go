@@ -163,9 +163,13 @@ func TestCLI_UnknownCommand(t *testing.T) {
 		t.Errorf("expected stderr to quote the unknown command, got: %s", stderr)
 	}
 
-	// printCLIHelp() writes to stdout, so USAGE: appears on stdout.
-	if !strings.Contains(stdout, "USAGE:") {
-		t.Errorf("expected stdout to contain help text ('USAGE:'), got: %s", stdout)
+	// Help text now goes to stderr on error paths.
+	if !strings.Contains(stderr, "USAGE:") {
+		t.Errorf("expected stderr to contain help text ('USAGE:'), got: %s", stderr)
+	}
+
+	if stdout != "" {
+		t.Errorf("expected empty stdout, got: %s", stdout)
 	}
 }
 
@@ -188,9 +192,13 @@ func TestCLI_UnknownFlag(t *testing.T) {
 		t.Errorf("expected stderr to quote the unknown flag, got: %s", stderr)
 	}
 
-	// printCLIHelp() writes to stdout, so USAGE: appears on stdout.
-	if !strings.Contains(stdout, "USAGE:") {
-		t.Errorf("expected stdout to contain help text ('USAGE:'), got: %s", stdout)
+	// Help text now goes to stderr on error paths.
+	if !strings.Contains(stderr, "USAGE:") {
+		t.Errorf("expected stderr to contain help text ('USAGE:'), got: %s", stderr)
+	}
+
+	if stdout != "" {
+		t.Errorf("expected empty stdout, got: %s", stdout)
 	}
 }
 
@@ -209,6 +217,54 @@ func TestCLI_NoArgsNoEnv(t *testing.T) {
 
 	if !strings.Contains(stderr, "ERROR") {
 		t.Errorf("expected stderr to contain 'ERROR', got: %s", stderr)
+	}
+
+	if stdout != "" {
+		t.Errorf("expected empty stdout, got: %s", stdout)
+	}
+}
+
+// TestCLI_CreateWithPositionalArgs verifies that extra positional arguments
+// after flags cause exit code 1 with help text on stderr.
+func TestCLI_CreateWithPositionalArgs(t *testing.T) {
+	t.Parallel()
+
+	stdout, stderr, exitCode := runCLIBinary(t, []string{"create", "--content", "ok", "trailing"})
+
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+
+	if !strings.Contains(stderr, "unexpected arguments") {
+		t.Errorf("expected stderr to contain 'unexpected arguments', got: %s", stderr)
+	}
+
+	if !strings.Contains(stderr, "USAGE:") {
+		t.Errorf("expected stderr to contain help text, got: %s", stderr)
+	}
+
+	if stdout != "" {
+		t.Errorf("expected empty stdout, got: %s", stdout)
+	}
+}
+
+// TestCLI_CreateNoContentOrFile verifies that create with neither --content nor
+// --file-path fails early (before env config loading) with exit code 1.
+func TestCLI_CreateNoContentOrFile(t *testing.T) {
+	t.Parallel()
+
+	stdout, stderr, exitCode := runCLIBinary(t, []string{"create"})
+
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+
+	if !strings.Contains(stderr, "--content or --file-path") {
+		t.Errorf("expected stderr to contain '--content or --file-path', got: %s", stderr)
+	}
+
+	if !strings.Contains(stderr, "USAGE:") {
+		t.Errorf("expected stderr to contain help text, got: %s", stderr)
 	}
 
 	if stdout != "" {
@@ -311,6 +367,11 @@ func TestParseCreateFlags(t *testing.T) {
 			name:    "empty content error",
 			args:    []string{"--content", ""},
 			wantErr: errContentEmptyCLI,
+		},
+		{
+			name:    "positional arguments rejected",
+			args:    []string{"--content", "hello", "trailing"},
+			wantErr: errUnexpectedArgs,
 		},
 	}
 

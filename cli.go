@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 
@@ -12,9 +13,9 @@ import (
 
 // printCLIHelp prints the help text showing the create subcommand usage, all
 // flags, examples, and exit codes.
-func printCLIHelp() {
-	fmt.Printf("wastebin-mcp-go - MCP server + CLI for Wastebin pastebin (%s)\n\n", version)
-	fmt.Print(`USAGE:
+func printCLIHelp(w io.Writer) {
+	fmt.Fprintf(w, "wastebin-mcp-go - MCP server + CLI for Wastebin pastebin (%s)\n\n", version)
+	fmt.Fprint(w, `USAGE:
   wastebin-mcp-go create [OPTIONS]    Create a paste
   wastebin-mcp-go                     Start MCP stdio server
 
