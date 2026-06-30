@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -163,9 +166,13 @@ func TestCLI_UnknownCommand(t *testing.T) {
 		t.Errorf("expected stderr to quote the unknown command, got: %s", stderr)
 	}
 
-	// printCLIHelp() writes to stdout, so USAGE: appears on stdout.
-	if !strings.Contains(stdout, "USAGE:") {
-		t.Errorf("expected stdout to contain help text ('USAGE:'), got: %s", stdout)
+	// Help text now goes to stderr on error paths.
+	if !strings.Contains(stderr, "USAGE:") {
+		t.Errorf("expected stderr to contain help text ('USAGE:'), got: %s", stderr)
+	}
+
+	if stdout != "" {
+		t.Errorf("expected empty stdout, got: %s", stdout)
 	}
 }
 
@@ -188,9 +195,13 @@ func TestCLI_UnknownFlag(t *testing.T) {
 		t.Errorf("expected stderr to quote the unknown flag, got: %s", stderr)
 	}
 
-	// printCLIHelp() writes to stdout, so USAGE: appears on stdout.
-	if !strings.Contains(stdout, "USAGE:") {
-		t.Errorf("expected stdout to contain help text ('USAGE:'), got: %s", stdout)
+	// Help text now goes to stderr on error paths.
+	if !strings.Contains(stderr, "USAGE:") {
+		t.Errorf("expected stderr to contain help text ('USAGE:'), got: %s", stderr)
+	}
+
+	if stdout != "" {
+		t.Errorf("expected empty stdout, got: %s", stdout)
 	}
 }
 
@@ -216,12 +227,465 @@ func TestCLI_NoArgsNoEnv(t *testing.T) {
 	}
 }
 
+// TestCLI_CreateWithPositionalArgs verifies that extra positional arguments
+// after flags cause exit code 1 with help text on stderr.
+func TestCLI_CreateWithPositionalArgs(t *testing.T) {
+	t.Parallel()
+
+	stdout, stderr, exitCode := runCLIBinary(t, []string{"create", "--content", "ok", "trailing"})
+
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+
+	if !strings.Contains(stderr, "unexpected arguments") {
+		t.Errorf("expected stderr to contain 'unexpected arguments', got: %s", stderr)
+	}
+
+	if !strings.Contains(stderr, "USAGE:") {
+		t.Errorf("expected stderr to contain help text, got: %s", stderr)
+	}
+
+	if stdout != "" {
+		t.Errorf("expected empty stdout, got: %s", stdout)
+	}
+}
+
+// TestCLI_CreateNoContentOrFile verifies that create with neither --content nor
+// --file-path fails early (before env config loading) with exit code 1.
+func TestCLI_CreateNoContentOrFile(t *testing.T) {
+	t.Parallel()
+
+	stdout, stderr, exitCode := runCLIBinary(t, []string{"create"})
+
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+
+	if !strings.Contains(stderr, "--content or --file-path") {
+		t.Errorf("expected stderr to contain '--content or --file-path', got: %s", stderr)
+	}
+
+	if !strings.Contains(stderr, "USAGE:") {
+		t.Errorf("expected stderr to contain help text, got: %s", stderr)
+	}
+
+	if stdout != "" {
+		t.Errorf("expected empty stdout, got: %s", stdout)
+	}
+}
+
+func TestRunCLI_Help(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{"--help"}, &stdout, &stderr)
+
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+
+	if !strings.Contains(stdout.String(), "USAGE:") {
+		t.Error("expected stdout to contain 'USAGE:'")
+	}
+
+	if stderr.Len() != 0 {
+		t.Errorf("expected empty stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRunCLI_Version(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{"--version"}, &stdout, &stderr)
+
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+
+	if !strings.Contains(stdout.String(), "wastebin-mcp-go version") {
+		t.Errorf("expected stdout to contain version, got: %s", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Errorf("expected empty stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRunCLI_UnknownCommand(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{"unknown"}, &stdout, &stderr)
+
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+
+	if !strings.Contains(stderr.String(), "ERROR") {
+		t.Errorf("expected stderr to contain 'ERROR', got: %s", stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), `"unknown"`) {
+		t.Errorf("expected stderr to quote the unknown command, got: %s", stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), "USAGE:") {
+		t.Errorf("expected stderr to contain help text, got: %s", stderr.String())
+	}
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected empty stdout, got: %s", stdout.String())
+	}
+}
+
+func TestRunCLI_UnknownFlag(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{"--bogus"}, &stdout, &stderr)
+
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+
+	if !strings.Contains(stderr.String(), "ERROR") {
+		t.Errorf("expected stderr to contain 'ERROR', got: %s", stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), `"--bogus"`) {
+		t.Errorf("expected stderr to quote the unknown flag, got: %s", stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), "USAGE:") {
+		t.Errorf("expected stderr to contain help text, got: %s", stderr.String())
+	}
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected empty stdout, got: %s", stdout.String())
+	}
+}
+
+func TestRunCLI_CreateHelp(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{"create", "--help"}, &stdout, &stderr)
+
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+
+	if !strings.Contains(stdout.String(), "USAGE:") {
+		t.Error("expected stdout to contain 'USAGE:'")
+	}
+
+	if stderr.Len() != 0 {
+		t.Errorf("expected empty stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRunCLI_CreateMissingContent(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{"create"}, &stdout, &stderr)
+
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+
+	if !strings.Contains(stderr.String(), "--content or --file-path") {
+		t.Errorf("expected stderr to contain '--content or --file-path', got: %s", stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), "USAGE:") {
+		t.Errorf("expected stderr to contain help text, got: %s", stderr.String())
+	}
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected empty stdout, got: %s", stdout.String())
+	}
+}
+
+func TestRunCLI_CreatePositionalArgs(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{"create", "--content", "ok", "trailing"}, &stdout, &stderr)
+
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+
+	if !strings.Contains(stderr.String(), "unexpected arguments") {
+		t.Errorf("expected stderr to contain 'unexpected arguments', got: %s", stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), "USAGE:") {
+		t.Errorf("expected stderr to contain help text, got: %s", stderr.String())
+	}
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected empty stdout, got: %s", stdout.String())
+	}
+}
+
+func TestRunCLI_CreateEmptyContentFlag(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{"create", "--content", ""}, &stdout, &stderr)
+
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+
+	if !strings.Contains(stderr.String(), "--content must not be empty") {
+		t.Errorf("expected stderr to contain '--content must not be empty', got: %s", stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), "USAGE:") {
+		t.Errorf("expected stderr to contain help text, got: %s", stderr.String())
+	}
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected empty stdout, got: %s", stdout.String())
+	}
+}
+
+func TestRunCLI_CreateWithServer(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		//nolint:errcheck,gosec // test helper
+		w.Write([]byte(`{"path":"/ABCDEFG"}`))
+	}))
+	defer ts.Close()
+
+	t.Setenv("WASTEBIN_SERVER_URL", ts.URL)
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{"create", "--content", "hello"}, &stdout, &stderr)
+
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+
+	if stderr.Len() != 0 {
+		t.Errorf("expected empty stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRunCLI_NoArgsNoEnv(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{}, &stdout, &stderr)
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+
+	if !strings.Contains(stderr.String(), "ERROR") {
+		t.Errorf("expected stderr to contain 'ERROR', got: %s", stderr.String())
+	}
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected empty stdout, got: %s", stdout.String())
+	}
+}
+
+func TestRunCLI_NoArgsMCPModeClientError(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "ftp://server")
+	t.Setenv("DEBUG", "true")
+
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatalf("failed to create pipe: %v", pipeErr)
+	}
+
+	//nolint:errcheck,gosec // test helper: pipe write best-effort
+	w.WriteString(`{"jsonrpc":"2.0","method":"initialize"}` + "\n")
+
+	//nolint:errcheck,gosec // test helper: pipe close best-effort
+	w.Close()
+
+	oldStdin := os.Stdin
+
+	t.Cleanup(func() { os.Stdin = oldStdin })
+
+	os.Stdin = r
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{}, &stdout, &stderr)
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected empty stdout, got: %s", stdout.String())
+	}
+}
+
+func TestRunCLI_NoArgsInvalidStdin(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "http://localhost:9999")
+
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatalf("failed to create pipe: %v", pipeErr)
+	}
+
+	//nolint:errcheck,gosec // test helper: pipe write best-effort
+	w.WriteString("not a valid mcp initialize message\n")
+
+	//nolint:errcheck,gosec // test helper: pipe close best-effort
+	w.Close()
+
+	oldStdin := os.Stdin
+
+	t.Cleanup(func() { os.Stdin = oldStdin })
+
+	os.Stdin = r
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{}, &stdout, &stderr)
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+
+	if !strings.Contains(stderr.String(), "ERROR") {
+		t.Errorf("expected stderr to contain 'ERROR', got: %s", stderr.String())
+	}
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected empty stdout, got: %s", stdout.String())
+	}
+}
+
 func TestParseCreateFlags_InvalidFlag(t *testing.T) {
 	t.Parallel()
 
 	_, err := parseCreateFlags([]string{"--unknown-flag"})
 	if err == nil {
 		t.Fatal("expected error for unknown flag")
+	}
+}
+
+func TestRunCreateCommand_InvalidFlag(t *testing.T) {
+	t.Parallel()
+
+	err := runCreateCommand([]string{"--unknown-flag"}, io.Discard)
+	if err == nil {
+		t.Fatal("expected error for unknown flag")
+	}
+}
+
+func TestRunCreateCommand_HelpFlag(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+
+	cmdErr := runCreateCommand([]string{"--help"}, &stdout)
+	if cmdErr != nil {
+		t.Errorf("expected nil error for --help, got: %v", cmdErr)
+	}
+
+	if !strings.Contains(stdout.String(), "USAGE:") {
+		t.Error("expected help text on stdout to contain USAGE:")
+	}
+}
+
+func TestRunCreateCommand_MissingContentOrFile(t *testing.T) {
+	t.Parallel()
+
+	err := runCreateCommand([]string{}, io.Discard)
+	if !errors.Is(err, errMissingContentOrFile) {
+		t.Errorf("expected errMissingContentOrFile, got: %v", err)
+	}
+}
+
+func TestRunCreateCommand_Success(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		//nolint:errcheck,gosec // test helper
+		w.Write([]byte(`{"path":"/ABCDEFG"}`))
+	}))
+	defer ts.Close()
+
+	t.Setenv("WASTEBIN_SERVER_URL", ts.URL)
+
+	err := runCreateCommand([]string{"--content", "hello"}, io.Discard)
+	if err != nil {
+		t.Fatalf("runCreateCommand failed: %v", err)
+	}
+}
+
+func TestRunCreateCommand_EmptyContentFlag(t *testing.T) {
+	t.Parallel()
+
+	err := runCreateCommand([]string{"--content", ""}, io.Discard)
+	if !errors.Is(err, errContentEmptyCLI) {
+		t.Errorf("expected errContentEmptyCLI, got: %v", err)
+	}
+}
+
+func TestRunCreateCommand_PositionalArgs(t *testing.T) {
+	t.Parallel()
+
+	err := runCreateCommand([]string{"--content", "hello", "trailing"}, io.Discard)
+	if !errors.Is(err, errUnexpectedArgs) {
+		t.Errorf("expected errUnexpectedArgs, got: %v", err)
+	}
+}
+
+func TestRunCreateCommand_WithTestServerContent(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		//nolint:errcheck,gosec // test helper
+		w.Write([]byte(`{"path":"/XYZ"}`))
+	}))
+	defer ts.Close()
+
+	t.Setenv("WASTEBIN_SERVER_URL", ts.URL)
+
+	err := runCreateCommand([]string{"--content", "hello from test"}, io.Discard)
+	if err != nil {
+		t.Fatalf("runCreateCommand failed: %v", err)
+	}
+}
+
+func TestRunCreateCommand_WithTestServerDebug(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		//nolint:errcheck,gosec // test helper
+		w.Write([]byte(`{"path":"/ABCDEFG"}`))
+	}))
+	defer ts.Close()
+
+	t.Setenv("WASTEBIN_SERVER_URL", ts.URL)
+
+	err := runCreateCommand([]string{"--content", "hello", "--debug"}, io.Discard)
+	if err != nil {
+		t.Fatalf("runCreateCommand failed: %v", err)
 	}
 }
 
@@ -311,6 +775,11 @@ func TestParseCreateFlags(t *testing.T) {
 			name:    "empty content error",
 			args:    []string{"--content", ""},
 			wantErr: errContentEmptyCLI,
+		},
+		{
+			name:    "positional arguments rejected",
+			args:    []string{"--content", "hello", "trailing"},
+			wantErr: errUnexpectedArgs,
 		},
 	}
 

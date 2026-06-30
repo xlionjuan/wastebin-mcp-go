@@ -3,10 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 )
@@ -14,30 +12,9 @@ import (
 func TestPrintCLIHelp(t *testing.T) {
 	t.Parallel()
 
-	// Capture stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	old := os.Stdout
-	os.Stdout = w
-
-	printCLIHelp()
-
-	closeErr := w.Close()
-	if closeErr != nil {
-		t.Fatal(closeErr)
-	}
-
-	os.Stdout = old
-
 	var buf bytes.Buffer
 
-	_, copyErr := io.Copy(&buf, r)
-	if copyErr != nil {
-		t.Fatal(copyErr)
-	}
+	printCLIHelp(&buf)
 
 	output := buf.String()
 
