@@ -58,7 +58,9 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		cfg, err := wastebin.ConfigFromEnv()
 		if err != nil {
+			//nolint:errcheck // best-effort write to stderr
 			fmt.Fprintf(stderr, "ERROR: %v\n", err)
+
 			return exitCodeMCPError
 		}
 
@@ -68,13 +70,16 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 
 		mcpStdin, err := prepareMCPStdin(os.Stdin)
 		if err != nil {
+			//nolint:errcheck // best-effort write to stderr
 			fmt.Fprintf(stderr, "ERROR: %v\n", err)
+
 			return exitCodeMCPError
 		}
 
 		err = runMCPMode(cfg, mcpStdin)
 		if err != nil {
 			slog.Error("MCP server error", "error", err)
+
 			return exitCodeMCPError
 		}
 
@@ -85,17 +90,22 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 	case "create":
 		err := runCreateCommand(args[1:], stdout)
 		if err != nil {
+			//nolint:errcheck // best-effort write to stderr
 			fmt.Fprintf(stderr, "ERROR: %v\n\n", err)
 			printCLIHelp(stderr)
+
 			return exitCodeCLIError
 		}
 	case "--help":
 		printCLIHelp(stdout)
 	case "--version":
+		//nolint:errcheck // best-effort write to stdout
 		fmt.Fprintf(stdout, "wastebin-mcp-go version %s (commit: %s, built: %s)\n", version, commit, date)
 	default:
+		//nolint:errcheck // best-effort write to stderr
 		fmt.Fprintf(stderr, "ERROR: unknown command or flag: %q\n\n", args[0])
 		printCLIHelp(stderr)
+
 		return exitCodeCLIError
 	}
 
@@ -170,5 +180,3 @@ func runCreateCommand(args []string, stdout io.Writer) error {
 
 	return runCLIMode(flags)
 }
-
-

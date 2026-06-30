@@ -511,7 +511,6 @@ func TestRunCreateCommand_HelpFlag(t *testing.T) {
 	var stdout bytes.Buffer
 
 	cmdErr := runCreateCommand([]string{"--help"}, &stdout)
-
 	if cmdErr != nil {
 		t.Errorf("expected nil error for --help, got: %v", cmdErr)
 	}
