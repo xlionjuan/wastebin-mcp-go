@@ -52,8 +52,13 @@ func buildPasteSchema(cfg *wastebin.Config) (json.RawMessage, error) {
 				"translated to the corresponding host path."
 		}
 
-		filePathDesc += " SECURITY: Only paths under ALLOWED_PATHS are accepted. " +
-			"Blocked system paths (/etc, /proc, /sys, /dev by default) are rejected."
+		if len(cfg.AllowedPaths) > 0 {
+			filePathDesc += " SECURITY: Only paths under ALLOWED_PATHS are accepted."
+		} else {
+			filePathDesc += " SECURITY: Paths pass through the built-in and user blocklist pipeline."
+		}
+
+		filePathDesc += " Blocked system paths (/etc, /proc, /sys, /dev by default) are rejected."
 
 		props["file_path"] = map[string]any{
 			"type":        "string",
