@@ -47,7 +47,7 @@ go build -ldflags="-X main.version=$(git describe --tags --always)" -o wastebin-
 | `WASTEBIN_MCP_BLOCKED_PATHS` | | `/etc,/proc,/sys,/dev` | Comma-separated absolute directory paths to block for file reads (e.g. `/home/user/secret`). Relative entries are rejected at startup. Resolved via `EvalSymlinks` (matching file-path resolution) with fallback to `Clean` for non-existent absolute paths. Applied after the built-in blocklist. Defaults to common system directories |
 | `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST` | | `false` | Set to `true` to disable the built-in blocklist (system directory prefixes + sensitive path components). Use with caution |
 | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | | `1048576` | Maximum paste content size in bytes (client-side guard) |
-| `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker-style mount mappings (`host_path:sandbox_path,...`) for sandbox path translation |
+| `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker-style mount mappings (`host_path:sandbox_path,...`) for sandbox path translation. Sandbox paths must be absolute POSIX paths and must not contain `..` components |
 | `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | | `false` | When set, sandbox path translation happens automatically |
 | `DEBUG` | | — | Set to `1` or `true` to enable debug logging (HTTP request/response details on stderr) |
 

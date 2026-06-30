@@ -414,7 +414,11 @@ startup that:
 1. Each mount's host path is covered by `WASTEBIN_MCP_ALLOWED_PATHS`. If not,
    the server prints a clear error and exits — preventing opaque "path not
    allowed" failures that agents cannot debug.
-2. No two mounts share overlapping sandbox paths (one sandbox path being a
+2. Each mount's sandbox path is an absolute POSIX path and does not contain
+   `..` components before cleanup. Duplicate separators and trailing slashes
+   are still normalized, but parent-directory traversal is rejected instead of
+   being cleaned into a broader mount.
+3. No two mounts share overlapping sandbox paths (one sandbox path being a
    prefix of another). Overlapping or duplicate sandbox paths are rejected at
    startup with a clear error, eliminating the ambiguity and security risk of
    first-match-wins resolution.

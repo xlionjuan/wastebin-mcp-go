@@ -42,7 +42,7 @@ wastebin-mcp-go create --file-path /tmp/doc.md
 | `WASTEBIN_MCP_ALLOWED_PATHS` | | — | Comma-separated absolute directory paths |
 | `WASTEBIN_MCP_BLOCKED_PATHS` | | `/etc,/proc,/sys,/dev` | Comma-separated absolute directory paths (relative paths are rejected at startup) |
 | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | | 1048576 | Max content size in bytes |
-| `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker mount mappings (`host:sandbox,...`) |
+| `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker mount mappings (`host:sandbox,...`); sandbox paths must be absolute and must not contain `..` components |
 | `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | | false | Transparent sandbox translation |
 | `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST` | | false | Disable built-in blocklist (system + sensitive paths) |
 | `DEBUG` | | — | Set to `1` or `true` to enable debug logging |
@@ -100,7 +100,9 @@ conditional fields that appear only in specific scenarios.
   symlink target obscures it. All paths are then resolved via
   `filepath.EvalSymlinks` for defense-in-depth blocklist matching.
 - Binary and non-UTF-8 files are rejected at read time.
-- Sandbox translation is opt-in and ENV-gated.
+- Sandbox translation is opt-in and ENV-gated. Sandbox mount paths are
+  validated at startup; relative sandbox paths and `..` components are
+  rejected before path cleanup.
 - Content size is pre-checked against a configurable limit.
 - See `CONTEXT.md` for the full security model.
 

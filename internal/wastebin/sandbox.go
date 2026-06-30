@@ -45,7 +45,7 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 		}
 
 		hostPath := strings.TrimSpace(parts[0])
-		sandboxPath := path.Clean(strings.TrimSpace(parts[1]))
+		sandboxPath := strings.TrimSpace(parts[1])
 
 		if !strings.HasPrefix(hostPath, "/") {
 			return nil, fmt.Errorf(
@@ -53,6 +53,15 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 				errInvalidSandboxMount, i, hostPath,
 			)
 		}
+
+		if hasSandboxParentDir(sandboxPath) {
+			return nil, fmt.Errorf(
+				"%w at index %d: sandbox path %q must not contain parent-directory traversal",
+				errInvalidSandboxMount, i, sandboxPath,
+			)
+		}
+
+		sandboxPath = path.Clean(sandboxPath)
 
 		if !path.IsAbs(sandboxPath) {
 			return nil, fmt.Errorf(
@@ -85,6 +94,16 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 	}
 
 	return mounts, nil
+}
+
+func hasSandboxParentDir(sandboxPath string) bool {
+	for part := range strings.SplitSeq(sandboxPath, "/") {
+		if part == ".." {
+			return true
+		}
+	}
+
+	return false
 }
 
 // isContainedSandboxPath reports whether target is under or equal to base.
