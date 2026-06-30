@@ -126,8 +126,14 @@ func TestConfigFromEnv_AllSet(t *testing.T) {
 		t.Fatalf("expected 1 BlockedPath, got %d", len(cfg.BlockedPaths))
 	}
 
-	if cfg.BlockedPaths[0] != "/home" {
-		t.Errorf("got %q, want %q", cfg.BlockedPaths[0], "/home")
+	wantBlocked, err := filepath.EvalSymlinks("/home")
+	if err != nil {
+		t.Fatalf("failed to resolve /home: %v", err)
+	}
+
+	wantBlocked = filepath.Clean(wantBlocked)
+	if cfg.BlockedPaths[0] != wantBlocked {
+		t.Errorf("got %q, want %q", cfg.BlockedPaths[0], wantBlocked)
 	}
 
 	if cfg.MaxContentSize != 512000 {
