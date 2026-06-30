@@ -44,7 +44,7 @@ go build -ldflags="-X main.version=$(git describe --tags --always)" -o wastebin-
 | `WASTEBIN_MCP_FILE_READ_ENABLED` | | `true` | Enable file-reading mode; set to `false` to restrict to inline content only |
 | `WASTEBIN_MCP_DEFAULT_EXPIRES` | | `31536000` | Default paste expiration in seconds when no `expires` parameter is given |
 | `WASTEBIN_MCP_ALLOWED_PATHS` | | — | Comma-separated absolute directory paths allowed for file reads. When set, only paths under these directories are accepted. When empty, skips allowlist and falls through to blocklist checks |
-| `WASTEBIN_MCP_BLOCKED_PATHS` | | `/etc,/proc,/sys,/dev` | Comma-separated absolute directory paths to block for file reads (e.g. `/home/user/secret`). Applied after the built-in blocklist. Defaults to common system directories |
+| `WASTEBIN_MCP_BLOCKED_PATHS` | | `/etc,/proc,/sys,/dev` | Comma-separated absolute directory paths to block for file reads (e.g. `/home/user/secret`). Resolved via `EvalSymlinks` (matching file-path resolution) with fallback to `Abs`+`Clean` for non-existent paths. Applied after the built-in blocklist. Defaults to common system directories |
 | `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST` | | `false` | Set to `true` to disable the built-in blocklist (system directory prefixes + sensitive path components). Use with caution |
 | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | | `1048576` | Maximum paste content size in bytes (client-side guard) |
 | `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker-style mount mappings (`host_path:sandbox_path,...`) for sandbox path translation |
@@ -203,7 +203,10 @@ The system uses a **two-tier blocklist**:
    - *System directory prefixes*: `/etc`, `/proc`, `/sys`, `/dev`
    - *Sensitive path components*: `.ssh`, `.gnupg`, etc.
 2. **User-defined blocklist** (`WASTEBIN_MCP_BLOCKED_PATHS`, comma-separated
-   absolute directory paths). Applied after the built-in blocklist.
+   absolute directory paths). Each entry is resolved via `filepath.EvalSymlinks`
+   (matching the file-path resolution in validateFilePath) to prevent symlink
+   aliases from bypassing the blocklist. Non-existent paths fall back to
+   `filepath.Abs` + `filepath.Clean`. Applied after the built-in blocklist.
 
 Each tier produces a distinct error message so the user knows exactly which
 rule rejected their path.

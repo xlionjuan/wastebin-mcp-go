@@ -305,7 +305,7 @@ pipeline** (Stages 1a–4):
    translation. If the sandbox path contains a blocked component, it is rejected
    immediately — before translation converts it to a host path where the
    component name may be symlinked away.
-3. **Sandbox path translation** — if sandbox mounts are configured and
+ 3. **Sandbox path translation** — if sandbox mounts are configured and
    `translate_sandbox_path` is enabled, the sandbox path is translated to its
    corresponding host path. After translation, the result is verified to still
    be under the matched mount's host root.

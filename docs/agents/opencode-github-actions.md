@@ -68,6 +68,18 @@ Do not substitute a `/pull/new/...` URL for an actual PR. If neither OpenCode's
 GitHub integration nor `gh pr create` can create the PR, report the exact
 failure and stop.
 
+## Git History Rewrites
+
+Do not use GitHub Actions OpenCode for git history rewrites. The Action runtime
+is suitable for normal file edits that result in new commits, but it must not be
+asked to amend existing commits, rebase, squash, reset and recommit, force-push,
+or rewrite existing commit messages or authors.
+
+If a CI check requires an existing commit headline or author metadata to be
+changed, stop and report that the fix needs a local/manual git operation outside
+OpenCode. Do not try to satisfy that check by changing git config, setting
+author or committer environment variables, or force-pushing from the Action.
+
 ## Automatic Push Safety
 
 Treat the OpenCode GitHub Action working tree as a write boundary. The Action

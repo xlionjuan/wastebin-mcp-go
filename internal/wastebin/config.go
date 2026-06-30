@@ -106,16 +106,23 @@ func ConfigFromEnv() (*Config, error) {
 			cfg.BlockedPaths = append(cfg.BlockedPaths, p)
 		}
 	}
-	// Resolve all blocked paths to absolute, cleaned paths.
+	// Resolve all blocked paths — first try EvalSymlinks (matching
+	// validateFilePath's resolution), then fall back to Abs+Clean for
+	// non-existent paths that may exist later.
 	var resolvedBlocked []string
 
 	for _, p := range cfg.BlockedPaths {
-		abs, err := filepath.Abs(p)
+		resolved, err := filepath.EvalSymlinks(p)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve blocked path %q: %w", p, err)
+			abs, aerr := filepath.Abs(p)
+			if aerr != nil {
+				return nil, fmt.Errorf("failed to resolve blocked path %q: %w", p, aerr)
+			}
+
+			resolved = abs
 		}
 
-		resolvedBlocked = append(resolvedBlocked, filepath.Clean(abs))
+		resolvedBlocked = append(resolvedBlocked, filepath.Clean(resolved))
 	}
 
 	cfg.BlockedPaths = resolvedBlocked

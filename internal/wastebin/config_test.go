@@ -485,3 +485,88 @@ func TestConfigFromEnv_AllowedPathsNonExistent(t *testing.T) {
 }
 
 // The isAllowedPath function is tested in path_test.go.
+
+func TestConfigFromEnv_BlockedPathsSymlink(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	realDir := filepath.Join(tmpDir, "real")
+
+	err := os.Mkdir(realDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	linkDir := filepath.Join(tmpDir, "link")
+
+	err = os.Symlink(realDir, linkDir)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_BLOCKED_PATHS", linkDir)
+
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.BlockedPaths) != 1 {
+		t.Fatalf("expected 1 BlockedPath, got %d", len(cfg.BlockedPaths))
+	}
+
+	// The resolved path should be the real path (EvalSymlinks), not the symlink.
+	if cfg.BlockedPaths[0] != filepath.Clean(realDir) {
+		t.Errorf("expected %q, got %q", filepath.Clean(realDir), cfg.BlockedPaths[0])
+	}
+}
+
+func TestConfigFromEnv_BlockedPathsAbsError(t *testing.T) {
+	// Intentionally not parallel — removes the CWD to make filepath.Abs fail.
+	// EvalSymlinks fails first (relative non-existent path), then Abs fails
+	// because the CWD has been deleted. This exercises the error path at
+	// config.go lines 118-119 (the aerr branch).
+	tmpDir := t.TempDir()
+
+	t.Chdir(tmpDir)
+
+	err := os.Remove(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_BLOCKED_PATHS", "relative/blocked/path")
+
+	_, err = ConfigFromEnv()
+	if err == nil {
+		t.Fatal("expected error for blocked path with unreachable CWD")
+	}
+
+	if !strings.Contains(err.Error(), "failed to resolve blocked path") {
+		t.Errorf("expected 'failed to resolve blocked path', got: %v", err)
+	}
+}
+
+func TestConfigFromEnv_BlockedPathsNonExistent(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_BLOCKED_PATHS", "/nonexistent/path/that/does/not/exist/blocked")
+
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.BlockedPaths) != 1 {
+		t.Fatalf("expected 1 BlockedPath, got %d", len(cfg.BlockedPaths))
+	}
+
+	// Non-existent paths should fall back to Abs+Clean.
+	if !filepath.IsAbs(cfg.BlockedPaths[0]) {
+		t.Errorf("expected absolute path for non-existent blocked path, got %q", cfg.BlockedPaths[0])
+	}
+
+	if !strings.HasSuffix(cfg.BlockedPaths[0], "blocked") {
+		t.Errorf("expected path to end with 'blocked', got %q", cfg.BlockedPaths[0])
+	}
+}

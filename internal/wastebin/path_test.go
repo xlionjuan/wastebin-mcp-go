@@ -555,6 +555,94 @@ func TestValidateFilePath_UserBlockedPath(t *testing.T) {
 	}
 }
 
+func TestValidateFilePath_UserBlockedSymlink(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	realDir := filepath.Join(tmpDir, "real")
+
+	err := os.Mkdir(realDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	linkDir := filepath.Join(tmpDir, "link")
+
+	err = os.Symlink(realDir, linkDir)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	secretFile := filepath.Join(realDir, "data.txt")
+
+	err = os.WriteFile(secretFile, []byte("s3kr1t"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate ConfigFromEnv's symlink resolution for blocked paths.
+	resolvedBlocked, err := filepath.EvalSymlinks(linkDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{
+		BlockedPaths: []string{filepath.Clean(resolvedBlocked)},
+	}
+
+	_, err = validateFilePath(secretFile, cfg)
+	if err == nil {
+		t.Fatal("expected error for user-blocked path via symlink, got nil")
+	}
+
+	if !errors.Is(err, errUserBlockedPath) {
+		t.Errorf("expected errUserBlockedPath, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_UserBlockedViaSymlinkAlias(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	realDir := filepath.Join(tmpDir, "real")
+
+	err := os.Mkdir(realDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	linkDir := filepath.Join(tmpDir, "link")
+
+	err = os.Symlink(realDir, linkDir)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	secretFile := filepath.Join(linkDir, "data.txt")
+
+	err = os.WriteFile(secretFile, []byte("s3kr1t"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Block the real dir (the resolved target).
+	cfg := &Config{
+		BlockedPaths: []string{filepath.Clean(realDir)},
+	}
+
+	// Request the file via the symlink path.
+	_, err = validateFilePath(secretFile, cfg)
+	if err == nil {
+		t.Fatal("expected error for user-blocked path accessed via symlink, got nil")
+	}
+
+	if !errors.Is(err, errUserBlockedPath) {
+		t.Errorf("expected errUserBlockedPath, got: %v", err)
+	}
+}
+
 func TestValidateFilePath_NotInAllowedNotInBlocklist(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
@@ -765,6 +853,100 @@ func TestValidateFilePath_AllowedPathBlockedByUserBlocklist(t *testing.T) {
 
 	if result != file {
 		t.Errorf("expected resolved path %q, got %q", file, result)
+	}
+}
+
+// ──────────────────────────────────────────────
+// isContainedPath tests
+// ──────────────────────────────────────────────
+
+func TestIsContainedPath_DotVaultDescendant(t *testing.T) {
+	t.Parallel()
+
+	// ..vault starts with ".." but is a legitimate name, not traversal.
+	if !isContainedPath("/tmp/blocked", "/tmp/blocked/..vault/file.txt") {
+		t.Error("expected ..vault descendant to be contained")
+	}
+}
+
+func TestIsContainedPath_ActualTraversal(t *testing.T) {
+	t.Parallel()
+
+	if isContainedPath("/tmp/blocked", "/tmp/blocked/../etc") {
+		t.Error("expected actual traversal to NOT be contained")
+	}
+}
+
+func TestIsContainedPath_ExactMatch(t *testing.T) {
+	t.Parallel()
+
+	if !isContainedPath("/tmp/foo", "/tmp/foo") {
+		t.Error("expected exact match to be contained")
+	}
+}
+
+func TestIsContainedPath_ParentDirOnly(t *testing.T) {
+	t.Parallel()
+
+	if isContainedPath("/tmp/foo", "/tmp") {
+		t.Error("expected parent dir to NOT be contained")
+	}
+}
+
+func TestIsContainedPath_Unrelated(t *testing.T) {
+	t.Parallel()
+
+	if isContainedPath("/tmp/foo", "/var/log") {
+		t.Error("expected unrelated path to NOT be contained")
+	}
+}
+
+func TestIsContainedPath_DotVaultDirItself(t *testing.T) {
+	t.Parallel()
+
+	if !isContainedPath("/tmp", "/tmp/..vault") {
+		t.Error("expected ..vault dir itself to be contained")
+	}
+}
+
+func TestIsAllowedPath_DotVaultDescendant(t *testing.T) {
+	t.Parallel()
+
+	if !isAllowedPath("/tmp/allowed/..vault/file", []string{"/tmp/allowed"}) {
+		t.Error("expected ..vault descendant to be allowed under allowed path")
+	}
+}
+
+func TestIsAllowedPath_DotVaultDirItself(t *testing.T) {
+	t.Parallel()
+
+	if !isAllowedPath("/tmp/allowed/..vault", []string{"/tmp/allowed"}) {
+		t.Error("expected ..vault dir itself to be allowed under allowed path")
+	}
+}
+
+func TestIsUserBlocked_DotVaultDescendant(t *testing.T) {
+	t.Parallel()
+
+	// A ..vault directory under a blocked path should be blocked.
+	matched, blocked := isUserBlocked("/tmp/blocked/..vault/file.txt", []string{"/tmp/blocked"})
+	if !blocked {
+		t.Fatal("expected ..vault descendant to be blocked")
+	}
+
+	if matched != "/tmp/blocked" {
+		t.Errorf("expected matched path %q, got %q", "/tmp/blocked", matched)
+	}
+}
+
+func TestIsUserBlocked_DotVaultNotTraversal(t *testing.T) {
+	t.Parallel()
+
+	// A ..vault directory under a NOT-blocked path should NOT be blocked.
+	// Verifies the fix doesn't falsely block legitimate ..-prefixed names.
+	_, blocked := isUserBlocked("/home/user/..vault/project", []string{"/tmp/blocked"})
+	if blocked {
+		t.Error("expected ..vault project NOT to match unrelated blocked path")
 	}
 }
 

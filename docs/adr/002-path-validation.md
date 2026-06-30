@@ -73,7 +73,9 @@ file_path (raw user input)
     │
     ├── (4) USER BLOCKLIST (WASTEBIN_MCP_BLOCKED_PATHS env var)
     │       User-defined list of absolute path prefixes.
-    │       Resolved via filepath.Abs + Clean before matching.
+    │       Resolved via filepath.EvalSymlinks (matching Stage 2
+    │       resolution) with fallback to filepath.Abs + Clean for
+    │       non-existent paths that may exist later.
     │       Error: "file path is in a user-blocked directory (...)"
     │       Bypassed by ALLOWED_PATHS.
     │
