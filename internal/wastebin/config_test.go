@@ -88,11 +88,27 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 }
 
 func TestConfigFromEnv_AllSet(t *testing.T) {
+	// Create a temp dir with a symlink to test path resolution.
+	tmpDir := t.TempDir()
+	realDir := filepath.Join(tmpDir, "real")
+
+	err := os.Mkdir(realDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	linkDir := filepath.Join(tmpDir, "link")
+
+	err = os.Symlink(realDir, linkDir)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
 	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_DEFAULT_EXPIRES", "3600")
 	t.Setenv("WASTEBIN_MCP_FILE_READ_ENABLED", "false")
 	t.Setenv("WASTEBIN_MCP_ALLOWED_PATHS", "/tmp")
-	t.Setenv("WASTEBIN_MCP_BLOCKED_PATHS", "/home")
+	t.Setenv("WASTEBIN_MCP_BLOCKED_PATHS", linkDir)
 	t.Setenv("WASTEBIN_MCP_MAX_CONTENT_SIZE", "512000")
 	t.Setenv("WASTEBIN_MCP_SANDBOX_TRANSPARENT", "true")
 	t.Setenv("DEBUG", "true")
@@ -126,9 +142,9 @@ func TestConfigFromEnv_AllSet(t *testing.T) {
 		t.Fatalf("expected 1 BlockedPath, got %d", len(cfg.BlockedPaths))
 	}
 
-	wantBlocked, err := filepath.EvalSymlinks("/home")
+	wantBlocked, err := filepath.EvalSymlinks(linkDir)
 	if err != nil {
-		t.Fatalf("failed to resolve /home: %v", err)
+		t.Fatalf("failed to resolve symlink: %v", err)
 	}
 
 	wantBlocked = filepath.Clean(wantBlocked)

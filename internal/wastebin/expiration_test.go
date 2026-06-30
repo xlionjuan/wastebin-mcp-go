@@ -236,8 +236,8 @@ func TestParseExpiration_OverflowYears(t *testing.T) {
 		t.Fatalf("unexpected error for large year value: %v", err)
 	}
 
-	want := 999999999 * 31536000 // 31,535,999,968,464,000
-	if n != want {
+	want := int64(999999999) * int64(31536000) // 31,535,999,968,464,000
+	if int64(n) != want {
 		t.Errorf("got %d, want %d", n, want)
 	}
 }
@@ -257,8 +257,8 @@ func TestParseExpiration_NearOverflowDays(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := 99999999999999 * 86400 // 8,639,999,999,999,913,600
-	if n != want {
+	want := int64(99999999999999) * int64(86400) // 8,639,999,999,999,913,600
+	if int64(n) != want {
 		t.Errorf("got %d, want %d", n, want)
 	}
 }
