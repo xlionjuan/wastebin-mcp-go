@@ -487,6 +487,97 @@ func TestRunCLI_CreateWithServer(t *testing.T) {
 	}
 }
 
+func TestRunCLI_NoArgsNoEnv(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{}, &stdout, &stderr)
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+
+	if !strings.Contains(stderr.String(), "ERROR") {
+		t.Errorf("expected stderr to contain 'ERROR', got: %s", stderr.String())
+	}
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected empty stdout, got: %s", stdout.String())
+	}
+}
+
+func TestRunCLI_NoArgsMCPModeClientError(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "ftp://server")
+	t.Setenv("DEBUG", "true")
+
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatalf("failed to create pipe: %v", pipeErr)
+	}
+
+	//nolint:errcheck,gosec // test helper: pipe write best-effort
+	w.WriteString(`{"jsonrpc":"2.0","method":"initialize"}` + "\n")
+
+	//nolint:errcheck,gosec // test helper: pipe close best-effort
+	w.Close()
+
+	oldStdin := os.Stdin
+
+	t.Cleanup(func() { os.Stdin = oldStdin })
+
+	os.Stdin = r
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{}, &stdout, &stderr)
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected empty stdout, got: %s", stdout.String())
+	}
+}
+
+func TestRunCLI_NoArgsInvalidStdin(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "http://localhost:9999")
+
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatalf("failed to create pipe: %v", pipeErr)
+	}
+
+	//nolint:errcheck,gosec // test helper: pipe write best-effort
+	w.WriteString("not a valid mcp initialize message\n")
+
+	//nolint:errcheck,gosec // test helper: pipe close best-effort
+	w.Close()
+
+	oldStdin := os.Stdin
+
+	t.Cleanup(func() { os.Stdin = oldStdin })
+
+	os.Stdin = r
+
+	var stdout, stderr bytes.Buffer
+
+	exitCode := runCLI([]string{}, &stdout, &stderr)
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+
+	if !strings.Contains(stderr.String(), "ERROR") {
+		t.Errorf("expected stderr to contain 'ERROR', got: %s", stderr.String())
+	}
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected empty stdout, got: %s", stdout.String())
+	}
+}
+
 func TestParseCreateFlags_InvalidFlag(t *testing.T) {
 	t.Parallel()
 
