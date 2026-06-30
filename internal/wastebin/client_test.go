@@ -2355,20 +2355,6 @@ func TestCreatePaste_FileMode_NonRegularFileRejected(t *testing.T) {
 		t.Skipf("skipping: cannot create FIFO: %v", err)
 	}
 
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-
-		w, wErr := os.OpenFile(fifoPath, os.O_WRONLY, 0) //nolint:gosec // Test helper — FIFO writer
-		if wErr != nil {
-			return
-		}
-
-		_, _ = w.WriteString("data") //nolint:errcheck // Test helper — FIFO write
-		_ = w.Close()                //nolint:errcheck // Test helper — FIFO close
-	}()
-
 	cfg := DefaultConfig()
 	cfg.ServerURL = "http://localhost:12345"
 	cfg.AllowedPaths = []string{allowedDir}
@@ -2388,8 +2374,6 @@ func TestCreatePaste_FileMode_NonRegularFileRejected(t *testing.T) {
 	if !errors.Is(err, errFilePathCannotBeUsed) {
 		t.Errorf("expected errFilePathCannotBeUsed, got: %v", err)
 	}
-
-	<-done
 }
 
 // TestCreatePaste_SymlinkSwapRace verifies that a post-validation symlink
