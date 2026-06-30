@@ -49,21 +49,44 @@ wastebin-mcp-go create --file-path /tmp/doc.md
 
 ## Response Format
 
+The response contains a fixed set of fields (`hostname`, `id`, `url`, `raw`) plus
+conditional fields that appear only in specific scenarios.
+
+#### Paste with `.md` extension
+
 ```json
 {
   "hostname": "https://bin-staging.xlion.tw",
   "id": "FTuutJssdSh",
   "url": "/FTuutJssdSh.md",
   "raw": "/raw/FTuutJssdSh.md",
-  "markdown_rendered": "/md/FTuutJssdSh.md",
-  "hint": "Extension not detected; syntax highlighting may not apply",
-  "password_hint": "curl -H 'Wastebin-Password: <password>' https://bin-staging.xlion.tw/raw/FTuutJssdSh.md"
+  "markdown_rendered": "/md/FTuutJssdSh.md"
 }
 ```
 
-- `markdown_rendered` is only present when extension is `.md` or `.markdown`.
-- `hint` is only present when extension is unknown (fuzzy match hint).
-- `password_hint` is only present when the paste is password-protected; it provides the curl command to retrieve the paste.
+#### Paste with unknown extension (or no extension)
+
+```json
+{
+  "hostname": "https://bin-staging.xlion.tw",
+  "id": "AbCdEfGh123",
+  "url": "/AbCdEfGh123",
+  "raw": "/raw/AbCdEfGh123",
+  "hint": "Extension not detected; syntax highlighting may not apply"
+}
+```
+
+#### Paste with password protection
+
+```json
+{
+  "hostname": "https://bin-staging.xlion.tw",
+  "id": "XyZ789AbCdE",
+  "url": "/XyZ789AbCdE.txt",
+  "raw": "/raw/XyZ789AbCdE.txt",
+  "password_hint": "curl -H 'Wastebin-Password: <password>' https://bin-staging.xlion.tw/raw/XyZ789AbCdE.txt"
+}
+
 
 ## Security
 

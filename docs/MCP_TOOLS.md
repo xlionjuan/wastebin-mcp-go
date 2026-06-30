@@ -87,13 +87,26 @@ Accepts two formats:
 
 The tool returns a JSON object with the following fields:
 
+**Paste with `.md` extension:**
+
 ```json
 {
   "hostname": "https://bin-staging.xlion.tw",
   "id": "FTuutJssdSh",
   "url": "/FTuutJssdSh.md",
   "raw": "/raw/FTuutJssdSh.md",
-  "markdown_rendered": "/md/FTuutJssdSh.md",
+  "markdown_rendered": "/md/FTuutJssdSh.md"
+}
+```
+
+**Paste with unknown extension (or no extension):**
+
+```json
+{
+  "hostname": "https://bin-staging.xlion.tw",
+  "id": "AbCdEfGh123",
+  "url": "/AbCdEfGh123",
+  "raw": "/raw/AbCdEfGh123",
   "hint": "Extension not detected; syntax highlighting may not apply"
 }
 ```
