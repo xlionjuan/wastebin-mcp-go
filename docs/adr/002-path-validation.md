@@ -31,10 +31,20 @@ implemented as its own function. The stages are evaluated in strict order:
 ```
 file_path (raw user input)
     │
-    ├── (1) PATH TRAVERSAL DETECTION
+    ├── (1a) PATH TRAVERSAL DETECTION (raw input)
     │       Rejects `..` / `../` patterns in the raw input.
     │       Independent from all path resolution.
     │       Error: "path traversal is not allowed"
+    │
+    ├── (1b) SENSITIVE COMPONENT DETECTION (raw input, before resolution)
+    │       Checks each path component in the normalized raw path against
+    │       sensitive patterns: .ssh, .gnupg, .aws, .kube, .docker, .git.
+    │       Runs BEFORE filepath.EvalSymlinks, so a blocked-component
+    │       symlink (e.g. .ssh → realssh) is caught before the symlink
+    │       target hides the component name.
+    │       Error: "file path contains a blocked component (...)"
+    │       Same component check is repeated on the resolved path as
+    │       Stage 3b for defense in depth.
     │
     ├── (2) ALLOWED_PATHS (user whitelist) — highest priority
     │       If configured, the resolved path MUST be under one of these.
@@ -57,6 +67,7 @@ file_path (raw user input)
     │              .ssh, .gnupg, .aws, .kube, .docker, .git
     │              Error: "file path contains a blocked component (...)"
     │              Enforced even inside ALLOWED_PATHS (per B2 exception).
+    │              This is the defense-in-depth companion to Stage 1b.
     │       Disabled by setting WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true
     │       Both sub-checks share the same disable flag.
     │
@@ -91,10 +102,13 @@ resolved to an absolute form. CLI mode is not exempt from path validation.
    [Breaking change B2](#breaking-change-b2-component-blocklist-inside-allowed_paths)
    for details.
 
-2. **Path traversal is caught BEFORE resolution.** The raw input is checked
-   for `..` components before any path resolution or symlink evaluation.
-   This prevents `..` from being used to reach sensitive paths even when
-   the final resolved path would pass the blocklist checks.
+2. **Path traversal and sensitive component detection happen BEFORE
+   resolution.** The raw input is checked for `..` components and for
+   blocked path components (`.ssh`, `.gnupg`, etc.) before any path
+   resolution or symlink evaluation. This prevents both `..` and symlinked
+   blocked components (e.g. `.ssh` → `realssh`) from bypassing detection,
+   since `EvalSymlinks` would otherwise resolve the symlink and erase the
+   blocked component name from the path.
 
 3. **Built-in blocklist vs user blocklist are separate concepts** with
    separate error messages, so the user knows exactly which rule rejected
@@ -151,7 +165,12 @@ Key points:
 
 ## Implementation notes
 
-- All four stages are pure functions operating on strings/paths —
+- There are now five stages (1a, 1b, 2, 3, 4). Stage 1b checks the raw,
+  un-resolved path for blocked components, while Stage 3b repeats the same
+  check on the resolved path for defense in depth.
+- `hasComponentBlocked` performs the pre-resolution check by operating on
+  forward-slash-normalized strings instead of OS-separator-split paths.
+- All stages are pure functions operating on strings/paths —
   no external dependencies.
 - The `Config` struct gains: `DisableBuiltinBlocklist bool` field.
 - The `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST` env var is parsed as bool.

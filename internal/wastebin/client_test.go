@@ -971,6 +971,64 @@ func TestCreatePaste_FileMode_SandboxTranslation_Transparent(t *testing.T) {
 	}
 }
 
+func TestCreatePaste_SandboxPathWithBlockedComponent_Rejected(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	// Host directory — a neutral path not containing any blocked component.
+	hostDir := filepath.Join(tmpDir, "realssh")
+
+	err := os.Mkdir(hostDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a test file at the host path.
+	hostFilePath := filepath.Join(hostDir, "id_rsa")
+
+	err = os.WriteFile(hostFilePath, []byte("ssh-key-data"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Server handler that should NEVER be reached — the .ssh component
+	// must be caught before translation, so the server is never called.
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("server should not be reached when sandbox path contains .ssh")
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+	cfg.AllowedPaths = []string{hostDir}
+	cfg.SandboxMounts = []SandboxMount{
+		{HostPath: hostDir, SandboxPath: "/container/home/.ssh"},
+	}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	// The raw sandbox path contains .ssh — hasComponentBlocked must catch
+	// it before any translation occurs.
+	sandboxPath := "/container/home/.ssh/id_rsa"
+	translate := true
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath:             &sandboxPath,
+		TranslateSandboxPath: &translate,
+	})
+	if err == nil {
+		t.Fatal("expected error for sandbox path with .ssh component, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedComponent) {
+		t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+	}
+}
+
 func TestCreatePaste_FileMode_SandboxTranslationWithoutFlag(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()

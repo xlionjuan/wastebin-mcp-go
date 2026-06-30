@@ -197,26 +197,30 @@ allowlist check and falls through to the blocklist pipeline instead.
 absolute directory paths that are denied by default. Default value:
 `/etc,/proc,/sys,/dev`. The allowlist takes precedence over the user blocklist.
 
-**Path resolution**: Before any check, the path is resolved via
-`filepath.EvalSymlinks` and `filepath.Clean`. This prevents symlink-based
-allowlist bypass in the validation layer. After validation passes, the file
-is opened using `openat(2)` with `O_NOFOLLOW`, walking every path component
-from a trusted root fd (`/`). This two-layer approach prevents TOCTOU
-symlink-swap attacks where a validated path is replaced with a symlink
+**Path resolution**: Sensitive path components (`.ssh`, `.gnupg`, `.aws`,
+`.kube`, `.docker`, `.git`) are checked on the raw input **before** symlink
+resolution, catching symlinked blocked components (e.g. `.ssh` → `realssh`)
+before `EvalSymlinks` resolves the symlink and the component name disappears.
+After this pre-resolution check, the path is then resolved via
+`filepath.EvalSymlinks` and `filepath.Clean`. This multi-layer approach
+prevents symlink-based bypass of the component blocklist. After validation
+passes, the file is opened using `openat(2)` with `O_NOFOLLOW`, walking every
+path component from a trusted root fd (`/`). This three-layer approach prevents
+TOCTOU symlink-swap attacks where a validated path is replaced with a symlink
 between validation and the actual file open.
 
 **Validation flow:**
 
 ```
 User-supplied file_path
-  → Path traversal detection (before sandbox translation)
+  → Sandbox path traversal detection (before sandbox translation)
+  → Sandbox component blocklist check (before sandbox translation)
   → Sandbox translation (if enabled)
   → Mount host root verification (after translation)
-  → Stage 1 — Path traversal detection
-     ├─ Traversal found → ❌  denied
-     └─ OK
-        → Resolve (EvalSymlinks + Clean)
-           → Stage 2 — ALLOWED_PATHS check
+  → Stage 1a — Path traversal detection (raw input)
+  → Stage 1b — Sensitive component detection (raw input, before symlink resolution)
+  → Resolve (EvalSymlinks + Clean)
+     → Stage 2 — ALLOWED_PATHS check
               ├─ Under an allowed path → Stage 3b (sensitive component check)
               │                          ├─ Blocked component found → ❌  denied
               │                          └─ No blocked component → ✅  IsLikelyText

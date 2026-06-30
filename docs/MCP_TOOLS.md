@@ -19,9 +19,9 @@ use to reconstruct full retrieval URLs.
   `Wastebin-Password` header or as a `password` query parameter. There is no
   `get_paste`
   tool — agents must use `curl` directly.
-- File mode applies a five-stage path validation pipeline: traversal detection,
-  sandbox translation, allowlist (`WASTEBIN_MCP_ALLOWED_PATHS`), built-in
-  blocklist, and user blocklist.
+- File mode applies a six-stage path validation pipeline: traversal detection,
+  pre-resolution sensitive component check, sandbox translation, allowlist
+  (`WASTEBIN_MCP_ALLOWED_PATHS`), built-in blocklist, and user blocklist.
   See [Security Notes](#security-notes) for details.
 
 ### Parameters
@@ -289,27 +289,35 @@ File read mode is **enabled by default** (`WASTEBIN_MCP_FILE_READ_ENABLED=true`)
 When file mode is enabled, the `file_path` parameter allows reading local files.
 This is a powerful feature that must be configured carefully.
 
-The server applies a **five-stage path validation pipeline** (in order):
+The server applies a **six-stage path validation pipeline** (in order):
 
 1. **Path traversal detection (before sandbox translation)** — rejects paths
    containing `..` or equivalents, checked on the raw input _before_ any
    sandbox path translation occurs. This prevents `filepath.Join` normalization
    from silently removing `..` during translation and bypassing the check.
-2. **Sandbox path translation** — if sandbox mounts are configured and
+2. **Sensitive component detection (before sandbox translation)** — checks
+   the raw sandbox path for blocked components (`.ssh`, `.gnupg`, `.aws`,
+   `.kube`, `.docker`, `.git`) before translation. If the sandbox path
+   contains a blocked component, it is rejected immediately — before
+   translation converts it to a host path where the component name may be
+   symlinked away.
+3. **Sandbox path translation** — if sandbox mounts are configured and
    `translate_sandbox_path` is enabled, the sandbox path is translated to its
    corresponding host path. After translation, the result is verified to still
    be under the matched mount's host root.
-3. **ALLOWED_PATHS (user allowlist)** — if configured, only paths under allowed
+4. **ALLOWED_PATHS (user allowlist)** — if configured, only paths under allowed
    directories are accepted. ALLOWED_PATHS bypasses the system directory prefix
    blocklist and the user blocklist, but **not** the sensitive component
-   blocklist (Stage 4b).
-4. **Built-in blocklist** — two independent checks:
+   blocklist (Stage 5b).
+5. **Built-in blocklist** — two independent checks:
    - *System directory prefix*: `/etc`, `/proc`, `/sys`, `/dev`
    - *Sensitive path component*: `.ssh`, `.gnupg`, `.aws`, `.kube`, `.docker`,
      `.git`
-   The prefix check is bypassed by ALLOWED_PATHS; the component check is not.
-   Can be disabled entirely via `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true`.
-5. **User blocklist** — configurable via `WASTEBIN_MCP_BLOCKED_PATHS`.
+   The component check here on the resolved path is the defense-in-depth
+   companion to Stage 2. The prefix check is bypassed by ALLOWED_PATHS; the
+   component check is not. Can be disabled entirely via
+   `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true`.
+6. **User blocklist** — configurable via `WASTEBIN_MCP_BLOCKED_PATHS`.
 
 Without `WASTEBIN_MCP_ALLOWED_PATHS`, file reads **are not automatically
 refused** — they fall through to the built-in blocklist, which blocks system
@@ -323,11 +331,16 @@ out-of-the-box experience without requiring mandatory allowlist configuration.
 - **Review the built-in blocklist defaults** — if your paths legitimately
   contain `.ssh` or similar components, you may need to adjust the component
   blocklist or disable the built-in blocklist entirely.
-- **Symlink protection (two-layer)** — (1) All paths are resolved via
-  `EvalSymlinks` and `Clean` before validation. (2) The actual file open uses
-  `openat(2)` with `O_NOFOLLOW`, walking every path component from a trusted
-  root fd (`/`). This prevents TOCTOU symlink-swap attacks where a validated
-  path is replaced with a symlink between validation and the file open.
+- **Symlink protection (three-layer)** — (1) Sensitive path components
+  (`.ssh`, `.gnupg`, `.aws`, `.kube`, `.docker`, `.git`) are checked on the
+  raw input **before** any resolution, catching symlinked blocked components
+  before `EvalSymlinks` resolves them away. (2) All paths are then resolved
+  via `EvalSymlinks` and `Clean` for the allowlist and blocklist checks, with
+  the component check repeated on the resolved path for defense in depth.
+  (3) The actual file open uses `openat(2)` with `O_NOFOLLOW`, walking every
+  path component from a trusted root fd (`/`). This prevents TOCTOU
+  symlink-swap attacks where a validated path is replaced with a symlink
+  between validation and the file open.
 - **Binary detection** — files are checked for valid UTF-8 and control
   character ratio; binary and non-UTF-8 files are rejected.
 

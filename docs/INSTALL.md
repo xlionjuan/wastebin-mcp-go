@@ -214,11 +214,19 @@ Paths containing `..` or path traversal equivalents are rejected **before**
 any path resolution occurs. This prevents `../` from being used to reach
 sensitive paths even when the final resolved path would pass blocklist checks.
 
-All paths are resolved via `filepath.EvalSymlinks` and `filepath.Clean` before
-validation, preventing symlink-based bypass of the allowlist or blocklist. For
-defence in depth, the actual file open uses `openat(2)` with `O_NOFOLLOW` to
-walk every path component from a trusted root fd (`/`), preventing TOCTOU
-symlink-swap attacks between validation and file open.
+Sensitive path components (`.ssh`, `.gnupg`, `.aws`, `.kube`, `.docker`,
+`.git`) are also checked on the raw input **before** symlink resolution. This
+catches symlinked blocked components (e.g. `.ssh` → `realssh`) at the earliest
+possible stage, before `EvalSymlinks` resolves the symlink and the evidence
+disappears. The same component check runs a second time on the resolved path
+for defense in depth.
+
+After the pre-resolution checks, all paths are resolved via
+`filepath.EvalSymlinks` and `filepath.Clean` before validation, preventing
+symlink-based bypass of the allowlist or blocklist. For defence in depth, the
+actual file open uses `openat(2)` with `O_NOFOLLOW` to walk every path
+component from a trusted root fd (`/`), preventing TOCTOU symlink-swap attacks
+between validation and file open.
 
 ### Binary Detection
 
