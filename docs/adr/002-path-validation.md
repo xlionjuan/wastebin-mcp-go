@@ -1,7 +1,7 @@
 # ADR 002: Path Validation Architecture
 
 **Status:** Active  
-**Last updated:** 2026-06-16  
+**Last updated:** 2026-06-30
 **Supersedes:** Earlier draft with single-layer blocklist
 
 ## Context
@@ -73,9 +73,10 @@ file_path (raw user input)
     │
     ├── (4) USER BLOCKLIST (WASTEBIN_MCP_BLOCKED_PATHS env var)
     │       User-defined list of absolute path prefixes.
+    │       Relative entries are rejected at startup.
     │       Resolved via filepath.EvalSymlinks (matching Stage 2
-    │       resolution) with fallback to filepath.Abs + Clean for
-    │       non-existent paths that may exist later.
+    │       resolution) with fallback to Clean for non-existent
+    │       absolute paths that may exist later.
     │       Error: "file path is in a user-blocked directory (...)"
     │       Bypassed by ALLOWED_PATHS.
     │

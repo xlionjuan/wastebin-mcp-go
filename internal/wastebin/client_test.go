@@ -1039,6 +1039,57 @@ func TestCreatePaste_FileMode_SandboxTranslation(t *testing.T) {
 	}
 }
 
+func TestCreatePaste_FileMode_SandboxTranslationBlockedPath(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	blockedDir := filepath.Join(tmpDir, "secret")
+
+	err := os.Mkdir(blockedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hostFilePath := filepath.Join(blockedDir, "token.txt")
+
+	err = os.WriteFile(hostFilePath, []byte("blocked content"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("server should not be reached when translated path is user-blocked")
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+	cfg.BlockedPaths = []string{blockedDir}
+	cfg.SandboxMounts = []SandboxMount{
+		{HostPath: blockedDir, SandboxPath: "/workspace"},
+	}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	sandboxPath := "/workspace/token.txt"
+	translate := true
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath:             &sandboxPath,
+		TranslateSandboxPath: &translate,
+	})
+	if err == nil {
+		t.Fatal("expected error for translated user-blocked path, got nil")
+	}
+
+	if !errors.Is(err, errUserBlockedPath) {
+		t.Errorf("expected errUserBlockedPath, got: %v", err)
+	}
+}
+
 func TestCreatePaste_FileMode_SandboxTranslation_Transparent(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
@@ -2006,23 +2057,6 @@ func TestNewWastebinClient_RedirectSchemeDowngradeBlocked(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "redirect scheme downgrade") {
 		t.Errorf("expected scheme downgrade error, got: %v", err)
-	}
-}
-
-func TestCreatePaste_NilArgs(t *testing.T) {
-	t.Parallel()
-
-	cfg := DefaultConfig()
-	cfg.ServerURL = "http://localhost:12345"
-
-	client, err := NewWastebinClient(cfg)
-	if err != nil {
-		t.Fatalf("failed to create client: %v", err)
-	}
-
-	_, err = client.CreatePaste(context.Background(), nil)
-	if !errors.Is(err, errArgsRequired) {
-		t.Errorf("expected errArgsRequired, got: %v", err)
 	}
 }
 

@@ -281,11 +281,14 @@ These errors are returned from the `create_paste` handler and always follow the
 | Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE` | `"Create paste error: content exceeds the maximum allowed size: <N> bytes exceeds limit of <N> bytes"` |
 | Unknown HTTP error | `"Create paste error: unknown HTTP error: HTTP <CODE>"` |
 | Invalid expiration format | `"Create paste error: invalid expiration: <reason>"` (reason: `expiration cannot be negative`, `unknown expiration unit`, `invalid expiration format`, `expiration overflow`) |
+| Extension contains invalid path or query characters | `"Create paste error: extension contains invalid path or query characters: <ext>"` |
+| Server returns response with empty paste path | `"Create paste error: invalid Wastebin response: empty path"` |
+| Server returns response with non-relative paste path | `"Create paste error: invalid Wastebin response: path must be relative, got <path>"` |
+| Server returns response without paste ID | `"Create paste error: invalid Wastebin response: path is missing paste ID"` |
 | Server returns malformed JSON | `"Create paste error: failed to parse Wastebin response: <details>"` |
 | Cross-host redirect blocked | `"Create paste error: redirect to different host blocked: <from> -> <to>"` |
 | Redirect scheme downgrade from https to http | `"Create paste error: redirect scheme downgrade from https to http blocked: <host> (https -> http)"` |
 | Too many redirects (>10) | `"Create paste error: stopped after 10 redirects"` |
-| `args` is nil | `"Create paste error: args is required"` |
 
 **File mode errors (only when `WASTEBIN_MCP_FILE_READ_ENABLED=true`):**
 

@@ -21,6 +21,7 @@ var (
 			"mount host_paths must be explicitly covered by an allowed path",
 	)
 	errInvalidDisableBuiltinBlocklist = errors.New("invalid WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST")
+	errConfiguredPathNotAbsolute      = errors.New("configured path must be absolute")
 )
 
 const (
@@ -78,7 +79,7 @@ func ConfigFromEnv() (*Config, error) {
 		cfg.FileReadEnabled = b
 	}
 
-	// Allowed paths (comma-separated, resolved with EvalSymlinks + Clean).
+	// Allowed paths (comma-separated absolute paths, resolved with EvalSymlinks + Clean).
 	if v := os.Getenv("WASTEBIN_MCP_ALLOWED_PATHS"); v != "" {
 		parts := strings.SplitSeq(v, ",")
 		for p := range parts {
@@ -87,16 +88,16 @@ func ConfigFromEnv() (*Config, error) {
 				continue
 			}
 
-			resolved, err := filepath.EvalSymlinks(p)
+			resolved, err := resolveConfiguredPath("WASTEBIN_MCP_ALLOWED_PATHS", p, false)
 			if err != nil {
-				return nil, fmt.Errorf("failed to resolve allowed path %q: %w", p, err)
+				return nil, err
 			}
 
-			cfg.AllowedPaths = append(cfg.AllowedPaths, filepath.Clean(resolved))
+			cfg.AllowedPaths = append(cfg.AllowedPaths, resolved)
 		}
 	}
 
-	// Blocked paths (comma-separated; defaults to /etc,/proc,/sys,/dev).
+	// Blocked paths (comma-separated absolute paths; defaults to /etc,/proc,/sys,/dev).
 	if v := os.Getenv("WASTEBIN_MCP_BLOCKED_PATHS"); v != "" {
 		cfg.BlockedPaths = nil
 
@@ -111,22 +112,17 @@ func ConfigFromEnv() (*Config, error) {
 		}
 	}
 	// Resolve all blocked paths — first try EvalSymlinks (matching
-	// validateFilePath's resolution), then fall back to Abs+Clean for
-	// non-existent paths that may exist later.
+	// validateFilePath's resolution), then fall back to Clean for
+	// non-existent absolute paths that may exist later.
 	var resolvedBlocked []string
 
 	for _, p := range cfg.BlockedPaths {
-		resolved, err := filepath.EvalSymlinks(p)
+		resolved, err := resolveConfiguredPath("WASTEBIN_MCP_BLOCKED_PATHS", p, true)
 		if err != nil {
-			abs, aerr := filepath.Abs(p)
-			if aerr != nil {
-				return nil, fmt.Errorf("failed to resolve blocked path %q: %w", p, aerr)
-			}
-
-			resolved = abs
+			return nil, err
 		}
 
-		resolvedBlocked = append(resolvedBlocked, filepath.Clean(resolved))
+		resolvedBlocked = append(resolvedBlocked, resolved)
 	}
 
 	cfg.BlockedPaths = resolvedBlocked
@@ -191,6 +187,23 @@ func ConfigFromEnv() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func resolveConfiguredPath(envName, p string, allowMissing bool) (string, error) {
+	if !filepath.IsAbs(p) {
+		return "", fmt.Errorf("%w: %s entry %q", errConfiguredPathNotAbsolute, envName, p)
+	}
+
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		if allowMissing {
+			return filepath.Clean(p), nil
+		}
+
+		return "", fmt.Errorf("failed to resolve %s path %q: %w", envName, p, err)
+	}
+
+	return filepath.Clean(resolved), nil
 }
 
 // resolveAndValidateMounts resolves mount host paths with EvalSymlinks and
