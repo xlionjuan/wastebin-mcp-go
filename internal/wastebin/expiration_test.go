@@ -1,6 +1,7 @@
 package wastebin //nolint:testpackage // white-box tests need access to unexported types/functions
 
 import (
+	"errors"
 	"strconv"
 	"testing"
 )
@@ -243,6 +244,76 @@ func TestParseExpiration_OverflowYears(t *testing.T) {
 
 	if n <= 0 {
 		t.Error("expected positive expiration for large year value")
+	}
+}
+
+func TestValidateExpiration_Zero(t *testing.T) {
+	t.Parallel()
+
+	err := ValidateExpiration(0)
+	if err != nil {
+		t.Errorf("expected nil for 0, got %v", err)
+	}
+}
+
+func TestValidateExpiration_MaxValue(t *testing.T) {
+	t.Parallel()
+
+	err := ValidateExpiration(maxExpirationSeconds)
+	if err != nil {
+		t.Errorf("expected nil for max value %d, got %v", maxExpirationSeconds, err)
+	}
+}
+
+func TestValidateExpiration_AboveMax(t *testing.T) {
+	t.Parallel()
+
+	err := ValidateExpiration(maxExpirationSeconds + 1)
+	if err == nil {
+		t.Fatal("expected error for value above max, got nil")
+	}
+
+	if !errors.Is(err, errExpirationTooLarge) {
+		t.Errorf("expected errExpirationTooLarge, got %v", err)
+	}
+}
+
+func TestValidateExpiration_Negative(t *testing.T) {
+	t.Parallel()
+
+	err := ValidateExpiration(-1)
+	if err == nil {
+		t.Fatal("expected error for negative value, got nil")
+	}
+
+	if !errors.Is(err, errNegativeExpiration) {
+		t.Errorf("expected errNegativeExpiration, got %v", err)
+	}
+}
+
+func TestValidateExpiration_WellBelowMax(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		val  int
+	}{
+		{"one second", 1},
+		{"one hour", 3600},
+		{"one day", 86400},
+		{"one week", 604800},
+		{"one month", 2592000},
+		{"one year", 31536000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := ValidateExpiration(tt.val)
+			if err != nil {
+				t.Errorf("unexpected error for %d: %v", tt.val, err)
+			}
+		})
 	}
 }
 

@@ -22,6 +22,14 @@ from the dispatcher.
   lays these out differently, so a path that is correct here will be
   wrong there, and the agent will look for something that does not
   exist on its system.
+- **Git history rewrites or existing commit metadata edits.** Do not ask cloud
+  OpenCode to run `git commit --amend`, `git rebase`, `git reset`,
+  history-editing `git cherry-pick`, `git push --force`, squash existing
+  commits, or otherwise rewrite the branch. The managed runtime has failed on
+  this class of request. If a status check requires an existing commit message
+  or author to be rewritten, handle that outside `/oc` or leave a manual/local
+  follow-up. It is acceptable to ask for a normal additive commit that changes
+  files.
 - **References to git checkout state, submodule sync, branch fetch, or
   any other setup the managed runtime is responsible for.** The runner
   prepares the working tree before the agent starts. Comments that
