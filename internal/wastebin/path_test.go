@@ -8,63 +8,32 @@ import (
 )
 
 // ──────────────────────────────────────────────
-// Test helpers
-// ──────────────────────────────────────────────
-
-// allowedDirFixture creates a temp directory with a subdirectory for allowed paths.
-//
-//nolint:unused // Intentionally provided for future test extraction
-func allowedDirFixture(t *testing.T) (string, string) {
-	t.Helper()
-
-	tmpDir := t.TempDir()
-	allowedDir := filepath.Join(tmpDir, "allowed")
-
-	err := os.Mkdir(allowedDir, 0o750)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return tmpDir, allowedDir
-}
-
-// ──────────────────────────────────────────────
 // normalizePath tests
 // ──────────────────────────────────────────────
 
-func TestNormalizePath_RegularUnixPath(t *testing.T) {
+func TestNormalizePath(t *testing.T) {
 	t.Parallel()
 
-	result := normalizePath("/tmp/foo")
-	if result != "/tmp/foo" {
-		t.Errorf("expected %q, got %q", "/tmp/foo", result)
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{name: "regular unix path", input: "/tmp/foo", expected: "/tmp/foo"},
+		{name: "windows backslashes", input: `C:\Users\foo`, expected: "C:/Users/foo"},
+		{name: "mixed slashes", input: `foo\bar/baz`, expected: "foo/bar/baz"},
+		{name: "empty string", input: "", expected: ""},
 	}
-}
 
-func TestNormalizePath_WindowsBackslashes(t *testing.T) {
-	t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	result := normalizePath(`C:\Users\foo`)
-	if result != "C:/Users/foo" {
-		t.Errorf("expected %q, got %q", "C:/Users/foo", result)
-	}
-}
-
-func TestNormalizePath_MixedSlashes(t *testing.T) {
-	t.Parallel()
-
-	result := normalizePath("foo\\bar/baz")
-	if result != "foo/bar/baz" {
-		t.Errorf("expected %q, got %q", "foo/bar/baz", result)
-	}
-}
-
-func TestNormalizePath_EmptyString(t *testing.T) {
-	t.Parallel()
-
-	result := normalizePath("")
-	if result != "" {
-		t.Errorf("expected %q, got %q", "", result)
+			result := normalizePath(tt.input)
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
 	}
 }
 
@@ -72,75 +41,35 @@ func TestNormalizePath_EmptyString(t *testing.T) {
 // hasPathTraversal tests
 // ──────────────────────────────────────────────
 
-func TestHasPathTraversal_ParentDirPrefix(t *testing.T) {
+func TestHasPathTraversal(t *testing.T) {
 	t.Parallel()
 
-	if !hasPathTraversal("../foo") {
-		t.Error("expected true for '../foo'")
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{name: "parent dir prefix", input: "../foo", want: true},
+		{name: "parent dir mid path", input: "foo/../bar", want: true},
+		{name: "no traversal", input: "foo/bar", want: false},
+		{name: "absolute path", input: "/etc/passwd", want: false},
+		{name: "multiple parent dir", input: "../../etc", want: true},
+		{name: "windows backslash traversal", input: `..\\foo`, want: true},
+		{name: "empty string", input: "", want: false},
+		{name: "dot", input: ".", want: false},
+		{name: "just dot-dot", input: "..", want: true},
+		{name: "unicode path", input: "/tmp/文件", want: false},
 	}
-}
 
-func TestHasPathTraversal_ParentDirMidPath(t *testing.T) {
-	t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	if !hasPathTraversal("foo/../bar") {
-		t.Error("expected true for 'foo/../bar'")
-	}
-}
-
-func TestHasPathTraversal_NoTraversal(t *testing.T) {
-	t.Parallel()
-
-	if hasPathTraversal("foo/bar") {
-		t.Error("expected false for 'foo/bar'")
-	}
-}
-
-func TestHasPathTraversal_AbsolutePath(t *testing.T) {
-	t.Parallel()
-
-	if hasPathTraversal("/etc/passwd") {
-		t.Error("expected false for '/etc/passwd'")
-	}
-}
-
-func TestHasPathTraversal_MultipleParentDir(t *testing.T) {
-	t.Parallel()
-
-	if !hasPathTraversal("../../etc") {
-		t.Error("expected true for '../../etc'")
-	}
-}
-
-func TestHasPathTraversal_WindowsBackslashTraversal(t *testing.T) {
-	t.Parallel()
-	// After normalizePath, `..\\foo` becomes `../foo`.
-	if !hasPathTraversal(`..\\foo`) {
-		t.Error("expected true for '..\\\\foo'")
-	}
-}
-
-func TestHasPathTraversal_EmptyString(t *testing.T) {
-	t.Parallel()
-
-	if hasPathTraversal("") {
-		t.Error("expected false for empty string")
-	}
-}
-
-func TestHasPathTraversal_Dot(t *testing.T) {
-	t.Parallel()
-
-	if hasPathTraversal(".") {
-		t.Error("expected false for '.'")
-	}
-}
-
-func TestHasPathTraversal_JustDotDot(t *testing.T) {
-	t.Parallel()
-
-	if !hasPathTraversal("..") {
-		t.Error("expected true for '..'")
+			result := hasPathTraversal(tt.input)
+			if result != tt.want {
+				t.Errorf("hasPathTraversal(%q) = %v, want %v", tt.input, result, tt.want)
+			}
+		})
 	}
 }
 
@@ -148,67 +77,37 @@ func TestHasPathTraversal_JustDotDot(t *testing.T) {
 // isAllowedPath tests
 // ──────────────────────────────────────────────
 
-func TestIsAllowedPath_ExactMatch(t *testing.T) {
+func TestIsAllowedPath(t *testing.T) {
 	t.Parallel()
 
-	if !isAllowedPath("/tmp/foo", []string{"/tmp"}) {
-		t.Error("expected exact match to be allowed")
+	tests := []struct {
+		name    string
+		path    string
+		allowed []string
+		want    bool
+	}{
+		{name: "exact match", path: "/tmp/foo", allowed: []string{"/tmp"}, want: true},
+		{name: "subdirectory", path: "/tmp/foo/bar", allowed: []string{"/tmp"}, want: true},
+		{name: "not in allowed", path: "/var", allowed: []string{"/tmp"}, want: false},
+		{name: "prefix not partial", path: "/tmp2", allowed: []string{"/tmp"}, want: false},
+		{name: "no allowed paths", path: "/tmp/foo", allowed: nil, want: false},
+		{name: "empty allowed paths", path: "/tmp/foo", allowed: []string{}, want: false},
+		{name: "deep nested", path: "/a/b/c/d/e/f", allowed: []string{"/a/b"}, want: true},
+		{name: "multiple allowed", path: "/opt/data/file.txt", allowed: []string{"/tmp", "/opt/data", "/var"}, want: true},
+		{name: "allowed equals path", path: "/tmp", allowed: []string{"/tmp"}, want: true},
+		{name: "..vault descendant", path: "/tmp/allowed/..vault/file", allowed: []string{"/tmp/allowed"}, want: true},
+		{name: "..vault dir itself", path: "/tmp/allowed/..vault", allowed: []string{"/tmp/allowed"}, want: true},
 	}
-}
 
-func TestIsAllowedPath_Subdirectory(t *testing.T) {
-	t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	if !isAllowedPath("/tmp/foo/bar", []string{"/tmp"}) {
-		t.Error("expected subdirectory to be allowed")
-	}
-}
-
-func TestIsAllowedPath_NotInAllowed(t *testing.T) {
-	t.Parallel()
-
-	if isAllowedPath("/var", []string{"/tmp"}) {
-		t.Error("expected path outside allowed to be denied")
-	}
-}
-
-func TestIsAllowedPath_PrefixNotPartial(t *testing.T) {
-	t.Parallel()
-
-	if isAllowedPath("/tmp2", []string{"/tmp"}) {
-		t.Error("expected /tmp2 not to match /tmp prefix")
-	}
-}
-
-func TestIsAllowedPath_NoAllowedPaths(t *testing.T) {
-	t.Parallel()
-
-	if isAllowedPath("/tmp/foo", nil) {
-		t.Error("expected false when no allowed paths are configured")
-	}
-}
-
-func TestIsAllowedPath_EmptyAllowedPaths(t *testing.T) {
-	t.Parallel()
-
-	if isAllowedPath("/tmp/foo", []string{}) {
-		t.Error("expected false when allowed paths list is empty")
-	}
-}
-
-func TestIsAllowedPath_DeepNested(t *testing.T) {
-	t.Parallel()
-
-	if !isAllowedPath("/a/b/c/d/e/f", []string{"/a/b"}) {
-		t.Error("expected deep nested path to be allowed")
-	}
-}
-
-func TestIsAllowedPath_MultipleAllowed(t *testing.T) {
-	t.Parallel()
-
-	if !isAllowedPath("/opt/data/file.txt", []string{"/tmp", "/opt/data", "/var"}) {
-		t.Error("expected path under second allowed dir to be allowed")
+			result := isAllowedPath(tt.path, tt.allowed)
+			if result != tt.want {
+				t.Errorf("isAllowedPath(%q, %v) = %v, want %v", tt.path, tt.allowed, result, tt.want)
+			}
+		})
 	}
 }
 
@@ -216,134 +115,48 @@ func TestIsAllowedPath_MultipleAllowed(t *testing.T) {
 // isBuiltinBlocked tests
 // ──────────────────────────────────────────────
 
-func TestIsBuiltinBlocked_EtcPrefix(t *testing.T) {
+func TestIsBuiltinBlocked(t *testing.T) {
 	t.Parallel()
 
-	reason, blocked := isBuiltinBlocked("/etc/passwd")
-	if !blocked {
-		t.Fatal("expected /etc/passwd to be blocked")
+	tests := []struct {
+		name        string
+		path        string
+		wantBlocked bool
+		wantReason  string
+	}{
+		{name: "/etc prefix", path: "/etc/passwd", wantBlocked: true, wantReason: "/etc"},
+		{name: "/proc prefix", path: "/proc/cpuinfo", wantBlocked: true, wantReason: "/proc"},
+		{name: ".ssh component", path: "/home/user/.ssh/id_rsa", wantBlocked: true, wantReason: ".ssh"},
+		{name: ".gnupg component", path: "/home/user/.gnupg/pubring.kbx", wantBlocked: true, wantReason: ".gnupg"},
+		{name: "/tmp not blocked", path: "/tmp/foo", wantBlocked: false, wantReason: ""},
+		{name: "home documents not blocked", path: "/home/user/documents", wantBlocked: false, wantReason: ""},
+		{name: "exact /etc prefix", path: "/etc", wantBlocked: true, wantReason: "/etc"},
+		{name: "case sensitive", path: "/ETC", wantBlocked: false, wantReason: ""},
+		{name: "multiple levels", path: "/sys/devices/virtual", wantBlocked: true, wantReason: "/sys"},
+		{name: "/dev prefix", path: "/dev/null", wantBlocked: true, wantReason: "/dev"},
+		{name: ".ssh on blocked prefix", path: "/etc/.ssh", wantBlocked: true, wantReason: "/etc"},
+		{name: ".ssh at root", path: "/.ssh/authorized_keys", wantBlocked: true, wantReason: ".ssh"},
+		{name: ".ssh at end", path: "/home/user/.ssh", wantBlocked: true, wantReason: ".ssh"},
+		{name: ".gnupg mid-path", path: "/data/backup/.gnupg/keys/pubring.kbx", wantBlocked: true, wantReason: ".gnupg"},
+		{name: ".aws component", path: "/home/user/.aws/credentials", wantBlocked: true, wantReason: ".aws"},
+		{name: ".kube component", path: "/home/user/.kube/config", wantBlocked: true, wantReason: ".kube"},
+		{name: ".docker component", path: "/home/user/.docker/config.json", wantBlocked: true, wantReason: ".docker"},
+		{name: ".git component", path: "/home/user/project/.git/config", wantBlocked: true, wantReason: ".git"},
 	}
 
-	if reason != "/etc" {
-		t.Errorf("expected reason %q, got %q", "/etc", reason)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestIsBuiltinBlocked_ProcPrefix(t *testing.T) {
-	t.Parallel()
+			reason, blocked := isBuiltinBlocked(tt.path)
+			if blocked != tt.wantBlocked {
+				t.Errorf("isBuiltinBlocked(%q) blocked=%v, want blocked=%v", tt.path, blocked, tt.wantBlocked)
+			}
 
-	reason, blocked := isBuiltinBlocked("/proc/cpuinfo")
-	if !blocked {
-		t.Fatal("expected /proc/cpuinfo to be blocked")
-	}
-
-	if reason != "/proc" {
-		t.Errorf("expected reason %q, got %q", "/proc", reason)
-	}
-}
-
-func TestIsBuiltinBlocked_DotSshComponent(t *testing.T) {
-	t.Parallel()
-
-	reason, blocked := isBuiltinBlocked("/home/user/.ssh/id_rsa")
-	if !blocked {
-		t.Fatal("expected path with .ssh component to be blocked")
-	}
-
-	if reason != ".ssh" {
-		t.Errorf("expected reason %q, got %q", ".ssh", reason)
-	}
-}
-
-func TestIsBuiltinBlocked_DotGnupgComponent(t *testing.T) {
-	t.Parallel()
-
-	reason, blocked := isBuiltinBlocked("/home/user/.gnupg/pubring.kbx")
-	if !blocked {
-		t.Fatal("expected path with .gnupg component to be blocked")
-	}
-
-	if reason != ".gnupg" {
-		t.Errorf("expected reason %q, got %q", ".gnupg", reason)
-	}
-}
-
-func TestIsBuiltinBlocked_TmpNotBlocked(t *testing.T) {
-	t.Parallel()
-
-	_, blocked := isBuiltinBlocked("/tmp/foo")
-	if blocked {
-		t.Error("expected /tmp/foo not to be blocked")
-	}
-}
-
-func TestIsBuiltinBlocked_HomeDocumentsNotBlocked(t *testing.T) {
-	t.Parallel()
-
-	_, blocked := isBuiltinBlocked("/home/user/documents")
-	if blocked {
-		t.Error("expected /home/user/documents not to be blocked")
-	}
-}
-
-func TestIsBuiltinBlocked_ExactEtcPrefix(t *testing.T) {
-	t.Parallel()
-
-	reason, blocked := isBuiltinBlocked("/etc")
-	if !blocked {
-		t.Fatal("expected /etc to be blocked")
-	}
-
-	if reason != "/etc" {
-		t.Errorf("expected reason %q, got %q", "/etc", reason)
-	}
-}
-
-func TestIsBuiltinBlocked_CaseSensitive(t *testing.T) {
-	t.Parallel()
-	// On Linux, paths are case sensitive. /ETC should NOT match /etc.
-	_, blocked := isBuiltinBlocked("/ETC")
-	if blocked {
-		t.Error("expected /ETC not to match /etc on case-sensitive filesystem")
-	}
-}
-
-func TestIsBuiltinBlocked_MultipleLevels(t *testing.T) {
-	t.Parallel()
-
-	reason, blocked := isBuiltinBlocked("/sys/devices/virtual")
-	if !blocked {
-		t.Fatal("expected /sys/devices to be blocked")
-	}
-
-	if reason != "/sys" {
-		t.Errorf("expected reason %q, got %q", "/sys", reason)
-	}
-}
-
-func TestIsBuiltinBlocked_DevPrefix(t *testing.T) {
-	t.Parallel()
-
-	reason, blocked := isBuiltinBlocked("/dev/null")
-	if !blocked {
-		t.Fatal("expected /dev/null to be blocked")
-	}
-
-	if reason != "/dev" {
-		t.Errorf("expected reason %q, got %q", "/dev", reason)
-	}
-}
-
-func TestIsBuiltinBlocked_DotSshOnBlockedPrefix(t *testing.T) {
-	t.Parallel()
-	// /etc/.ssh should match the /etc prefix before the .ssh component is checked.
-	reason, blocked := isBuiltinBlocked("/etc/.ssh")
-	if !blocked {
-		t.Fatal("expected /etc/.ssh to be blocked")
-	}
-
-	if reason != "/etc" {
-		t.Errorf("expected prefix %q to take priority over component, got %q", "/etc", reason)
+			if tt.wantBlocked && reason != tt.wantReason {
+				t.Errorf("isBuiltinBlocked(%q) reason=%q, want reason=%q", tt.path, reason, tt.wantReason)
+			}
+		})
 	}
 }
 
@@ -351,78 +164,69 @@ func TestIsBuiltinBlocked_DotSshOnBlockedPrefix(t *testing.T) {
 // isUserBlocked tests
 // ──────────────────────────────────────────────
 
-func TestIsUserBlocked_ExactMatch(t *testing.T) {
+func TestIsUserBlocked(t *testing.T) {
 	t.Parallel()
 
-	matched, blocked := isUserBlocked("/home/user/secret", []string{"/home/user/secret"})
-	if !blocked {
-		t.Fatal("expected exact match to be blocked")
+	tests := []struct {
+		name        string
+		path        string
+		blocked     []string
+		wantBlocked bool
+		wantMatch   string
+	}{
+		{
+			name:        "exact match",
+			path:        "/home/user/secret",
+			blocked:     []string{"/home/user/secret"},
+			wantBlocked: true,
+			wantMatch:   "/home/user/secret",
+		},
+		{
+			name:        "subdirectory",
+			path:        "/home/user/secret/file.txt",
+			blocked:     []string{"/home/user/secret"},
+			wantBlocked: true,
+			wantMatch:   "/home/user/secret",
+		},
+		{name: "not blocked", path: "/home/user/other", blocked: []string{"/home/user/secret"}, wantBlocked: false},
+		{name: "no blocked paths", path: "/home/user/secret", blocked: nil, wantBlocked: false},
+		{name: "empty blocked paths", path: "/home/user/secret", blocked: []string{}, wantBlocked: false},
+		{name: "prefix not partial", path: "/home/user/secret2", blocked: []string{"/home/user/secret"}, wantBlocked: false},
+		{
+			name:        "multiple blocked paths",
+			path:        "/opt/restricted/data",
+			blocked:     []string{"/tmp", "/opt/restricted"},
+			wantBlocked: true,
+			wantMatch:   "/opt/restricted",
+		},
+		{
+			name:        "..vault descendant",
+			path:        "/tmp/blocked/..vault/file.txt",
+			blocked:     []string{"/tmp/blocked"},
+			wantBlocked: true,
+			wantMatch:   "/tmp/blocked",
+		},
+		{
+			name:        "..vault not traversal",
+			path:        "/home/user/..vault/project",
+			blocked:     []string{"/tmp/blocked"},
+			wantBlocked: false,
+		},
 	}
 
-	if matched != "/home/user/secret" {
-		t.Errorf("expected matched path %q, got %q", "/home/user/secret", matched)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestIsUserBlocked_Subdirectory(t *testing.T) {
-	t.Parallel()
+			matched, blocked := isUserBlocked(tt.path, tt.blocked)
+			if blocked != tt.wantBlocked {
+				t.Errorf("isUserBlocked(%q, %v) blocked=%v, want blocked=%v", tt.path, tt.blocked, blocked, tt.wantBlocked)
+			}
 
-	matched, blocked := isUserBlocked("/home/user/secret/file.txt", []string{"/home/user/secret"})
-	if !blocked {
-		t.Fatal("expected subdirectory to be blocked")
-	}
-
-	if matched != "/home/user/secret" {
-		t.Errorf("expected matched path %q, got %q", "/home/user/secret", matched)
-	}
-}
-
-func TestIsUserBlocked_NotBlocked(t *testing.T) {
-	t.Parallel()
-
-	matched, blocked := isUserBlocked("/home/user/other", []string{"/home/user/secret"})
-	if blocked {
-		t.Errorf("expected not blocked, got matched path %q", matched)
-	}
-}
-
-func TestIsUserBlocked_NoBlockedPaths(t *testing.T) {
-	t.Parallel()
-
-	_, blocked := isUserBlocked("/home/user/secret", nil)
-	if blocked {
-		t.Error("expected not blocked when no blocked paths configured")
-	}
-}
-
-func TestIsUserBlocked_EmptyBlockedPaths(t *testing.T) {
-	t.Parallel()
-
-	_, blocked := isUserBlocked("/home/user/secret", []string{})
-	if blocked {
-		t.Error("expected not blocked when blocked paths list is empty")
-	}
-}
-
-func TestIsUserBlocked_PrefixNotPartial(t *testing.T) {
-	t.Parallel()
-
-	_, blocked := isUserBlocked("/home/user/secret2", []string{"/home/user/secret"})
-	if blocked {
-		t.Error("expected /home/user/secret2 not to match /home/user/secret")
-	}
-}
-
-func TestIsUserBlocked_MultipleBlockedPaths(t *testing.T) {
-	t.Parallel()
-
-	matched, blocked := isUserBlocked("/opt/restricted/data", []string{"/tmp", "/opt/restricted"})
-	if !blocked {
-		t.Fatal("expected path under second blocked dir to be blocked")
-	}
-
-	if matched != "/opt/restricted" {
-		t.Errorf("expected matched path %q, got %q", "/opt/restricted", matched)
+			if tt.wantBlocked && matched != tt.wantMatch {
+				t.Errorf("isUserBlocked(%q, %v) matched=%q, want match=%q", tt.path, tt.blocked, matched, tt.wantMatch)
+			}
+		})
 	}
 }
 
@@ -684,75 +488,21 @@ func TestValidateFilePath_NotInAllowedNotInBlocklist(t *testing.T) {
 
 func TestValidateFilePath_DisableBuiltinBlocklist(t *testing.T) {
 	t.Parallel()
-	// DisableBuiltinBlocklist=true + builtin blocked path but not in user blocklist
-	// and no allowed paths → path should be allowed (not errBuiltin*).
-	tmpDir := t.TempDir()
-
-	etcDir := filepath.Join(tmpDir, "etc")
-
-	err := os.Mkdir(etcDir, 0o750)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	testFile := filepath.Join(etcDir, "test.txt")
-
-	err = os.WriteFile(testFile, []byte("test"), 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	// DisableBuiltinBlocklist=true with a real builtin prefix path (/etc/passwd)
+	// should skip the builtin prefix check and allow the path through
+	// (assuming no user blocklist or allowed path restrictions).
+	// /etc/passwd exists on all Linux systems.
 	cfg := &Config{
 		DisableBuiltinBlocklist: true,
 	}
 
-	// The path is under a tmp dir, not /etc, so it won't match builtin prefix.
-	// But with builtin disabled, even a real /etc path would be skipped.
-	// We use a non-/etc path here to avoid the builtin prefix match,
-	// and verify that DisableBuiltinBlocklist doesn't cause new issues.
-	result, err := validateFilePath(testFile, cfg)
+	result, err := validateFilePath("/etc/passwd", cfg)
 	if err != nil {
-		t.Fatalf("expected success with builtin blocklist disabled, got: %v", err)
+		t.Fatalf("expected success with builtin blocklist disabled for /etc/passwd, got: %v", err)
 	}
 
-	if result != testFile {
-		t.Errorf("expected resolved path %q, got %q", testFile, result)
-	}
-}
-
-func TestValidateFilePath_DisableBuiltinBlocklistSkipsBuiltinCheck(t *testing.T) {
-	t.Parallel()
-	// With DisableBuiltinBlocklist=true, /etc/passwd should NOT be blocked
-	// by the builtin check (but it still needs to not be in user blocklist).
-	tmpDir := t.TempDir()
-
-	etcDir := filepath.Join(tmpDir, "etc")
-
-	err := os.MkdirAll(etcDir, 0o750)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	passwdFile := filepath.Join(etcDir, "passwd")
-
-	err = os.WriteFile(passwdFile, []byte("root:x:0:0"), 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := &Config{
-		DisableBuiltinBlocklist: true,
-	}
-
-	// This path is under tmpDir/etc, not real /etc, so it won't match builtin
-	// prefix. We just verify that DisableBuiltinBlocklist doesn't cause errors.
-	result, err := validateFilePath(passwdFile, cfg)
-	if err != nil {
-		t.Fatalf("expected success, got: %v", err)
-	}
-
-	if result != passwdFile {
-		t.Errorf("expected resolved path %q, got %q", passwdFile, result)
+	if result != "/etc/passwd" {
+		t.Errorf("expected resolved path %q, got %q", "/etc/passwd", result)
 	}
 }
 
@@ -909,142 +659,6 @@ func TestIsContainedPath_DotVaultDirItself(t *testing.T) {
 	}
 }
 
-func TestIsAllowedPath_DotVaultDescendant(t *testing.T) {
-	t.Parallel()
-
-	if !isAllowedPath("/tmp/allowed/..vault/file", []string{"/tmp/allowed"}) {
-		t.Error("expected ..vault descendant to be allowed under allowed path")
-	}
-}
-
-func TestIsAllowedPath_DotVaultDirItself(t *testing.T) {
-	t.Parallel()
-
-	if !isAllowedPath("/tmp/allowed/..vault", []string{"/tmp/allowed"}) {
-		t.Error("expected ..vault dir itself to be allowed under allowed path")
-	}
-}
-
-func TestIsUserBlocked_DotVaultDescendant(t *testing.T) {
-	t.Parallel()
-
-	// A ..vault directory under a blocked path should be blocked.
-	matched, blocked := isUserBlocked("/tmp/blocked/..vault/file.txt", []string{"/tmp/blocked"})
-	if !blocked {
-		t.Fatal("expected ..vault descendant to be blocked")
-	}
-
-	if matched != "/tmp/blocked" {
-		t.Errorf("expected matched path %q, got %q", "/tmp/blocked", matched)
-	}
-}
-
-func TestIsUserBlocked_DotVaultNotTraversal(t *testing.T) {
-	t.Parallel()
-
-	// A ..vault directory under a NOT-blocked path should NOT be blocked.
-	// Verifies the fix doesn't falsely block legitimate ..-prefixed names.
-	_, blocked := isUserBlocked("/home/user/..vault/project", []string{"/tmp/blocked"})
-	if blocked {
-		t.Error("expected ..vault project NOT to match unrelated blocked path")
-	}
-}
-
-// ──────────────────────────────────────────────
-// Edge case tests
-// ──────────────────────────────────────────────
-
-func TestHasPathTraversal_Unicode(t *testing.T) {
-	t.Parallel()
-
-	if hasPathTraversal("/tmp/文件") {
-		t.Error("expected false for unicode path")
-	}
-}
-
-func TestIsBuiltinBlocked_DotSshAtRoot(t *testing.T) {
-	t.Parallel()
-
-	_, blocked := isBuiltinBlocked("/.ssh/authorized_keys")
-	if !blocked {
-		t.Error("expected /.ssh/authorized_keys to be blocked (builtin blocklist covers .ssh)")
-	}
-}
-
-func TestIsAllowedPath_AllowedEqualsPath(t *testing.T) {
-	t.Parallel()
-
-	if !isAllowedPath("/tmp", []string{"/tmp"}) {
-		t.Error("expected path equal to allowed dir to match")
-	}
-}
-
-func TestIsBuiltinBlocked_DotSshAtEnd(t *testing.T) {
-	t.Parallel()
-
-	reason, blocked := isBuiltinBlocked("/home/user/.ssh")
-	if !blocked {
-		t.Fatal("expected /home/user/.ssh to be blocked")
-	}
-
-	if reason != ".ssh" {
-		t.Errorf("expected reason %q, got %q", ".ssh", reason)
-	}
-}
-
-func TestIsBuiltinBlocked_GnupgMidPath(t *testing.T) {
-	t.Parallel()
-
-	reason, blocked := isBuiltinBlocked("/data/backup/.gnupg/keys/pubring.kbx")
-	if !blocked {
-		t.Fatal("expected path with .gnupg mid-path to be blocked")
-	}
-
-	if reason != ".gnupg" {
-		t.Errorf("expected reason %q, got %q", ".gnupg", reason)
-	}
-}
-
-// ──────────────────────────────────────────────
-// Sensitive component blocking tests
-// ──────────────────────────────────────────────
-
-func TestIsBuiltinBlocked_DotAwsComponent(t *testing.T) {
-	t.Parallel()
-
-	_, blocked := isBuiltinBlocked("/home/user/.aws/credentials")
-	if !blocked {
-		t.Error("expected /.aws/ to be blocked")
-	}
-}
-
-func TestIsBuiltinBlocked_DotKubeComponent(t *testing.T) {
-	t.Parallel()
-
-	_, blocked := isBuiltinBlocked("/home/user/.kube/config")
-	if !blocked {
-		t.Error("expected /.kube/ to be blocked")
-	}
-}
-
-func TestIsBuiltinBlocked_DotDockerComponent(t *testing.T) {
-	t.Parallel()
-
-	_, blocked := isBuiltinBlocked("/home/user/.docker/config.json")
-	if !blocked {
-		t.Error("expected /.docker/ to be blocked")
-	}
-}
-
-func TestIsBuiltinBlocked_DotGitComponent(t *testing.T) {
-	t.Parallel()
-
-	_, blocked := isBuiltinBlocked("/home/user/project/.git/config")
-	if !blocked {
-		t.Error("expected /.git/ to be blocked")
-	}
-}
-
 // ──────────────────────────────────────────────
 // Symlink escape from allowed directory
 // ──────────────────────────────────────────────
@@ -1098,10 +712,6 @@ func TestValidateFilePath_SymlinkEscapeFromAllowed(t *testing.T) {
 		t.Errorf("expected errPathNotAllowed, got: %v", err)
 	}
 }
-
-// ──────────────────────────────────────────────
-// DisableBuiltinBlocklist with blocked component
-// ──────────────────────────────────────────────
 
 // ──────────────────────────────────────────────
 // hasComponentBlocked tests
@@ -1211,6 +821,32 @@ func TestHasComponentBlocked_DisableBuiltinBlocklist(t *testing.T) {
 	reason, blocked := hasComponentBlocked("/home/user/.ssh/id_rsa")
 	if !blocked {
 		t.Fatal("expected hasComponentBlocked to detect .ssh regardless of config")
+	}
+
+	if reason != ".ssh" {
+		t.Errorf("expected reason %q, got %q", ".ssh", reason)
+	}
+}
+
+func TestHasComponentBlocked_WindowsBackslashes(t *testing.T) {
+	t.Parallel()
+
+	reason, blocked := hasComponentBlocked(`C:\Users\foo\.ssh\id_rsa`)
+	if !blocked {
+		t.Fatal("expected .ssh to be detected in Windows path")
+	}
+
+	if reason != ".ssh" {
+		t.Errorf("expected reason %q, got %q", ".ssh", reason)
+	}
+}
+
+func TestHasComponentBlocked_MixedSlashes(t *testing.T) {
+	t.Parallel()
+
+	reason, blocked := hasComponentBlocked("foo\\bar/.ssh/key")
+	if !blocked {
+		t.Fatal("expected .ssh to be detected in mixed-slash path")
 	}
 
 	if reason != ".ssh" {
@@ -1497,32 +1133,6 @@ func TestValidateFilePath_NonBlockedSymlink_WithAllowed(t *testing.T) {
 
 	if !errors.Is(err, errPathNotAllowed) {
 		t.Errorf("expected errPathNotAllowed, got: %v", err)
-	}
-}
-
-func TestHasComponentBlocked_WindowsBackslashes(t *testing.T) {
-	t.Parallel()
-
-	reason, blocked := hasComponentBlocked(`C:\Users\foo\.ssh\id_rsa`)
-	if !blocked {
-		t.Fatal("expected .ssh to be detected in Windows path")
-	}
-
-	if reason != ".ssh" {
-		t.Errorf("expected reason %q, got %q", ".ssh", reason)
-	}
-}
-
-func TestHasComponentBlocked_MixedSlashes(t *testing.T) {
-	t.Parallel()
-
-	reason, blocked := hasComponentBlocked("foo\\bar/.ssh/key")
-	if !blocked {
-		t.Fatal("expected .ssh to be detected in mixed-slash path")
-	}
-
-	if reason != ".ssh" {
-		t.Errorf("expected reason %q, got %q", ".ssh", reason)
 	}
 }
 

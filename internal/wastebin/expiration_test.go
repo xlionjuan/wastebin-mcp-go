@@ -200,31 +200,27 @@ func TestParseExpiration_InvalidNumber(t *testing.T) {
 
 func TestParseExpiration_OverflowDays(t *testing.T) {
 	t.Parallel()
-	// A huge number of days that would overflow if multiplied by 86400
-	// on 64-bit (999,999,999,999,999 × 86,400 > int64 max).
-	// ParseExpiration should not panic and ideally return an error or
-	// a positive value.
-	n, err := ParseExpiration("999999999999999d", 3600)
-	if err != nil {
-		// Overflow detected — correct behavior.
-		return
+
+	_, err := ParseExpiration("999999999999999d", 3600)
+	if err == nil {
+		t.Fatal("expected overflow error for huge day value")
 	}
 
-	if n <= 0 {
-		t.Errorf("expected overflow error or positive value for huge day value, got %d", n)
+	if !errors.Is(err, errExpirationOverflow) {
+		t.Errorf("expected errExpirationOverflow, got %v", err)
 	}
 }
 
 func TestParseExpiration_HugeSeconds(t *testing.T) {
 	t.Parallel()
-	// A huge seconds value within valid int range.
+
 	expires, err := ParseExpiration("999999999", 3600)
 	if err != nil {
 		t.Fatalf("unexpected error for valid seconds: %v", err)
 	}
 
-	if expires <= 0 {
-		t.Error("expected positive expiration")
+	if expires != 999999999 {
+		t.Errorf("expected %d, got %d", 999999999, expires)
 	}
 }
 
@@ -235,15 +231,35 @@ func TestParseExpiration_OverflowYears(t *testing.T) {
 		t.Skip("test requires 64-bit int")
 	}
 
-	// Large year value — 999,999,999 × 31,536,000 ≈ 3.15×10¹⁶,
-	// which fits within int64 range (≈9.22×10¹⁸). Verify no overflow.
 	n, err := ParseExpiration("999999999y", 3600)
 	if err != nil {
 		t.Fatalf("unexpected error for large year value: %v", err)
 	}
 
-	if n <= 0 {
-		t.Error("expected positive expiration for large year value")
+	want := int64(999999999) * int64(31536000) // 31,535,999,968,464,000
+	if int64(n) != want {
+		t.Errorf("got %d, want %d", n, want)
+	}
+}
+
+func TestParseExpiration_NearOverflowDays(t *testing.T) {
+	t.Parallel()
+
+	if strconv.IntSize < 64 {
+		t.Skip("test requires 64-bit int")
+	}
+
+	// 99,999,999,999,999d — just under the overflow boundary.
+	// 99,999,999,999,999 × 86,400 = 8,639,999,999,999,913,600 which
+	// fits within int64 max (9,223,372,036,854,775,807).
+	n, err := ParseExpiration("99999999999999d", 3600)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := int64(99999999999999) * int64(86400) // 8,639,999,999,999,913,600
+	if int64(n) != want {
+		t.Errorf("got %d, want %d", n, want)
 	}
 }
 

@@ -4,229 +4,117 @@ import (
 	"testing"
 )
 
-func TestParseSandboxMounts_Empty(t *testing.T) {
+func TestParseSandboxMounts(t *testing.T) {
 	t.Parallel()
 
-	mounts, err := ParseSandboxMounts("")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	tests := []struct {
+		name     string
+		input    string
+		wantErr  bool
+		wantHost []string
+		wantSand []string
+	}{
+		{
+			name:     "empty string",
+			input:    "",
+			wantErr:  false,
+			wantHost: nil,
+			wantSand: nil,
+		},
+		{
+			name:     "single mount",
+			input:    "/host/path:/sandbox/path",
+			wantErr:  false,
+			wantHost: []string{"/host/path"},
+			wantSand: []string{"/sandbox/path"},
+		},
+		{
+			name:     "multiple mounts",
+			input:    "/a:/x,/b:/y",
+			wantErr:  false,
+			wantHost: []string{"/a", "/b"},
+			wantSand: []string{"/x", "/y"},
+		},
+		{
+			name:     "empty pair skipped",
+			input:    "/a:/x,,/b:/y",
+			wantErr:  false,
+			wantHost: []string{"/a", "/b"},
+			wantSand: []string{"/x", "/y"},
+		},
+		{
+			name:    "invalid format (no colon)",
+			input:   "invalid",
+			wantErr: true,
+		},
+		{
+			name:    "empty host path",
+			input:   ":/sandbox",
+			wantErr: true,
+		},
+		{
+			name:    "empty sandbox path",
+			input:   "/host:",
+			wantErr: true,
+		},
+		{
+			name:    "relative host path (dot prefix)",
+			input:   "./workspace:/mnt",
+			wantErr: true,
+		},
+		{
+			name:    "relative host path (no dot)",
+			input:   "relative/path:/sandbox",
+			wantErr: true,
+		},
+		{
+			name:     "sandbox path cleaning",
+			input:    "/host://sandbox//path///",
+			wantErr:  false,
+			wantHost: []string{"/host"},
+			wantSand: []string{"/sandbox/path"},
+		},
+		{
+			name:     "whitespace handling",
+			input:    "  /a:/x  ,  /b:/y  ",
+			wantErr:  false,
+			wantHost: []string{"/a", "/b"},
+			wantSand: []string{"/x", "/y"},
+		},
 	}
 
-	if len(mounts) != 0 {
-		t.Errorf("expected 0 mounts, got %d", len(mounts))
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestParseSandboxMounts_Single(t *testing.T) {
-	t.Parallel()
+			mounts, err := ParseSandboxMounts(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
 
-	mounts, err := ParseSandboxMounts("/host/path:/sandbox/path")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+				return
+			}
 
-	if len(mounts) != 1 {
-		t.Fatalf("expected 1 mount, got %d", len(mounts))
-	}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
-	if mounts[0].HostPath != "/host/path" {
-		t.Errorf("expected host path /host/path, got %q", mounts[0].HostPath)
-	}
+			wantCount := len(tt.wantHost)
+			if len(mounts) != wantCount {
+				t.Fatalf("expected %d mounts, got %d", wantCount, len(mounts))
+			}
 
-	if mounts[0].SandboxPath != "/sandbox/path" {
-		t.Errorf("expected sandbox path /sandbox/path, got %q", mounts[0].SandboxPath)
-	}
-}
+			for i := range wantCount {
+				if mounts[i].HostPath != tt.wantHost[i] {
+					t.Errorf("mount[%d] HostPath: got %q, want %q", i, mounts[i].HostPath, tt.wantHost[i])
+				}
 
-func TestParseSandboxMounts_Multiple(t *testing.T) {
-	t.Parallel()
-
-	mounts, err := ParseSandboxMounts("/a:/x,/b:/y")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(mounts) != 2 {
-		t.Fatalf("expected 2 mounts, got %d", len(mounts))
-	}
-
-	if mounts[0].HostPath != "/a" || mounts[0].SandboxPath != "/x" {
-		t.Errorf("first mount: got %+v", mounts[0])
-	}
-
-	if mounts[1].HostPath != "/b" || mounts[1].SandboxPath != "/y" {
-		t.Errorf("second mount: got %+v", mounts[1])
-	}
-}
-
-func TestParseSandboxMounts_EmptyPair(t *testing.T) {
-	t.Parallel()
-
-	mounts, err := ParseSandboxMounts("/a:/x,,/b:/y")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(mounts) != 2 {
-		t.Errorf("expected 2 mounts (skipping empty), got %d: %v", len(mounts), mounts)
-	}
-
-	if mounts[0].HostPath != "/a" {
-		t.Errorf("expected first host path /a, got %q", mounts[0].HostPath)
-	}
-
-	if mounts[1].HostPath != "/b" {
-		t.Errorf("expected second host path /b, got %q", mounts[1].HostPath)
-	}
-}
-
-func TestParseSandboxMounts_InvalidFormat(t *testing.T) {
-	t.Parallel()
-
-	_, err := ParseSandboxMounts("invalid")
-	if err == nil {
-		t.Fatal("expected error for invalid format (no colon)")
-	}
-
-	_, err = ParseSandboxMounts(":/sandbox")
-	if err == nil {
-		t.Fatal("expected error for empty host path")
-	}
-
-	_, err = ParseSandboxMounts("/host:")
-	if err == nil {
-		t.Fatal("expected error for empty sandbox path")
-	}
-}
-
-func TestParseSandboxMounts_RelativeHostPath(t *testing.T) {
-	t.Parallel()
-
-	_, err := ParseSandboxMounts("./workspace:/mnt")
-	if err == nil {
-		t.Fatal("expected error for relative host path")
-	}
-
-	_, err = ParseSandboxMounts("relative/path:/sandbox")
-	if err == nil {
-		t.Fatal("expected error for relative host path")
-	}
-}
-
-func TestParseSandboxMounts_SandboxPathCleaning(t *testing.T) {
-	t.Parallel()
-
-	mounts, err := ParseSandboxMounts("/host://sandbox//path///")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(mounts) != 1 {
-		t.Fatalf("expected 1 mount, got %d", len(mounts))
-	}
-
-	if mounts[0].HostPath != "/host" {
-		t.Errorf("expected host path /host, got %q", mounts[0].HostPath)
-	}
-
-	if mounts[0].SandboxPath != "/sandbox/path" {
-		t.Errorf("expected sandbox path /sandbox/path, got %q", mounts[0].SandboxPath)
-	}
-}
-
-func TestParseSandboxMounts_Whitespace(t *testing.T) {
-	t.Parallel()
-
-	mounts, err := ParseSandboxMounts("  /a:/x  ,  /b:/y  ")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(mounts) != 2 {
-		t.Fatalf("expected 2 mounts, got %d", len(mounts))
-	}
-
-	if mounts[0].HostPath != "/a" || mounts[0].SandboxPath != "/x" {
-		t.Errorf("first mount: got %+v", mounts[0])
-	}
-
-	if mounts[1].HostPath != "/b" || mounts[1].SandboxPath != "/y" {
-		t.Errorf("second mount: got %+v", mounts[1])
-	}
-}
-
-func TestTranslator_NoMounts(t *testing.T) {
-	t.Parallel()
-
-	tr := NewTranslator(nil)
-
-	_, ok := tr.Translate("/any/path")
-	if ok {
-		t.Error("expected no match with empty mounts")
-	}
-}
-
-func TestTranslator_ExactMatch(t *testing.T) {
-	t.Parallel()
-
-	mounts := []SandboxMount{
-		{HostPath: "/host/workspace", SandboxPath: "/workspace"},
-	}
-	tr := NewTranslator(mounts)
-
-	host, ok := tr.Translate("/workspace")
-	if !ok {
-		t.Fatal("expected match")
-	}
-
-	if host != "/host/workspace" {
-		t.Errorf("got %q, want %q", host, "/host/workspace")
-	}
-}
-
-func TestTranslator_PrefixMatch(t *testing.T) {
-	t.Parallel()
-
-	mounts := []SandboxMount{
-		{HostPath: "/host/workspace", SandboxPath: "/workspace"},
-	}
-	tr := NewTranslator(mounts)
-
-	host, ok := tr.Translate("/workspace/subdir/file.go")
-	if !ok {
-		t.Fatal("expected match")
-	}
-
-	if host != "/host/workspace/subdir/file.go" {
-		t.Errorf("got %q, want %q", host, "/host/workspace/subdir/file.go")
-	}
-}
-
-func TestTranslator_NoMatch(t *testing.T) {
-	t.Parallel()
-
-	mounts := []SandboxMount{
-		{HostPath: "/host/workspace", SandboxPath: "/workspace"},
-	}
-	tr := NewTranslator(mounts)
-
-	_, ok := tr.Translate("/other/path")
-	if ok {
-		t.Error("expected no match for unmounted path")
-	}
-}
-
-func TestTranslator_PrefixNotPartial(t *testing.T) {
-	t.Parallel()
-	// /workspace2 should NOT match mount /workspace.
-	mounts := []SandboxMount{
-		{HostPath: "/host/workspace", SandboxPath: "/workspace"},
-	}
-	tr := NewTranslator(mounts)
-
-	_, ok := tr.Translate("/workspace2")
-	if ok {
-		t.Error("expected no match for /workspace2 against mount /workspace")
+				if mounts[i].SandboxPath != tt.wantSand[i] {
+					t.Errorf("mount[%d] SandboxPath: got %q, want %q", i, mounts[i].SandboxPath, tt.wantSand[i])
+				}
+			}
+		})
 	}
 }
 
@@ -258,73 +146,99 @@ func TestParseSandboxMounts_Overlapping(t *testing.T) {
 	}
 }
 
-func TestTranslator_MultipleMounts(t *testing.T) {
+func TestTranslator(t *testing.T) {
 	t.Parallel()
 
-	mounts := []SandboxMount{
-		{HostPath: "/host/data", SandboxPath: "/data"},
-		{HostPath: "/host/config", SandboxPath: "/config"},
+	tests := []struct {
+		name    string
+		mounts  []SandboxMount
+		sandbox string
+		wantOK  bool
+		want    string
+	}{
+		{
+			name:    "no mounts",
+			mounts:  nil,
+			sandbox: "/any/path",
+			wantOK:  false,
+			want:    "",
+		},
+		{
+			name:    "exact match",
+			mounts:  []SandboxMount{{HostPath: "/host/workspace", SandboxPath: "/workspace"}},
+			sandbox: "/workspace",
+			wantOK:  true,
+			want:    "/host/workspace",
+		},
+		{
+			name:    "prefix match",
+			mounts:  []SandboxMount{{HostPath: "/host/workspace", SandboxPath: "/workspace"}},
+			sandbox: "/workspace/subdir/file.go",
+			wantOK:  true,
+			want:    "/host/workspace/subdir/file.go",
+		},
+		{
+			name:    "no match",
+			mounts:  []SandboxMount{{HostPath: "/host/workspace", SandboxPath: "/workspace"}},
+			sandbox: "/other/path",
+			wantOK:  false,
+			want:    "",
+		},
+		{
+			name:    "prefix not partial",
+			mounts:  []SandboxMount{{HostPath: "/host/workspace", SandboxPath: "/workspace"}},
+			sandbox: "/workspace2",
+			wantOK:  false,
+			want:    "",
+		},
+		{
+			name: "multiple mounts",
+			mounts: []SandboxMount{
+				{HostPath: "/host/data", SandboxPath: "/data"},
+				{HostPath: "/host/config", SandboxPath: "/config"},
+			},
+			sandbox: "/config/app.yaml",
+			wantOK:  true,
+			want:    "/host/config/app.yaml",
+		},
+		{
+			name:    "path traversal rejected",
+			mounts:  []SandboxMount{{HostPath: "/host/workspace", SandboxPath: "/workspace"}},
+			sandbox: "/workspace/../secret.txt",
+			wantOK:  false,
+			want:    "",
+		},
+		{
+			name:    "..vault non-traversal",
+			mounts:  []SandboxMount{{HostPath: "/host/workspace", SandboxPath: "/workspace"}},
+			sandbox: "/workspace/..vault/file.go",
+			wantOK:  true,
+			want:    "/host/workspace/..vault/file.go",
+		},
+		{
+			name:    "double dotdot rejected",
+			mounts:  []SandboxMount{{HostPath: "/host/workspace", SandboxPath: "/workspace"}},
+			sandbox: "/workspace/../../etc/passwd",
+			wantOK:  false,
+			want:    "",
+		},
 	}
-	tr := NewTranslator(mounts)
 
-	host, ok := tr.Translate("/config/app.yaml")
-	if !ok {
-		t.Fatal("expected match")
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	if host != "/host/config/app.yaml" {
-		t.Errorf("got %q, want %q", host, "/host/config/app.yaml")
-	}
-}
+			tr := NewTranslator(tt.mounts)
 
-func TestTranslator_PathTraversal_Rejected(t *testing.T) {
-	t.Parallel()
+			host, ok := tr.Translate(tt.sandbox)
+			if ok != tt.wantOK {
+				t.Errorf("Translate(%q) ok=%v, want ok=%v", tt.sandbox, ok, tt.wantOK)
+			}
 
-	mounts := []SandboxMount{
-		{HostPath: "/host/workspace", SandboxPath: "/workspace"},
-	}
-	tr := NewTranslator(mounts)
-
-	// filepath.Rel normalizes ".." before computing the relative path,
-	// so Translate does not match paths with parent directory references.
-	// Path traversal is caught upstream by hasPathTraversal.
-	_, ok := tr.Translate("/workspace/../secret.txt")
-	if ok {
-		t.Fatal("expected no match — filepath.Rel normalizes .. so this is not under /workspace")
-	}
-}
-
-func TestTranslator_DotVaultNonTraversal(t *testing.T) {
-	t.Parallel()
-
-	mounts := []SandboxMount{
-		{HostPath: "/host/workspace", SandboxPath: "/workspace"},
-	}
-	tr := NewTranslator(mounts)
-
-	// ..vault is a legitimate name starting with "..", not traversal.
-	host, ok := tr.Translate("/workspace/..vault/file.go")
-	if !ok {
-		t.Fatal("expected match for ..vault path under mount")
-	}
-
-	if host != "/host/workspace/..vault/file.go" {
-		t.Errorf("got %q, want %q", host, "/host/workspace/..vault/file.go")
-	}
-}
-
-func TestTranslator_DoubleDotDot_Rejected(t *testing.T) {
-	t.Parallel()
-
-	mounts := []SandboxMount{
-		{HostPath: "/host/workspace", SandboxPath: "/workspace"},
-	}
-	tr := NewTranslator(mounts)
-
-	// filepath.Rel normalizes "..", so this path is not under /workspace.
-	_, ok := tr.Translate("/workspace/../../etc/passwd")
-	if ok {
-		t.Fatal("expected no match — filepath.Rel normalizes .. so this is not under /workspace")
+			if tt.wantOK && host != tt.want {
+				t.Errorf("Translate(%q) = %q, want %q", tt.sandbox, host, tt.want)
+			}
+		})
 	}
 }
 

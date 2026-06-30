@@ -263,14 +263,6 @@ func TestBuildCreatePasteArgsWithParseCreateFlagsFilePath(t *testing.T) {
 	assertBoolPtr(t, "TranslateSandboxPath", args.TranslateSandboxPath, nil)
 }
 
-func TestBuildCreatePasteArgsTypeCheck(t *testing.T) {
-	t.Parallel()
-	// Compile-time check: buildCreatePasteArgs returns *CreatePasteArgs.
-	flags := &CLIFlags{Content: "type-check"}
-	args := buildCreatePasteArgs(flags)
-	_ = args // Use to avoid unused-variable lint
-}
-
 func TestRunCLIMode_CreatePasteError(t *testing.T) {
 	// Cannot use t.Parallel() due to environment variable manipulation.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
