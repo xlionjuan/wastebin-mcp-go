@@ -1595,6 +1595,55 @@ func TestBuildPasteResponse_TrailingSlashBaseURL(t *testing.T) {
 	}
 }
 
+func TestValidateWastebinResponse_EmptyPath(t *testing.T) {
+	t.Parallel()
+
+	err := validateWastebinResponse(wastebinResponse{Path: ""})
+	if !errors.Is(err, errInvalidWastebinResponse) {
+		t.Errorf("expected errInvalidWastebinResponse, got: %v", err)
+	}
+
+	if err == nil {
+		t.Fatal("expected error for empty path, got nil")
+	}
+}
+
+func TestValidateWastebinResponse_JustSlash(t *testing.T) {
+	t.Parallel()
+
+	err := validateWastebinResponse(wastebinResponse{Path: "/"})
+	if !errors.Is(err, errInvalidWastebinResponse) {
+		t.Errorf("expected errInvalidWastebinResponse, got: %v", err)
+	}
+}
+
+func TestValidateWastebinResponse_NonEmptyPath(t *testing.T) {
+	t.Parallel()
+
+	err := validateWastebinResponse(wastebinResponse{Path: "/ABC.go"})
+	if err != nil {
+		t.Errorf("expected no error for valid path, got: %v", err)
+	}
+}
+
+func TestValidateWastebinResponse_ValidPathOnlyID(t *testing.T) {
+	t.Parallel()
+
+	err := validateWastebinResponse(wastebinResponse{Path: "/abc123"})
+	if err != nil {
+		t.Errorf("expected no error for valid path without extension, got: %v", err)
+	}
+}
+
+func TestValidateWastebinResponse_AbsoluteURL(t *testing.T) {
+	t.Parallel()
+
+	err := validateWastebinResponse(wastebinResponse{Path: "https://evil.example.com/malicious"})
+	if !errors.Is(err, errInvalidWastebinResponse) {
+		t.Errorf("expected errInvalidWastebinResponse, got: %v", err)
+	}
+}
+
 // errorReader is a helper for testing closeResponseBody with a body that
 // returns an error on Close. It implements io.ReadCloser.
 type errorReader struct{}
@@ -1995,6 +2044,70 @@ func TestCreatePaste_JSONDecodeError(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "failed to parse Wastebin response") {
 		t.Errorf("expected parse error, got: %v", err)
+	}
+}
+
+func TestCreatePaste_EmptyPathResponse(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`)) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err == nil {
+		t.Fatal("expected error for empty path response")
+	}
+
+	if !errors.Is(err, errInvalidWastebinResponse) {
+		t.Errorf("expected errInvalidWastebinResponse, got: %v", err)
+	}
+}
+
+func TestCreatePaste_EmptyPathStringResponse(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": ""}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err == nil {
+		t.Fatal("expected error for empty path string response")
+	}
+
+	if !errors.Is(err, errInvalidWastebinResponse) {
+		t.Errorf("expected errInvalidWastebinResponse, got: %v", err)
 	}
 }
 

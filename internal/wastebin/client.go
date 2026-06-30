@@ -37,6 +37,7 @@ var (
 	errSandboxTranslationNoMounts = errors.New("sandbox path translation requested but no mounts configured")
 	errSandboxTranslationNoMatch  = errors.New("sandbox path does not match any configured mount")
 	errFileReadDisabled           = errors.New("file read is disabled by configuration")
+	errInvalidWastebinResponse    = errors.New("invalid Wastebin response")
 )
 
 // HTTP transport defaults.
@@ -282,6 +283,12 @@ func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs)
 		return nil, fmt.Errorf("failed to parse Wastebin response: %w", err)
 	}
 
+	// Validate the response path before building the paste response.
+	err = validateWastebinResponse(wastebinResp)
+	if err != nil {
+		return nil, err
+	}
+
 	// Drain response body to EOF for HTTP connection reuse.
 	_, _ = io.Copy(io.Discard, resp.Body) //nolint:errcheck // Best-effort drain of body for connection reuse
 
@@ -403,6 +410,27 @@ func (c *WastebinClient) readFileContent(
 	}
 
 	return content, ext, nil
+}
+
+// validateWastebinResponse checks that the Wastebin API response contains a
+// valid paste path before we use it to build a PasteResponse.
+func validateWastebinResponse(resp wastebinResponse) error {
+	path := resp.Path
+
+	if path == "" {
+		return fmt.Errorf("%w: empty path", errInvalidWastebinResponse)
+	}
+
+	if !strings.HasPrefix(path, "/") {
+		return fmt.Errorf("%w: path must be relative, got %q", errInvalidWastebinResponse, path)
+	}
+
+	clean := strings.TrimPrefix(path, "/")
+	if clean == "" {
+		return fmt.Errorf("%w: path is missing paste ID", errInvalidWastebinResponse)
+	}
+
+	return nil
 }
 
 // buildPasteResponse constructs a PasteResponse from the Wastebin API response path.
