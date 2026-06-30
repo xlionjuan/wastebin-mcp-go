@@ -225,18 +225,19 @@ User-supplied file_path
   → Stage 1b — Sensitive component detection (raw input, before symlink resolution)
   → Resolve (EvalSymlinks + Clean)
      → Stage 2 — ALLOWED_PATHS check
-              ├─ Under an allowed path → Stage 3b (sensitive component check)
-              │                          ├─ Blocked component found → ❌  denied
-              │                          └─ No blocked component → ✅  IsLikelyText
-              └─ Not under any allowed path
-                 → Stage 3a — Built-in prefix blocklist
-                 │  ├─ Blocked → ❌  denied
-                 │  └─ OK → Stage 3b — Built-in component blocklist
-                 │          ├─ Blocked → ❌  denied
-                 │          └─ OK → Stage 4 — User blocklist
-                 │                  ├─ Blocked → ❌  denied
-                 │                  └─ OK → ❌  denied (not authorized)
-                 └─ (end)
+      ├─ ALLOWED_PATHS configured
+      │  ├─ Path under allowed path → Stage 3b (sensitive component check)
+      │  │                          ├─ Blocked component found → ❌  denied
+      │  │                          └─ No blocked component → ✅  IsLikelyText
+      │  └─ Path not under any allowed path → ❌  denied (not authorized)
+      └─ ALLOWED_PATHS not configured
+         → Stage 3a — Built-in prefix blocklist
+         │  ├─ Blocked → ❌  denied
+         │  └─ OK → Stage 3b — Built-in component blocklist
+         │          ├─ Blocked → ❌  denied
+         │          └─ OK → Stage 4 — User blocklist
+         │                  ├─ Blocked → ❌  denied
+         │                  └─ OK → ✅  IsLikelyText
 ```
 
 **File validation (text detection: IsLikelyText)**:

@@ -189,6 +189,102 @@ func TestBuildPasteSchemaAdditionalProperties(t *testing.T) {
 	}
 }
 
+func TestBuildPasteSchemaFilePathDescription_AllowedPathsConfigured(t *testing.T) {
+	t.Parallel()
+
+	cfg := wastebin.DefaultConfig()
+	cfg.FileReadEnabled = true
+	cfg.AllowedPaths = []string{"/home/allowed"}
+
+	schema, err := buildPasteSchema(cfg)
+	if err != nil {
+		t.Fatalf("buildPasteSchema failed: %v", err)
+	}
+
+	var parsed map[string]any
+
+	err = json.Unmarshal(schema, &parsed)
+	if err != nil {
+		t.Fatalf("failed to unmarshal schema: %v", err)
+	}
+
+	props, ok := parsed["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("expected 'properties' to be an object")
+	}
+
+	filePath, exists := props["file_path"]
+	if !exists {
+		t.Fatal("expected 'file_path' property")
+	}
+
+	filePathMap, ok := filePath.(map[string]any)
+	if !ok {
+		t.Fatalf("expected file_path to be a map, got %T", filePath)
+	}
+
+	desc, ok := filePathMap["description"].(string)
+	if !ok {
+		t.Fatalf("expected file_path description to be a string, got %T", filePathMap["description"])
+	}
+
+	if !strings.Contains(desc, "ALLOWED_PATHS") {
+		t.Error("expected file_path description to mention ALLOWED_PATHS when configured")
+	}
+
+	if !strings.Contains(desc, "Blocked system paths") {
+		t.Error("expected file_path description to mention blocked system paths")
+	}
+}
+
+func TestBuildPasteSchemaFilePathDescription_NoAllowedPaths(t *testing.T) {
+	t.Parallel()
+
+	cfg := wastebin.DefaultConfig()
+	cfg.FileReadEnabled = true
+	cfg.AllowedPaths = nil
+
+	schema, err := buildPasteSchema(cfg)
+	if err != nil {
+		t.Fatalf("buildPasteSchema failed: %v", err)
+	}
+
+	var parsed map[string]any
+
+	err = json.Unmarshal(schema, &parsed)
+	if err != nil {
+		t.Fatalf("failed to unmarshal schema: %v", err)
+	}
+
+	props, ok := parsed["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("expected 'properties' to be an object")
+	}
+
+	filePath, exists := props["file_path"]
+	if !exists {
+		t.Fatal("expected 'file_path' property")
+	}
+
+	filePathMap, ok := filePath.(map[string]any)
+	if !ok {
+		t.Fatalf("expected file_path to be a map, got %T", filePath)
+	}
+
+	desc, ok := filePathMap["description"].(string)
+	if !ok {
+		t.Fatalf("expected file_path description to be a string, got %T", filePathMap["description"])
+	}
+
+	if !strings.Contains(desc, "blocklist pipeline") {
+		t.Error("expected file_path description to mention blocklist pipeline when no ALLOWED_PATHS")
+	}
+
+	if !strings.Contains(desc, "Blocked system paths") {
+		t.Error("expected file_path description to mention blocked system paths")
+	}
+}
+
 func TestBuildPasteSchemaBasicFields(t *testing.T) {
 	t.Parallel()
 

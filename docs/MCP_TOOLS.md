@@ -236,27 +236,49 @@ For extensionless filenames, use the `extension` parameter explicitly.
 When a paste creation fails, the error is returned via `IsError: true` in the
 MCP tool result with a plain text description.
 
-#### Known Error Messages
+Errors come from two distinct sources:
+
+1. **Schema validation** — the MCP SDK rejects inputs that do not match the
+   runtime JSON Schema before the handler runs.
+2. **Handler errors** — the application logic returns `"Create paste error: ..."`
+   text with `IsError: true`.
+
+#### Schema Validation Errors
+
+The tool's JSON Schema is built dynamically at startup (see
+[Schema Behavior](#schema-behavior)). If an input does not match the schema,
+the MCP SDK rejects it. These errors are **not** prefixed with
+`Create paste error` and depend on the active schema configuration.
+
+| Condition | When Reachable | Error Pattern |
+|---|---|---|
+| Unknown/unexpected property (e.g. `file_path` when file mode is disabled) | Property excluded from schema | `"Unknown error: additional properties not allowed: ..."` |
+| Both `content` and `file_path` provided (file mode disabled) | `file_path` excluded from schema | `"Unknown error: additional properties not allowed: file_path"` |
+| Neither `content` nor `file_path` provided (file mode disabled) | `content` is required in schema | `"Unknown error: required property 'content' not provided"` |
+| Type mismatch (e.g. string for boolean field) | Always | `"Unknown error: ... expected ... got ..."` |
+
+> **Note:** When file mode is **enabled**, `content` and `file_path` are both
+> optional (neither is required) and both appear in the schema. The
+> mutual-exclusivity validation is then handled at runtime (see handler errors
+> below).
+
+#### Handler-Generated Errors
+
+These errors are returned from the `create_paste` handler and always follow the
+`"Create paste error: <message>"` format.
+
+**Always applicable (regardless of configuration):**
 
 | Error Condition | Message |
 |---|---|
-| Both `content` and `file_path` provided | `"Create paste error: provide either 'content' or 'file_path', not both"` |
-| Neither `content` nor `file_path` provided | `"Create paste error: provide either 'content' or 'file_path'"` |
+| Both `content` and `file_path` provided (file mode enabled) | `"Create paste error: provide either 'content' or 'file_path', not both"` |
+| Neither `content` nor `file_path` provided (file mode enabled) | `"Create paste error: provide either 'content' or 'file_path'"` |
 | `content` is empty (content mode) | `"Create paste error: content cannot be empty"` |
 | HTTP 403 from server | `"Create paste error: server rejected the request; content may contain disallowed data"` |
 | HTTP 413 from server | `"Create paste error: content exceeds the server's maximum allowed size"` |
 | Connection refused / timeout | `"Create paste error: cannot connect to Wastebin server; verify the server is running: <details>"` |
 | DNS resolution failure | `"Create paste error: cannot resolve the server hostname: <details>"` |
 | Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE` | `"Create paste error: content exceeds the maximum allowed size: <N> bytes exceeds limit of <N> bytes"` |
-| File path rejected by traversal detection | `"Create paste error: path traversal is not allowed"` |
-| File path rejected by allowlist | `"Create paste error: file path is not under any allowed path"` |
-| File path rejected by built-in blocklist (system prefix) | `"Create paste error: file path is in a blocked system directory (<path>)"` |
-| File path rejected by built-in blocklist (sensitive component) | `"Create paste error: file path contains a blocked component (<name>)"` |
-| File path rejected by user blocklist | `"Create paste error: file path is in a user-blocked directory"` |
-| File is binary or non-UTF-8 | `"Create paste error: file is binary or not valid UTF-8 text"` |
-| File cannot be read (not found, permissions, symlink error) | `"Create paste error: file path cannot be used"` |
-| Sandbox translation requested but no mounts configured | `"Create paste error: sandbox path translation requested but no mounts configured"` |
-| Sandbox path does not match any configured mount | `"Create paste error: sandbox path does not match any configured mount: <path>"` |
 | Unknown HTTP error | `"Create paste error: unknown HTTP error: HTTP <CODE>"` |
 | Invalid expiration format | `"Create paste error: invalid expiration: <reason>"` (reason: `expiration cannot be negative`, `unknown expiration unit`, `invalid expiration format`, `expiration overflow`) |
 | Server returns malformed JSON | `"Create paste error: failed to parse Wastebin response: <details>"` |
@@ -264,7 +286,26 @@ MCP tool result with a plain text description.
 | Redirect scheme downgrade from https to http | `"Create paste error: redirect scheme downgrade from https to http blocked: <host> (https -> http)"` |
 | Too many redirects (>10) | `"Create paste error: stopped after 10 redirects"` |
 | `args` is nil | `"Create paste error: args is required"` |
+
+**File mode errors (only when `WASTEBIN_MCP_FILE_READ_ENABLED=true`):**
+
+| Error Condition | Message |
+|---|---|
 | File read disabled by configuration | `"Create paste error: file read is disabled by configuration"` |
+| File path rejected by traversal detection | `"Create paste error: path traversal is not allowed"` |
+| File path rejected by allowlist | `"Create paste error: file path is not under any allowed path"` |
+| File path rejected by built-in blocklist (system prefix) | `"Create paste error: file path is in a blocked system directory (<path>)"` |
+| File path rejected by built-in blocklist (sensitive component) | `"Create paste error: file path contains a blocked component (<name>)"` |
+| File path rejected by user blocklist | `"Create paste error: file path is in a user-blocked directory"` |
+| File is binary or non-UTF-8 | `"Create paste error: file is binary or not valid UTF-8 text"` |
+| File cannot be read (not found, permissions, symlink error) | `"Create paste error: file path cannot be used"` |
+
+**Sandbox errors (only when sandbox mounts are configured):**
+
+| Error Condition | Message |
+|---|---|
+| Sandbox translation requested but no mounts configured | `"Create paste error: sandbox path translation requested but no mounts configured"` |
+| Sandbox path does not match any configured mount | `"Create paste error: sandbox path does not match any configured mount: <path>"` |
 
 #### Error Response Format (as received by MCP client)
 
