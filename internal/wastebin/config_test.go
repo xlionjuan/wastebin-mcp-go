@@ -243,6 +243,42 @@ func TestConfigFromEnv_BlockedPathsWhitespace(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnv_AllowedPathsRejectsRelative(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_ALLOWED_PATHS", "workspace")
+
+	_, err := ConfigFromEnv()
+	if err == nil {
+		t.Fatal("expected error for relative allowed path")
+	}
+
+	if !errors.Is(err, errConfiguredPathNotAbsolute) {
+		t.Errorf("expected %v, got: %v", errConfiguredPathNotAbsolute, err)
+	}
+
+	if !strings.Contains(err.Error(), "WASTEBIN_MCP_ALLOWED_PATHS") {
+		t.Errorf("expected error to mention WASTEBIN_MCP_ALLOWED_PATHS, got: %v", err)
+	}
+}
+
+func TestConfigFromEnv_BlockedPathsRejectsRelative(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_BLOCKED_PATHS", "secret")
+
+	_, err := ConfigFromEnv()
+	if err == nil {
+		t.Fatal("expected error for relative blocked path")
+	}
+
+	if !errors.Is(err, errConfiguredPathNotAbsolute) {
+		t.Errorf("expected %v, got: %v", errConfiguredPathNotAbsolute, err)
+	}
+
+	if !strings.Contains(err.Error(), "WASTEBIN_MCP_BLOCKED_PATHS") {
+		t.Errorf("expected error to mention WASTEBIN_MCP_BLOCKED_PATHS, got: %v", err)
+	}
+}
+
 func TestConfigFromEnv_AllowedPathsSymlink(t *testing.T) {
 	// Use a real directory that exists.
 	tmpDir := t.TempDir()
@@ -518,8 +554,8 @@ func TestConfigFromEnv_AllowedPathsNonExistent(t *testing.T) {
 		t.Fatal("expected error for nonexistent allowed path")
 	}
 
-	if !strings.Contains(err.Error(), "failed to resolve allowed path") {
-		t.Errorf("expected 'failed to resolve allowed path', got: %v", err)
+	if !strings.Contains(err.Error(), "failed to resolve WASTEBIN_MCP_ALLOWED_PATHS path") {
+		t.Errorf("expected 'failed to resolve WASTEBIN_MCP_ALLOWED_PATHS path', got: %v", err)
 	}
 }
 
@@ -560,33 +596,6 @@ func TestConfigFromEnv_BlockedPathsSymlink(t *testing.T) {
 	}
 }
 
-func TestConfigFromEnv_BlockedPathsAbsError(t *testing.T) {
-	// Intentionally not parallel — removes the CWD to make filepath.Abs fail.
-	// EvalSymlinks fails first (relative non-existent path), then Abs fails
-	// because the CWD has been deleted. This exercises the error path at
-	// config.go lines 118-119 (the aerr branch).
-	tmpDir := t.TempDir()
-
-	t.Chdir(tmpDir)
-
-	err := os.Remove(tmpDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
-	t.Setenv("WASTEBIN_MCP_BLOCKED_PATHS", "relative/blocked/path")
-
-	_, err = ConfigFromEnv()
-	if err == nil {
-		t.Fatal("expected error for blocked path with unreachable CWD")
-	}
-
-	if !strings.Contains(err.Error(), "failed to resolve blocked path") {
-		t.Errorf("expected 'failed to resolve blocked path', got: %v", err)
-	}
-}
-
 func TestConfigFromEnv_BlockedPathsNonExistent(t *testing.T) {
 	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_BLOCKED_PATHS", "/nonexistent/path/that/does/not/exist/blocked")
@@ -600,7 +609,7 @@ func TestConfigFromEnv_BlockedPathsNonExistent(t *testing.T) {
 		t.Fatalf("expected 1 BlockedPath, got %d", len(cfg.BlockedPaths))
 	}
 
-	// Non-existent paths should fall back to Abs+Clean.
+	// Non-existent absolute paths should fall back to Clean.
 	if !filepath.IsAbs(cfg.BlockedPaths[0]) {
 		t.Errorf("expected absolute path for non-existent blocked path, got %q", cfg.BlockedPaths[0])
 	}
