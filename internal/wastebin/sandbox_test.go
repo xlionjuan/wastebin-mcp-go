@@ -170,6 +170,80 @@ func TestParseSandboxMounts_Overlapping(t *testing.T) {
 	}
 }
 
+func TestSandboxRelativePath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		base    string
+		target  string
+		wantRel string
+		wantOK  bool
+	}{
+		{
+			name:    "exact match",
+			base:    "/workspace",
+			target:  "/workspace",
+			wantRel: ".",
+			wantOK:  true,
+		},
+		{
+			name:    "descendant",
+			base:    "/workspace",
+			target:  "/workspace/sub/file.txt",
+			wantRel: "sub/file.txt",
+			wantOK:  true,
+		},
+		{
+			name:    "root base",
+			base:    "/",
+			target:  "/workspace/file.txt",
+			wantRel: "workspace/file.txt",
+			wantOK:  true,
+		},
+		{
+			name:   "partial prefix sibling",
+			base:   "/workspace",
+			target: "/workspace2/file.txt",
+			wantOK: false,
+		},
+		{
+			name:   "relative base rejected",
+			base:   "workspace",
+			target: "/workspace/file.txt",
+			wantOK: false,
+		},
+		{
+			name:   "relative target rejected",
+			base:   "/workspace",
+			target: "workspace/file.txt",
+			wantOK: false,
+		},
+		{
+			name:    "cleaned descendant",
+			base:    "/workspace/.",
+			target:  "/workspace/sub/../file.txt",
+			wantRel: "file.txt",
+			wantOK:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotRel, gotOK := sandboxRelativePath(tt.base, tt.target)
+			if gotOK != tt.wantOK {
+				t.Fatalf("sandboxRelativePath(%q, %q) ok=%v, want %v", tt.base, tt.target, gotOK, tt.wantOK)
+			}
+
+			if gotRel != tt.wantRel {
+				t.Errorf("sandboxRelativePath(%q, %q) rel=%q, want %q", tt.base, tt.target, gotRel, tt.wantRel)
+			}
+		})
+	}
+}
+
 func TestTranslator(t *testing.T) {
 	t.Parallel()
 
