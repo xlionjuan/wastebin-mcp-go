@@ -25,6 +25,10 @@ var errContentEmptyCLI = errors.New("--content must not be empty")
 // subcommand that does not accept them.
 var errUnexpectedArgs = errors.New("unexpected arguments")
 
+// errMissingContentOrFile is returned when neither --content nor --file-path
+// is provided to the create subcommand.
+var errMissingContentOrFile = errors.New("either --content or --file-path must be provided")
+
 var (
 	version = "v0.10.0"
 	commit  = "none"
@@ -55,28 +59,10 @@ func main() {
 
 	switch args[0] {
 	case "create":
-		flags, err := parseCreateFlags(args[1:])
+		err := runCreateCommand(args[1:])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: %v\n\n", err)
 			printCLIHelp(os.Stderr)
-			os.Exit(exitCodeCLIError)
-		}
-
-		if flags.Help {
-			printCLIHelp(os.Stdout)
-
-			return
-		}
-
-		if flags.Content == "" && flags.FilePath == "" {
-			fmt.Fprintf(os.Stderr, "ERROR: either --content or --file-path must be provided\n\n")
-			printCLIHelp(os.Stderr)
-			os.Exit(exitCodeCLIError)
-		}
-
-		err = runCLIMode(flags)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 			os.Exit(exitCodeCLIError)
 		}
 	case "--help":
@@ -135,6 +121,28 @@ func parseCreateFlags(args []string) (*CLIFlags, error) {
 	}
 
 	return flags, nil
+}
+
+// runCreateCommand parses the create subcommand arguments, validates them, and
+// executes the paste creation flow. It returns an error if validation fails or
+// execution fails.
+func runCreateCommand(args []string) error {
+	flags, err := parseCreateFlags(args)
+	if err != nil {
+		return err
+	}
+
+	if flags.Help {
+		printCLIHelp(os.Stdout)
+
+		return nil
+	}
+
+	if flags.Content == "" && flags.FilePath == "" {
+		return errMissingContentOrFile
+	}
+
+	return runCLIMode(flags)
 }
 
 // runMCPModeFromArgs reads configuration from environment variables, validates

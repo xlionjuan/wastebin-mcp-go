@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -278,6 +281,127 @@ func TestParseCreateFlags_InvalidFlag(t *testing.T) {
 	_, err := parseCreateFlags([]string{"--unknown-flag"})
 	if err == nil {
 		t.Fatal("expected error for unknown flag")
+	}
+}
+
+func TestRunCreateCommand_InvalidFlag(t *testing.T) {
+	t.Parallel()
+
+	err := runCreateCommand([]string{"--unknown-flag"})
+	if err == nil {
+		t.Fatal("expected error for unknown flag")
+	}
+}
+
+func TestRunCreateCommand_HelpFlag(t *testing.T) {
+	t.Parallel()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oldStdout := os.Stdout
+	os.Stdout = w
+
+	cmdErr := runCreateCommand([]string{"--help"})
+
+	//nolint:errcheck,gosec // pipe close in test
+	w.Close()
+
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+
+	_, copyErr := io.Copy(&buf, r)
+	if copyErr != nil {
+		t.Fatal(copyErr)
+	}
+
+	if cmdErr != nil {
+		t.Errorf("expected nil error for --help, got: %v", cmdErr)
+	}
+
+	if !strings.Contains(buf.String(), "USAGE:") {
+		t.Error("expected help text on stdout to contain USAGE:")
+	}
+}
+
+func TestRunCreateCommand_MissingContentOrFile(t *testing.T) {
+	t.Parallel()
+
+	err := runCreateCommand([]string{})
+	if !errors.Is(err, errMissingContentOrFile) {
+		t.Errorf("expected errMissingContentOrFile, got: %v", err)
+	}
+}
+
+func TestRunCreateCommand_Success(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		//nolint:errcheck,gosec // test helper
+		w.Write([]byte(`{"path":"/ABCDEFG"}`))
+	}))
+	defer ts.Close()
+
+	t.Setenv("WASTEBIN_SERVER_URL", ts.URL)
+
+	err := runCreateCommand([]string{"--content", "hello"})
+	if err != nil {
+		t.Fatalf("runCreateCommand failed: %v", err)
+	}
+}
+
+func TestRunCreateCommand_EmptyContentFlag(t *testing.T) {
+	t.Parallel()
+
+	err := runCreateCommand([]string{"--content", ""})
+	if !errors.Is(err, errContentEmptyCLI) {
+		t.Errorf("expected errContentEmptyCLI, got: %v", err)
+	}
+}
+
+func TestRunCreateCommand_PositionalArgs(t *testing.T) {
+	t.Parallel()
+
+	err := runCreateCommand([]string{"--content", "hello", "trailing"})
+	if !errors.Is(err, errUnexpectedArgs) {
+		t.Errorf("expected errUnexpectedArgs, got: %v", err)
+	}
+}
+
+func TestRunCreateCommand_WithTestServerContent(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		//nolint:errcheck,gosec // test helper
+		w.Write([]byte(`{"path":"/XYZ"}`))
+	}))
+	defer ts.Close()
+
+	t.Setenv("WASTEBIN_SERVER_URL", ts.URL)
+
+	err := runCreateCommand([]string{"--content", "hello from test"})
+	if err != nil {
+		t.Fatalf("runCreateCommand failed: %v", err)
+	}
+}
+
+func TestRunCreateCommand_WithTestServerDebug(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		//nolint:errcheck,gosec // test helper
+		w.Write([]byte(`{"path":"/ABCDEFG"}`))
+	}))
+	defer ts.Close()
+
+	t.Setenv("WASTEBIN_SERVER_URL", ts.URL)
+
+	err := runCreateCommand([]string{"--content", "hello", "--debug"})
+	if err != nil {
+		t.Fatalf("runCreateCommand failed: %v", err)
 	}
 }
 
