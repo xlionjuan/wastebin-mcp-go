@@ -375,8 +375,25 @@ func TestConfigFromEnv_InvalidDebug(t *testing.T) {
 	}
 }
 
-func TestConfigFromEnv_SandboxMountNonExistentHostPath(t *testing.T) {
+func TestConfigFromEnv_SandboxMountWithoutAllowedPaths(t *testing.T) {
 	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", "/tmp:/workspace")
+
+	_, err := ConfigFromEnv()
+	if err == nil {
+		t.Fatal("expected error for sandbox mounts without allowed paths")
+	}
+
+	if !errors.Is(err, errSandboxMountWithoutAllowedPaths) {
+		t.Errorf("expected %v, got: %v", errSandboxMountWithoutAllowedPaths, err)
+	}
+}
+
+func TestConfigFromEnv_SandboxMountNonExistentHostPath(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_ALLOWED_PATHS", tmpDir)
 	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", "/nonexistent/path/that/does/not/exist/12345:/workspace")
 
 	_, err := ConfigFromEnv()
