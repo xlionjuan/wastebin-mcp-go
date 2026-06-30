@@ -110,15 +110,12 @@ func TestValidateRegularFile_RegularFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	//nolint:gosec // Test helper opens known temp dir
-	f, openErr := os.Open(filePath)
+	fd, openErr := unix.Open(filePath, unix.O_RDONLY, 0)
 	if openErr != nil {
 		t.Fatal(openErr)
 	}
 
-	defer f.Close() //nolint:errcheck // Read-only; close error non-critical
-
-	result, validateErr := validateRegularFile(int(f.Fd()), filePath)
+	result, validateErr := validateRegularFile(fd, filePath)
 	if validateErr != nil {
 		t.Fatalf("expected no error, got: %v", validateErr)
 	}
@@ -150,15 +147,12 @@ func TestValidateRegularFile_FIFO(t *testing.T) {
 		t.Fatal(mkfifoErr)
 	}
 
-	//nolint:gosec // Test helper opens known temp dir
-	f, openErr := os.OpenFile(fifoPath, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	fd, openErr := unix.Open(fifoPath, unix.O_RDONLY|unix.O_NONBLOCK, 0)
 	if openErr != nil {
 		t.Fatal(openErr)
 	}
 
-	defer f.Close() //nolint:errcheck // Read-only; close error non-critical
-
-	_, err := validateRegularFile(int(f.Fd()), fifoPath)
+	_, err := validateRegularFile(fd, fifoPath)
 	if !errors.Is(err, errFilePathCannotBeUsed) {
 		t.Errorf("expected errFilePathCannotBeUsed, got: %v", err)
 	}

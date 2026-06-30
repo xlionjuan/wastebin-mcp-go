@@ -182,7 +182,8 @@ review the BLOCKED_PATHS defaults.
 absolute directory paths. Any file read is validated against this list — the
 resolved path must be within one of the allowed directories. Has no default; if
 file read mode is enabled and ALLOWED_PATHS is empty, the server skips the
-allowlist check and falls through to the blocklist pipeline instead.
+allowlist check and falls through to the blocklist pipeline instead. Relative
+entries are rejected at startup.
 
 **Built-in Blocklist**: Two independent sub-checks:
 - **System directory prefixes** (`/etc`, `/proc`, `/sys`, `/dev`): Bypassed by
@@ -198,8 +199,8 @@ absolute directory paths that are denied by default. Default value:
 `/etc,/proc,/sys,/dev`. Blocked-path entries are resolved with
 `filepath.EvalSymlinks` at startup (matching the file-path resolution) to
 prevent symlink aliases from bypassing the blocklist. Non-existent entries
-fall back to `filepath.Abs` + `filepath.Clean`. The allowlist takes precedence
-over the user blocklist.
+fall back to `filepath.Clean`. Relative entries are rejected at startup. The
+allowlist takes precedence over the user blocklist.
 
 **Path resolution**: Sensitive path components (`.ssh`, `.gnupg`, `.aws`,
 `.kube`, `.docker`, `.git`) are checked on the raw input **before** symlink
