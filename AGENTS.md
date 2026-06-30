@@ -143,6 +143,13 @@ If `which go` fails, report and stop — do not install, download, or work aroun
 - PR title and body must be in English.
 - PR agents must create requested PRs with `gh pr create`; do not stop after
   pushing a branch.
+- Do not ask cloud OpenCode (`/oc`) to amend, rebase, squash, reset,
+  cherry-pick for history editing, force-push, or otherwise rewrite git
+  history or existing commit metadata. Treat cloud OpenCode as unable to handle
+  git history rewriting safely. If a PR check requires an existing commit
+  message or author to be rewritten, handle it outside `/oc` or report it as a
+  manual/local follow-up. `/oc` dispatches may ask for new additive commits for
+  code, test, or documentation changes only.
 
 ## Git Configuration
 

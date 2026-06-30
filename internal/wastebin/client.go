@@ -38,6 +38,7 @@ var (
 	errSandboxTranslationNoMounts = errors.New("sandbox path translation requested but no mounts configured")
 	errSandboxTranslationNoMatch  = errors.New("sandbox path does not match any configured mount")
 	errFileReadDisabled           = errors.New("file read is disabled by configuration")
+	errInvalidWastebinResponse    = errors.New("invalid Wastebin response")
 )
 
 // HTTP transport defaults.
@@ -52,6 +53,11 @@ const (
 	maxIdleConnsPerHost   = 10
 	maxRedirects          = 10
 	maxErrorBodyLength    = 200
+
+	// drainLimit is the maximum number of bytes read from error response
+	// bodies. Reading more than this is unnecessary since the body is not
+	// used for diagnostics, and a large body could cause OOM.
+	drainLimit = 4096
 )
 
 // WastebinClient handles HTTP communication with the Wastebin server.
@@ -276,10 +282,13 @@ func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs)
 
 	// Handle error status codes.
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body) //nolint:errcheck // Best-effort read of error body for diagnostics
-		msg := strings.TrimSpace(string(body))
+		// Read bounded body for error diagnostics.
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyLength)) //nolint:errcheck // read for diagnostics
 
-		return nil, translateHTTPError(resp.StatusCode, msg)
+		// Drain remaining for connection reuse.
+		_, _ = io.CopyN(io.Discard, resp.Body, drainLimit) //nolint:errcheck // Best-effort drain; bounded to prevent OOM
+
+		return nil, translateHTTPError(resp.StatusCode, string(bodyBytes))
 	}
 
 	// Parse response body.
@@ -288,6 +297,12 @@ func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs)
 	err = json.NewDecoder(resp.Body).Decode(&wastebinResp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse Wastebin response: %w", err)
+	}
+
+	// Validate the response path before building the paste response.
+	err = validateWastebinResponse(wastebinResp)
+	if err != nil {
+		return nil, err
 	}
 
 	// Drain response body to EOF for HTTP connection reuse.
@@ -333,6 +348,13 @@ func (c *WastebinClient) readFileContent(
 			return "", "", errPathTraversal
 		}
 
+		// Check blocked components on the original sandbox path BEFORE
+		// translation. The translated host path may resolve a symlinked
+		// blocked component (e.g. .ssh -> realssh), losing the evidence.
+		if reason, blocked := hasComponentBlocked(resolvedPath); blocked && !c.config.DisableBuiltinBlocklist {
+			return "", "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+		}
+
 		translator := NewTranslator(c.config.SandboxMounts)
 
 		translated, ok := translator.Translate(resolvedPath)
@@ -351,7 +373,7 @@ func (c *WastebinClient) readFileContent(
 		resolvedPath = translated
 	}
 
-	// 2. Validate path through the four-stage pipeline.
+	// 2. Validate path through the five-stage pipeline.
 	resolvedPath, err = validateFilePath(resolvedPath, c.config)
 	if err != nil {
 		return "", "", err
@@ -411,6 +433,27 @@ func (c *WastebinClient) readFileContent(
 	}
 
 	return content, ext, nil
+}
+
+// validateWastebinResponse checks that the Wastebin API response contains a
+// valid paste path before we use it to build a PasteResponse.
+func validateWastebinResponse(resp wastebinResponse) error {
+	path := resp.Path
+
+	if path == "" {
+		return fmt.Errorf("%w: empty path", errInvalidWastebinResponse)
+	}
+
+	if !strings.HasPrefix(path, "/") {
+		return fmt.Errorf("%w: path must be relative, got %q", errInvalidWastebinResponse, path)
+	}
+
+	clean := strings.TrimPrefix(path, "/")
+	if clean == "" {
+		return fmt.Errorf("%w: path is missing paste ID", errInvalidWastebinResponse)
+	}
+
+	return nil
 }
 
 // buildPasteResponse constructs a PasteResponse from the Wastebin API response path.
