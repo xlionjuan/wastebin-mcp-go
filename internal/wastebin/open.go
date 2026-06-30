@@ -118,22 +118,7 @@ func openRelNoFollow(dir *os.File, relPath string) (*os.File, error) {
 				_ = unix.Close(parentFd) //nolint:errcheck // Best-effort close; fd copied into os.File
 			}
 
-			var stat unix.Stat_t
-
-			fstatErr := unix.Fstat(fd, &stat)
-			if fstatErr != nil {
-				_ = unix.Close(fd) //nolint:errcheck // Close on stat failure
-
-				return nil, fstatErr
-			}
-
-			if stat.Mode&unix.S_IFMT != unix.S_IFREG {
-				_ = unix.Close(fd) //nolint:errcheck // Close non-regular file
-
-				return nil, errFilePathCannotBeUsed
-			}
-
-			return os.NewFile(uintptr(fd), filepath.Join(dir.Name(), relPath)), nil
+			return validateRegularFile(fd, filepath.Join(dir.Name(), relPath))
 		}
 
 		// Verify intermediate component is a directory.
@@ -168,6 +153,30 @@ func openRelNoFollow(dir *os.File, relPath string) (*os.File, error) {
 	}
 
 	return nil, errOpenEmptyPath
+}
+
+// validateRegularFile verifies that the file descriptor fd points to a
+// regular file.  If the fstat call itself fails the error is propagated as-is;
+// if the file exists but is not a regular file (e.g. a FIFO or device node)
+// errFilePathCannotBeUsed is returned.  On any failure fd is closed before
+// returning.
+func validateRegularFile(fd int, name string) (*os.File, error) {
+	var stat unix.Stat_t
+
+	fstatErr := unix.Fstat(fd, &stat)
+	if fstatErr != nil {
+		_ = unix.Close(fd) //nolint:errcheck // Close on stat failure
+
+		return nil, fstatErr
+	}
+
+	if stat.Mode&unix.S_IFMT != unix.S_IFREG {
+		_ = unix.Close(fd) //nolint:errcheck // Close non-regular file
+
+		return nil, errFilePathCannotBeUsed
+	}
+
+	return os.NewFile(uintptr(fd), name), nil
 }
 
 // splitPath splits a relative path into non-empty components.

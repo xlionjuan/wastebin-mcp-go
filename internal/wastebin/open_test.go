@@ -98,6 +98,72 @@ func TestOpenFileFromRoot_PathNotUnderAllowedRoot(t *testing.T) {
 	}
 }
 
+func TestValidateRegularFile_RegularFile(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	filePath := filepath.Join(tmpDir, "regular.txt")
+
+	err := os.WriteFile(filePath, []byte("content"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	//nolint:gosec // Test helper opens known temp dir
+	f, openErr := os.Open(filePath)
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+
+	defer f.Close() //nolint:errcheck // Read-only; close error non-critical
+
+	result, validateErr := validateRegularFile(int(f.Fd()), filePath)
+	if validateErr != nil {
+		t.Fatalf("expected no error, got: %v", validateErr)
+	}
+
+	closeErr := result.Close()
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+}
+
+func TestValidateRegularFile_InvalidFd(t *testing.T) {
+	t.Parallel()
+
+	_, err := validateRegularFile(-1, "/nonexistent")
+	if err == nil {
+		t.Fatal("expected error for invalid fd")
+	}
+}
+
+func TestValidateRegularFile_FIFO(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	fifoPath := filepath.Join(tmpDir, "test.fifo")
+
+	mkfifoErr := unix.Mkfifo(fifoPath, 0o600)
+	if mkfifoErr != nil {
+		t.Fatal(mkfifoErr)
+	}
+
+	//nolint:gosec // Test helper opens known temp dir
+	f, openErr := os.OpenFile(fifoPath, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+
+	defer f.Close() //nolint:errcheck // Read-only; close error non-critical
+
+	_, err := validateRegularFile(int(f.Fd()), fifoPath)
+	if !errors.Is(err, errFilePathCannotBeUsed) {
+		t.Errorf("expected errFilePathCannotBeUsed, got: %v", err)
+	}
+}
+
 func TestOpenRelNoFollow_FIFORejected(t *testing.T) {
 	t.Parallel()
 
