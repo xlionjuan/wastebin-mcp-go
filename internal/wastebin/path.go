@@ -55,6 +55,22 @@ func hasPathTraversal(path string) bool {
 	return false
 }
 
+// hasComponentBlocked checks the normalized raw path for blocked components.
+// This is performed before path resolution (EvalSymlinks), so it catches
+// cases where a blocked component (e.g. .ssh) is a symlink to an unaffected
+// directory name.
+func hasComponentBlocked(path string) (string, bool) {
+	normalized := normalizePath(path)
+
+	for part := range strings.SplitSeq(normalized, "/") {
+		if slices.Contains(builtinBlockedComponents, part) {
+			return part, true
+		}
+	}
+
+	return "", false
+}
+
 // isAllowedPath checks if a resolved (cleaned, absolute) path falls under
 // one of the allowed paths. Returns true if the path is allowed.
 // This is Stage 2 of the validation pipeline.
@@ -145,9 +161,18 @@ func isComponentBlocked(resolvedPath string) (string, bool) {
 //
 //nolint:nonamedreturns // Named returns improve godoc clarity
 func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err error) {
-	// Stage 1: Path traversal detection on the raw input.
+	// Stage 1a: Path traversal detection on the raw input.
 	if hasPathTraversal(rawPath) {
 		return "", errPathTraversal
+	}
+
+	// Stage 1b: Sensitive component detection on the raw input, before
+	// symlink resolution. This catches symlinked blocked components
+	// (e.g. .ssh -> realssh) that would disappear after resolution.
+	if !cfg.DisableBuiltinBlocklist {
+		if reason, blocked := hasComponentBlocked(rawPath); blocked {
+			return "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+		}
 	}
 
 	// Resolve the path via EvalSymlinks.
