@@ -495,7 +495,6 @@ func validateWastebinResponse(resp wastebinResponse) error {
 
 	return nil
 }
-}
 
 // buildPasteResponse constructs a PasteResponse from the Wastebin API response path.
 func buildPasteResponse(baseURL *url.URL, wastebinPath, ext string, passwordSet bool) *PasteResponse {
