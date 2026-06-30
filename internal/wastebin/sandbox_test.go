@@ -36,6 +36,13 @@ func TestParseSandboxMounts(t *testing.T) {
 			wantSand: []string{"/x", "/y"},
 		},
 		{
+			name:     "partial prefix sandbox paths do not overlap",
+			input:    "/a:/workspace,/b:/workspace2",
+			wantErr:  false,
+			wantHost: []string{"/a", "/b"},
+			wantSand: []string{"/workspace", "/workspace2"},
+		},
+		{
 			name:     "empty pair skipped",
 			input:    "/a:/x,,/b:/y",
 			wantErr:  false,
@@ -65,6 +72,11 @@ func TestParseSandboxMounts(t *testing.T) {
 		{
 			name:    "relative host path (no dot)",
 			input:   "relative/path:/sandbox",
+			wantErr: true,
+		},
+		{
+			name:    "relative sandbox path",
+			input:   "/host:workspace",
 			wantErr: true,
 		},
 		{
@@ -132,6 +144,18 @@ func TestParseSandboxMounts_Overlapping(t *testing.T) {
 		{
 			name:  "same path (duplicate)",
 			input: "/host/a:/workspace,/host/b:/workspace",
+		},
+		{
+			name:  "root overlaps descendant when root listed first",
+			input: "/host/root:/,/host/workspace:/workspace",
+		},
+		{
+			name:  "root overlaps descendant when root listed second",
+			input: "/host/workspace:/workspace,/host/root:/",
+		},
+		{
+			name:  "duplicate root",
+			input: "/host/a:/,/host/b:/",
 		},
 	}
 	for _, tt := range tests {

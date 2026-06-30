@@ -45,7 +45,7 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 		}
 
 		hostPath := strings.TrimSpace(parts[0])
-		sandboxPath := strings.TrimSpace(parts[1])
+		sandboxPath := path.Clean(strings.TrimSpace(parts[1]))
 
 		if !strings.HasPrefix(hostPath, "/") {
 			return nil, fmt.Errorf(
@@ -54,17 +54,27 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 			)
 		}
 
+		if !path.IsAbs(sandboxPath) {
+			return nil, fmt.Errorf(
+				"%w at index %d: sandbox path %q must be absolute",
+				errInvalidSandboxMount, i, sandboxPath,
+			)
+		}
+
 		mounts = append(mounts, SandboxMount{
 			HostPath:    hostPath,
-			SandboxPath: path.Clean(sandboxPath),
+			SandboxPath: sandboxPath,
 		})
 	}
 
-	// Validate that no sandbox path is a prefix of another (overlapping mounts).
-	for i, a := range mounts {
-		for j, b := range mounts {
-			if i != j && (strings.HasPrefix(a.SandboxPath+"/", b.SandboxPath+"/") ||
-				strings.HasPrefix(b.SandboxPath+"/", a.SandboxPath+"/")) {
+	// Validate that no sandbox path contains another (overlapping mounts).
+	for i := range mounts {
+		for j := i + 1; j < len(mounts); j++ {
+			a := mounts[i]
+			b := mounts[j]
+
+			if isContainedSandboxPath(a.SandboxPath, b.SandboxPath) ||
+				isContainedSandboxPath(b.SandboxPath, a.SandboxPath) {
 				return nil, fmt.Errorf(
 					"%w: sandbox mount %d (%q) overlaps with mount %d (%q); "+
 						"each mount's sandbox path must be unique and non-overlapping",
@@ -75,6 +85,38 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 	}
 
 	return mounts, nil
+}
+
+// isContainedSandboxPath reports whether target is under or equal to base.
+// Sandbox paths are always POSIX-style paths, independent of the host OS.
+func isContainedSandboxPath(base, target string) bool {
+	_, ok := sandboxRelativePath(base, target)
+
+	return ok
+}
+
+func sandboxRelativePath(base, target string) (string, bool) {
+	base = path.Clean(base)
+	target = path.Clean(target)
+
+	if !path.IsAbs(base) || !path.IsAbs(target) {
+		return "", false
+	}
+
+	if target == base {
+		return ".", true
+	}
+
+	if base == "/" {
+		return strings.TrimPrefix(target, "/"), true
+	}
+
+	prefix := base + "/"
+	if !strings.HasPrefix(target, prefix) {
+		return "", false
+	}
+
+	return strings.TrimPrefix(target, prefix), true
 }
 
 // Translator translates sandbox paths to host paths.
@@ -106,8 +148,8 @@ func isUnderMountHost(path string, mounts []SandboxMount) bool {
 // Returns empty string and false if no mount matches.
 func (t *Translator) Translate(sandboxPath string) (string, bool) {
 	for _, m := range t.mounts {
-		rel, err := filepath.Rel(m.SandboxPath, sandboxPath)
-		if err != nil {
+		rel, ok := sandboxRelativePath(m.SandboxPath, sandboxPath)
+		if !ok {
 			continue
 		}
 
@@ -115,9 +157,7 @@ func (t *Translator) Translate(sandboxPath string) (string, bool) {
 			return m.HostPath, true
 		}
 
-		if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return filepath.Join(m.HostPath, rel), true
-		}
+		return filepath.Join(m.HostPath, rel), true
 	}
 
 	return "", false
