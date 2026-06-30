@@ -325,6 +325,13 @@ func (c *WastebinClient) readFileContent(
 			return "", "", errPathTraversal
 		}
 
+		// Check blocked components on the original sandbox path BEFORE
+		// translation. The translated host path may resolve a symlinked
+		// blocked component (e.g. .ssh -> realssh), losing the evidence.
+		if reason, blocked := hasComponentBlocked(resolvedPath); blocked && !c.config.DisableBuiltinBlocklist {
+			return "", "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+		}
+
 		translator := NewTranslator(c.config.SandboxMounts)
 
 		translated, ok := translator.Translate(resolvedPath)
@@ -343,7 +350,7 @@ func (c *WastebinClient) readFileContent(
 		resolvedPath = translated
 	}
 
-	// 2. Validate path through the four-stage pipeline.
+	// 2. Validate path through the five-stage pipeline.
 	resolvedPath, err = validateFilePath(resolvedPath, c.config)
 	if err != nil {
 		return "", "", err

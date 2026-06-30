@@ -1103,6 +1103,449 @@ func TestValidateFilePath_SymlinkEscapeFromAllowed(t *testing.T) {
 // DisableBuiltinBlocklist with blocked component
 // ──────────────────────────────────────────────
 
+// ──────────────────────────────────────────────
+// hasComponentBlocked tests
+// ──────────────────────────────────────────────
+
+func TestHasComponentBlocked_DotSsh(t *testing.T) {
+	t.Parallel()
+
+	reason, blocked := hasComponentBlocked("/home/user/.ssh/id_rsa")
+	if !blocked {
+		t.Fatal("expected .ssh to be detected in raw path")
+	}
+
+	if reason != ".ssh" {
+		t.Errorf("expected reason %q, got %q", ".ssh", reason)
+	}
+}
+
+func TestHasComponentBlocked_DotGit(t *testing.T) {
+	t.Parallel()
+
+	reason, blocked := hasComponentBlocked("/home/user/project/.git/config")
+	if !blocked {
+		t.Fatal("expected .git to be detected in raw path")
+	}
+
+	if reason != ".git" {
+		t.Errorf("expected reason %q, got %q", ".git", reason)
+	}
+}
+
+func TestHasComponentBlocked_DotAws(t *testing.T) {
+	t.Parallel()
+
+	reason, blocked := hasComponentBlocked("/home/user/.aws/credentials")
+	if !blocked {
+		t.Fatal("expected .aws to be detected in raw path")
+	}
+
+	if reason != ".aws" {
+		t.Errorf("expected reason %q, got %q", ".aws", reason)
+	}
+}
+
+func TestHasComponentBlocked_DotKube(t *testing.T) {
+	t.Parallel()
+
+	reason, blocked := hasComponentBlocked("/home/user/.kube/config")
+	if !blocked {
+		t.Fatal("expected .kube to be detected in raw path")
+	}
+
+	if reason != ".kube" {
+		t.Errorf("expected reason %q, got %q", ".kube", reason)
+	}
+}
+
+func TestHasComponentBlocked_DotDocker(t *testing.T) {
+	t.Parallel()
+
+	reason, blocked := hasComponentBlocked("/home/user/.docker/config.json")
+	if !blocked {
+		t.Fatal("expected .docker to be detected in raw path")
+	}
+
+	if reason != ".docker" {
+		t.Errorf("expected reason %q, got %q", ".docker", reason)
+	}
+}
+
+func TestHasComponentBlocked_DotGnupg(t *testing.T) {
+	t.Parallel()
+
+	reason, blocked := hasComponentBlocked("/home/user/.gnupg/pubring.kbx")
+	if !blocked {
+		t.Fatal("expected .gnupg to be detected in raw path")
+	}
+
+	if reason != ".gnupg" {
+		t.Errorf("expected reason %q, got %q", ".gnupg", reason)
+	}
+}
+
+func TestHasComponentBlocked_CleanPath(t *testing.T) {
+	t.Parallel()
+
+	_, blocked := hasComponentBlocked("/home/user/documents/report.txt")
+	if blocked {
+		t.Error("expected clean path not to be blocked")
+	}
+}
+
+func TestHasComponentBlocked_EmptyString(t *testing.T) {
+	t.Parallel()
+
+	_, blocked := hasComponentBlocked("")
+	if blocked {
+		t.Error("expected empty path not to be blocked")
+	}
+}
+
+func TestHasComponentBlocked_DisableBuiltinBlocklist(t *testing.T) {
+	t.Parallel()
+
+	// hasComponentBlocked doesn't check the config, so it always flags.
+	// The config check happens in the caller (validateFilePath/readFileContent).
+	reason, blocked := hasComponentBlocked("/home/user/.ssh/id_rsa")
+	if !blocked {
+		t.Fatal("expected hasComponentBlocked to detect .ssh regardless of config")
+	}
+
+	if reason != ".ssh" {
+		t.Errorf("expected reason %q, got %q", ".ssh", reason)
+	}
+}
+
+// ──────────────────────────────────────────────
+// Symlinked sensitive component tests
+// ──────────────────────────────────────────────
+
+// symlinkSensitiveComponent creates a real directory and a symlink with the
+// given sensitive name pointing to it, then returns the path of a test file
+// via the symlink.
+func symlinkSensitiveComponent(t *testing.T, sensitiveName string) string {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	realDir := filepath.Join(tmpDir, "real_"+sensitiveName[1:])
+
+	err := os.Mkdir(realDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testFile := filepath.Join(realDir, "test.txt")
+
+	err = os.WriteFile(testFile, []byte("content"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	symlinkPath := filepath.Join(tmpDir, sensitiveName)
+
+	err = os.Symlink(realDir, symlinkPath)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	return filepath.Join(symlinkPath, "test.txt")
+}
+
+func TestValidateFilePath_SymlinkedDotSsh_NoAllowed(t *testing.T) {
+	t.Parallel()
+
+	path := symlinkSensitiveComponent(t, ".ssh")
+
+	cfg := &Config{
+		BlockedPaths: DefaultConfig().BlockedPaths,
+	}
+
+	_, err := validateFilePath(path, cfg)
+	if err == nil {
+		t.Fatal("expected error for symlinked .ssh, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedComponent) {
+		t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_SymlinkedDotGit_NoAllowed(t *testing.T) {
+	t.Parallel()
+
+	path := symlinkSensitiveComponent(t, ".git")
+
+	cfg := &Config{
+		BlockedPaths: DefaultConfig().BlockedPaths,
+	}
+
+	_, err := validateFilePath(path, cfg)
+	if err == nil {
+		t.Fatal("expected error for symlinked .git, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedComponent) {
+		t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_SymlinkedDotAws_NoAllowed(t *testing.T) {
+	t.Parallel()
+
+	path := symlinkSensitiveComponent(t, ".aws")
+
+	cfg := &Config{
+		BlockedPaths: DefaultConfig().BlockedPaths,
+	}
+
+	_, err := validateFilePath(path, cfg)
+	if err == nil {
+		t.Fatal("expected error for symlinked .aws, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedComponent) {
+		t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_SymlinkedDotKube_NoAllowed(t *testing.T) {
+	t.Parallel()
+
+	path := symlinkSensitiveComponent(t, ".kube")
+
+	cfg := &Config{
+		BlockedPaths: DefaultConfig().BlockedPaths,
+	}
+
+	_, err := validateFilePath(path, cfg)
+	if err == nil {
+		t.Fatal("expected error for symlinked .kube, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedComponent) {
+		t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_SymlinkedDotDocker_NoAllowed(t *testing.T) {
+	t.Parallel()
+
+	path := symlinkSensitiveComponent(t, ".docker")
+
+	cfg := &Config{
+		BlockedPaths: DefaultConfig().BlockedPaths,
+	}
+
+	_, err := validateFilePath(path, cfg)
+	if err == nil {
+		t.Fatal("expected error for symlinked .docker, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedComponent) {
+		t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_SymlinkedDotGnupg_NoAllowed(t *testing.T) {
+	t.Parallel()
+
+	path := symlinkSensitiveComponent(t, ".gnupg")
+
+	cfg := &Config{
+		BlockedPaths: DefaultConfig().BlockedPaths,
+	}
+
+	_, err := validateFilePath(path, cfg)
+	if err == nil {
+		t.Fatal("expected error for symlinked .gnupg, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedComponent) {
+		t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_SymlinkedDotSsh_WithAllowed(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	realDir := filepath.Join(tmpDir, "realdir")
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(realDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create symlink .ssh -> realdir inside allowed dir
+	symlinkPath := filepath.Join(allowedDir, ".ssh")
+
+	err = os.Symlink(realDir, symlinkPath)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	keyFile := filepath.Join(symlinkPath, "id_rsa")
+
+	err = os.WriteFile(filepath.Join(realDir, "id_rsa"), []byte("ssh-key"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{
+		AllowedPaths: []string{allowedDir},
+	}
+
+	_, err = validateFilePath(keyFile, cfg)
+	if err == nil {
+		t.Fatal("expected error for symlinked .ssh inside ALLOWED_PATHS, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedComponent) {
+		t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_NonBlockedSymlink_NoAllowed(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	realDir := filepath.Join(tmpDir, "realdir")
+
+	err := os.Mkdir(realDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testFile := filepath.Join(realDir, "test.txt")
+
+	err = os.WriteFile(testFile, []byte("content"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a non-sensitive symlink (not in the blocked list)
+	symlinkPath := filepath.Join(tmpDir, "mylink")
+
+	err = os.Symlink(realDir, symlinkPath)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	cfg := &Config{
+		BlockedPaths: DefaultConfig().BlockedPaths,
+	}
+
+	result, err := validateFilePath(filepath.Join(symlinkPath, "test.txt"), cfg)
+	if err != nil {
+		t.Fatalf("expected non-blocked symlink to be allowed, got: %v", err)
+	}
+
+	if result != filepath.Clean(testFile) {
+		t.Errorf("expected resolved path %q, got %q", filepath.Clean(testFile), result)
+	}
+}
+
+func TestValidateFilePath_NonBlockedSymlink_WithAllowed(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	allowedDir := filepath.Join(tmpDir, "allowed")
+	realDir := filepath.Join(tmpDir, "realdir")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Mkdir(realDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testFile := filepath.Join(realDir, "test.txt")
+
+	err = os.WriteFile(testFile, []byte("content"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a non-sensitive symlink inside allowed dir
+	symlinkPath := filepath.Join(allowedDir, "mylink")
+
+	err = os.Symlink(realDir, symlinkPath)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	cfg := &Config{
+		AllowedPaths: []string{allowedDir},
+	}
+
+	// Symlink points outside allowed directory, so it should be blocked
+	_, err = validateFilePath(filepath.Join(symlinkPath, "test.txt"), cfg)
+	if err == nil {
+		t.Error("expected error for symlink escape from allowed, got nil")
+	}
+
+	if !errors.Is(err, errPathNotAllowed) {
+		t.Errorf("expected errPathNotAllowed, got: %v", err)
+	}
+}
+
+func TestHasComponentBlocked_WindowsBackslashes(t *testing.T) {
+	t.Parallel()
+
+	reason, blocked := hasComponentBlocked(`C:\Users\foo\.ssh\id_rsa`)
+	if !blocked {
+		t.Fatal("expected .ssh to be detected in Windows path")
+	}
+
+	if reason != ".ssh" {
+		t.Errorf("expected reason %q, got %q", ".ssh", reason)
+	}
+}
+
+func TestHasComponentBlocked_MixedSlashes(t *testing.T) {
+	t.Parallel()
+
+	reason, blocked := hasComponentBlocked("foo\\bar/.ssh/key")
+	if !blocked {
+		t.Fatal("expected .ssh to be detected in mixed-slash path")
+	}
+
+	if reason != ".ssh" {
+		t.Errorf("expected reason %q, got %q", ".ssh", reason)
+	}
+}
+
+func TestValidateFilePath_SymlinkedDotSsh_DisabledBuiltinBlocklist(t *testing.T) {
+	t.Parallel()
+
+	path := symlinkSensitiveComponent(t, ".ssh")
+
+	cfg := &Config{
+		DisableBuiltinBlocklist: true,
+		BlockedPaths:            DefaultConfig().BlockedPaths,
+	}
+
+	result, err := validateFilePath(path, cfg)
+	if err != nil {
+		t.Fatalf("expected symlinked .ssh to be allowed when builtin blocklist disabled, got: %v", err)
+	}
+
+	if result == "" {
+		t.Error("expected non-empty resolved path")
+	}
+}
+
 func TestValidateFilePath_DisableBuiltinBlocklistWithBlockedComponent(t *testing.T) {
 	t.Parallel()
 

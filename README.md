@@ -92,11 +92,12 @@ conditional fields that appear only in specific scenarios.
 ## Security
 
 - File reads are gated by an **allowlist** (ALLOWED_PATHS) and a **blocklist**
-   (BLOCKED_PATHS, defaults to `/etc,/proc,/sys,/dev`).
-- All paths are resolved via `filepath.EvalSymlinks` before checking,
-   preventing symlink-based bypass. Blocked-path entries are also resolved
-   via `EvalSymlinks` at startup (with `Abs`+`Clean` fallback for
-   non-existent paths), so symlink aliases cannot evade the blocklist.
+  (BLOCKED_PATHS, defaults to `/etc,/proc,/sys,/dev`).
+- Sensitive path components (`.ssh`, `.gnupg`, `.aws`, `.kube`, `.docker`,
+  `.git`) are checked on the raw input **before** symlink resolution, so a
+  blocked-component symlink (e.g. `.ssh` → `realssh`) is caught before the
+  symlink target obscures it. All paths are then resolved via
+  `filepath.EvalSymlinks` for defense-in-depth blocklist matching.
 - Binary and non-UTF-8 files are rejected at read time.
 - Sandbox translation is opt-in and ENV-gated.
 - Content size is pre-checked against a configurable limit.
