@@ -440,38 +440,3 @@ func schemaNumber(prop map[string]any, field string) float64 {
 
 	return v
 }
-
-// =============================================================================
-// Warning summary helpers
-// =============================================================================
-
-// e2eWarnings is a goroutine-safe accumulator for test warnings. Tests should
-// create one per top-level test function and call Report at the end.
-type e2eWarnings struct {
-	mu       sync.Mutex
-	warnings []string
-}
-
-// Addf records a warning message. It is safe for concurrent calls.
-func (w *e2eWarnings) Addf(format string, args ...any) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	w.warnings = append(w.warnings, fmt.Sprintf(format, args...))
-}
-
-// Report prints the WARNING SUMMARY block if any warnings were collected.
-func (w *e2eWarnings) Report(t *testing.T) {
-	t.Helper()
-
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if len(w.warnings) > 0 {
-		t.Logf("--- WARNING SUMMARY ---")
-
-		for _, warning := range w.warnings {
-			t.Logf("  WARN: %s", warning)
-		}
-	}
-}

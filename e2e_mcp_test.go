@@ -4,8 +4,9 @@ package main
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -16,8 +17,6 @@ func TestBasicPaste(t *testing.T) {
 	if wastebinURL == "" {
 		t.Skip("WASTEBIN_SERVER_URL not set")
 	}
-
-	var warnings e2eWarnings
 
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
@@ -49,32 +48,52 @@ func TestBasicPaste(t *testing.T) {
 		t.Fatalf("raw is empty\nresponse: %#v\nstderr:\n%s", response, stderr.String())
 	}
 
-	// Verify raw URL returns actual content via curl using exec
-	if !t.Failed() {
-		rawURL := response.Hostname + response.Raw
-		t.Logf("verifying raw content at: %s", rawURL)
+	// Verify raw URL returns actual content via HTTP
+	rawURL := response.Hostname + response.Raw
+	t.Logf("verifying raw content at: %s", rawURL)
 
-		curlCtx, curlCancel := context.WithTimeout(ctx, 10*time.Second)
-		defer curlCancel()
+	httpCtx, httpCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer httpCancel()
 
-		// Use os/exec to curl the raw URL
-		curlCmd := exec.CommandContext(curlCtx, "curl", "-s", rawURL) //nolint:gosec // test tool
-		out, err := curlCmd.Output()
-		if err != nil {
-			// Route through warning — curl may not be available or the
-			// paste may have expired in staging
-			warnings.Addf("curl raw URL failed: %v", err)
-			t.Logf("curl raw URL: %v\nstderr:\n%s", err, string(out))
-		} else if !strings.Contains(string(out), "Hello, World!") {
-			warnings.Addf("raw content does not contain expected text: got %q", string(out))
-			t.Logf("raw content mismatch\ngot:\n%s", string(out))
-		} else {
-			t.Logf("raw content verified successfully")
-		}
+	req, err := http.NewRequestWithContext(httpCtx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		fatalOrWarn(t, "create raw URL request: %v", err)
 	}
 
-	warnings.Report(t)
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fatalOrWarn(t, "GET raw URL failed: %v", err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != http.StatusOK {
+		fatalOrWarn(t, "raw URL status = %d, want %d", httpResp.StatusCode, http.StatusOK)
+	}
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		fatalOrWarn(t, "read raw response body: %v", err)
+	}
+
+	if !strings.Contains(string(body), "Hello, World!") {
+		fatalOrWarn(t, "raw content does not contain expected text: got %q", string(body))
+	}
+
+	t.Logf("raw content verified successfully (status %d, %d bytes)", httpResp.StatusCode, len(body))
 	t.Log("basic paste test verified")
+}
+
+// fatalOrWarn is a test helper that calls t.Fatalf by default in E2E tests.
+// Set E2E_RAW_RETRIEVAL_WARN=true to downgrade failures to warnings for
+// local runs where the paste may have expired.
+func fatalOrWarn(t *testing.T, format string, args ...any) {
+	t.Helper()
+
+	if os.Getenv("E2E_RAW_RETRIEVAL_WARN") == "true" {
+		t.Logf("WARN: "+format, args...)
+	} else {
+		t.Fatalf(format, args...)
+	}
 }
 
 func TestPasteWithExtension(t *testing.T) {
@@ -135,26 +154,40 @@ func TestPasteMarkdownExtension(t *testing.T) {
 			response.MarkdownRendered, response, stderr.String())
 	}
 
-	// Verify the rendered markdown URL returns actual HTML content via curl
+	// Verify the rendered markdown URL returns actual HTML content via HTTP
 	if !t.Failed() {
 		renderedURL := response.Hostname + response.MarkdownRendered
 		t.Logf("verifying rendered markdown content at: %s", renderedURL)
 
-		curlCtx, curlCancel := context.WithTimeout(ctx, 10*time.Second)
-		defer curlCancel()
+		httpCtx, httpCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer httpCancel()
 
-		curlCmd := exec.CommandContext(curlCtx, "curl", "-s", renderedURL) //nolint:gosec // test tool
-		out, err := curlCmd.Output()
+		req, err := http.NewRequestWithContext(httpCtx, http.MethodGet, renderedURL, nil)
 		if err != nil {
-			t.Fatalf("curl rendered markdown URL failed: %v\nstderr:\n%s\noutput:\n%s",
-				err, stderr.String(), string(out))
+			t.Fatalf("create rendered markdown request: %v\nstderr:\n%s", err, stderr.String())
 		}
 
-		if !strings.Contains(string(out), "<h1>Hello</h1>") && !strings.Contains(string(out), "<h1>Hello") {
-			t.Fatalf("rendered markdown does not contain expected heading \"Hello\"\nrendered content:\n%s", string(out))
+		httpResp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("GET rendered markdown URL failed: %v\nstderr:\n%s", err, stderr.String())
+		}
+		defer httpResp.Body.Close()
+
+		if httpResp.StatusCode != http.StatusOK {
+			t.Fatalf("rendered markdown URL status = %d, want %d\nstderr:\n%s",
+				httpResp.StatusCode, http.StatusOK, stderr.String())
 		}
 
-		t.Logf("rendered markdown content verified (contains expected heading)")
+		body, err := io.ReadAll(httpResp.Body)
+		if err != nil {
+			t.Fatalf("read rendered markdown body: %v\nstderr:\n%s", err, stderr.String())
+		}
+
+		if !strings.Contains(string(body), "<h1>Hello</h1>") && !strings.Contains(string(body), "<h1>Hello") {
+			t.Fatalf("rendered markdown does not contain expected heading \"Hello\"\nrendered content:\n%s", string(body))
+		}
+
+		t.Logf("rendered markdown content verified (status %d, %d bytes)", httpResp.StatusCode, len(body))
 	}
 
 	t.Log("paste with markdown extension verified")
