@@ -29,6 +29,7 @@ var (
 	errUnknownHTTP                = errors.New("unknown HTTP error")
 	errFileNotText                = errors.New("file is binary or not valid UTF-8 text")
 	errConfigRequired             = errors.New("config is required")
+	errServerValidation           = errors.New("server rejected the request due to a validation error")
 	errUnsupportedURLScheme       = errors.New("server URL must use http or https scheme")
 	errURLMissingHost             = errors.New("server URL must include a host")
 	errTooManyRedirects           = errors.New("stopped after 10 redirects")
@@ -50,6 +51,7 @@ const (
 	maxIdleConns          = 100
 	maxIdleConnsPerHost   = 10
 	maxRedirects          = 10
+	maxErrorBodyLength    = 200
 )
 
 // WastebinClient handles HTTP communication with the Wastebin server.
@@ -211,6 +213,12 @@ func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs)
 		}
 
 		expires = parsed
+	}
+
+	// Validate expiration bounds.
+	ve := ValidateExpiration(expires)
+	if ve != nil {
+		return nil, fmt.Errorf("invalid expiration: %w", ve)
 	}
 
 	// Build request body.
@@ -448,12 +456,22 @@ func buildPasteResponse(baseURL *url.URL, wastebinPath, ext string, passwordSet 
 }
 
 // translateHTTPError maps HTTP status codes to user-friendly error messages.
-func translateHTTPError(statusCode int, _ string) error {
+func translateHTTPError(statusCode int, body string) error {
 	switch statusCode {
 	case http.StatusForbidden:
 		return errServerRejected
 	case http.StatusRequestEntityTooLarge:
 		return errContentTooLargeServer
+	case http.StatusUnprocessableEntity:
+		if body == "" {
+			return errServerValidation
+		}
+
+		if len(body) > maxErrorBodyLength {
+			body = body[:maxErrorBodyLength] + "..."
+		}
+
+		return fmt.Errorf("%w: %s", errServerValidation, body)
 	default:
 		return fmt.Errorf("%w: HTTP %d", errUnknownHTTP, statusCode)
 	}

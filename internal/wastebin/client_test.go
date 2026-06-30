@@ -265,6 +265,156 @@ func TestCreatePaste_413Response(t *testing.T) {
 	}
 }
 
+func TestCreatePaste_422Response(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte("expiration value is invalid")) //nolint:errcheck // Test helper write error is acceptable
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !errors.Is(err, errServerValidation) {
+		t.Errorf("expected errServerValidation, got: %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "expiration value is invalid") {
+		t.Errorf("expected body in 422 error message, got: %v", err)
+	}
+}
+
+func TestCreatePaste_422Response_EmptyBody(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !errors.Is(err, errServerValidation) {
+		t.Errorf("expected errServerValidation, got: %v", err)
+	}
+}
+
+func TestCreatePaste_ExpirationTooLarge(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("server should not be reached for too-large expiration")
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+	expires := "200y" // 6,307,200,000 seconds — far above max
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+		Expires: &expires,
+	})
+	if err == nil {
+		t.Fatal("expected error for too-large expiration, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "invalid expiration") {
+		t.Errorf("expected invalid expiration error, got: %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "exceeds maximum") {
+		t.Errorf("expected error mentioning maximum, got: %v", err)
+	}
+}
+
+func TestCreatePaste_ExpirationMax(t *testing.T) {
+	t.Parallel()
+
+	var capturedExpires any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		capturedExpires = req["expires"]
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/MAXEXP"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+	expires := "10y" // 315360000 — exactly maxExpirationSeconds
+
+	resp, err := client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+		Expires: &expires,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ID != "MAXEXP" {
+		t.Errorf("expected ID MAXEXP, got %q", resp.ID)
+	}
+
+	if capturedExpires != float64(maxExpirationSeconds) {
+		t.Errorf("expected expires=%f, got %v", float64(maxExpirationSeconds), capturedExpires)
+	}
+}
+
 func TestCreatePaste_UnknownHTTPError(t *testing.T) {
 	t.Parallel()
 
