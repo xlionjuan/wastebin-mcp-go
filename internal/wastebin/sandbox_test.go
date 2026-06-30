@@ -75,6 +75,28 @@ func TestParseSandboxMounts(t *testing.T) {
 			wantSand: []string{"/sandbox/path"},
 		},
 		{
+			name:    "relative sandbox path rejected",
+			input:   "/host/path:workspace",
+			wantErr: true,
+		},
+		{
+			name:    "sandbox parent dir to root rejected",
+			input:   "/host/path:/workspace/..",
+			wantErr: true,
+		},
+		{
+			name:    "sandbox parent dir to sibling rejected",
+			input:   "/host/path:/workspace/../other",
+			wantErr: true,
+		},
+		{
+			name:     "sandbox duplicate separators still clean",
+			input:    "/host/path://workspace//path///",
+			wantErr:  false,
+			wantHost: []string{"/host/path"},
+			wantSand: []string{"/workspace/path"},
+		},
+		{
 			name:     "whitespace handling",
 			input:    "  /a:/x  ,  /b:/y  ",
 			wantErr:  false,

@@ -54,6 +54,20 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 			)
 		}
 
+		if !path.IsAbs(sandboxPath) {
+			return nil, fmt.Errorf(
+				"%w at index %d: sandbox path %q must be absolute",
+				errInvalidSandboxMount, i, sandboxPath,
+			)
+		}
+
+		if hasSandboxParentDir(sandboxPath) {
+			return nil, fmt.Errorf(
+				"%w at index %d: sandbox path %q must not contain parent-directory traversal",
+				errInvalidSandboxMount, i, sandboxPath,
+			)
+		}
+
 		mounts = append(mounts, SandboxMount{
 			HostPath:    hostPath,
 			SandboxPath: path.Clean(sandboxPath),
@@ -75,6 +89,16 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 	}
 
 	return mounts, nil
+}
+
+func hasSandboxParentDir(sandboxPath string) bool {
+	for part := range strings.SplitSeq(sandboxPath, "/") {
+		if part == ".." {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Translator translates sandbox paths to host paths.
