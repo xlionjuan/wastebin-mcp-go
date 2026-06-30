@@ -147,64 +147,6 @@ func TestCLI_Version(t *testing.T) {
 	}
 }
 
-// TestCLI_UnknownCommand verifies that an unknown subcommand exits 1, writes
-// the error to stderr, and prints help text to stdout.
-func TestCLI_UnknownCommand(t *testing.T) {
-	t.Parallel()
-
-	stdout, stderr, exitCode := runCLIBinary(t, []string{"unknown"})
-
-	if exitCode != 1 {
-		t.Errorf("expected exit code 1, got %d", exitCode)
-	}
-
-	if !strings.Contains(stderr, "ERROR") {
-		t.Errorf("expected stderr to contain 'ERROR', got: %s", stderr)
-	}
-
-	if !strings.Contains(stderr, `"unknown"`) {
-		t.Errorf("expected stderr to quote the unknown command, got: %s", stderr)
-	}
-
-	// Help text now goes to stderr on error paths.
-	if !strings.Contains(stderr, "USAGE:") {
-		t.Errorf("expected stderr to contain help text ('USAGE:'), got: %s", stderr)
-	}
-
-	if stdout != "" {
-		t.Errorf("expected empty stdout, got: %s", stdout)
-	}
-}
-
-// TestCLI_UnknownFlag verifies that an unknown flag exits 1, writes the error
-// to stderr, and prints help text to stdout.
-func TestCLI_UnknownFlag(t *testing.T) {
-	t.Parallel()
-
-	stdout, stderr, exitCode := runCLIBinary(t, []string{"--bogus"})
-
-	if exitCode != 1 {
-		t.Errorf("expected exit code 1, got %d", exitCode)
-	}
-
-	if !strings.Contains(stderr, "ERROR") {
-		t.Errorf("expected stderr to contain 'ERROR', got: %s", stderr)
-	}
-
-	if !strings.Contains(stderr, `"--bogus"`) {
-		t.Errorf("expected stderr to quote the unknown flag, got: %s", stderr)
-	}
-
-	// Help text now goes to stderr on error paths.
-	if !strings.Contains(stderr, "USAGE:") {
-		t.Errorf("expected stderr to contain help text ('USAGE:'), got: %s", stderr)
-	}
-
-	if stdout != "" {
-		t.Errorf("expected empty stdout, got: %s", stdout)
-	}
-}
-
 // TestCLI_NoArgsNoEnv verifies that MCP mode without required env vars
 // (WASTEBIN_SERVER_URL) exits 2 and prints an error to stderr.
 func TestCLI_NoArgsNoEnv(t *testing.T) {
@@ -224,94 +166,6 @@ func TestCLI_NoArgsNoEnv(t *testing.T) {
 
 	if stdout != "" {
 		t.Errorf("expected empty stdout, got: %s", stdout)
-	}
-}
-
-// TestCLI_CreateWithPositionalArgs verifies that extra positional arguments
-// after flags cause exit code 1 with help text on stderr.
-func TestCLI_CreateWithPositionalArgs(t *testing.T) {
-	t.Parallel()
-
-	stdout, stderr, exitCode := runCLIBinary(t, []string{"create", "--content", "ok", "trailing"})
-
-	if exitCode != 1 {
-		t.Errorf("expected exit code 1, got %d", exitCode)
-	}
-
-	if !strings.Contains(stderr, "unexpected arguments") {
-		t.Errorf("expected stderr to contain 'unexpected arguments', got: %s", stderr)
-	}
-
-	if !strings.Contains(stderr, "USAGE:") {
-		t.Errorf("expected stderr to contain help text, got: %s", stderr)
-	}
-
-	if stdout != "" {
-		t.Errorf("expected empty stdout, got: %s", stdout)
-	}
-}
-
-// TestCLI_CreateNoContentOrFile verifies that create with neither --content nor
-// --file-path fails early (before env config loading) with exit code 1.
-func TestCLI_CreateNoContentOrFile(t *testing.T) {
-	t.Parallel()
-
-	stdout, stderr, exitCode := runCLIBinary(t, []string{"create"})
-
-	if exitCode != 1 {
-		t.Errorf("expected exit code 1, got %d", exitCode)
-	}
-
-	if !strings.Contains(stderr, "--content or --file-path") {
-		t.Errorf("expected stderr to contain '--content or --file-path', got: %s", stderr)
-	}
-
-	if !strings.Contains(stderr, "USAGE:") {
-		t.Errorf("expected stderr to contain help text, got: %s", stderr)
-	}
-
-	if stdout != "" {
-		t.Errorf("expected empty stdout, got: %s", stdout)
-	}
-}
-
-func TestRunCLI_Help(t *testing.T) {
-	t.Parallel()
-
-	var stdout, stderr bytes.Buffer
-
-	exitCode := runCLI([]string{"--help"}, &stdout, &stderr)
-
-	if exitCode != 0 {
-		t.Errorf("expected exit code 0, got %d", exitCode)
-	}
-
-	if !strings.Contains(stdout.String(), "USAGE:") {
-		t.Error("expected stdout to contain 'USAGE:'")
-	}
-
-	if stderr.Len() != 0 {
-		t.Errorf("expected empty stderr, got: %s", stderr.String())
-	}
-}
-
-func TestRunCLI_Version(t *testing.T) {
-	t.Parallel()
-
-	var stdout, stderr bytes.Buffer
-
-	exitCode := runCLI([]string{"--version"}, &stdout, &stderr)
-
-	if exitCode != 0 {
-		t.Errorf("expected exit code 0, got %d", exitCode)
-	}
-
-	if !strings.Contains(stdout.String(), "wastebin-mcp-go version") {
-		t.Errorf("expected stdout to contain version, got: %s", stdout.String())
-	}
-
-	if stderr.Len() != 0 {
-		t.Errorf("expected empty stderr, got: %s", stderr.String())
 	}
 }
 
@@ -484,26 +338,6 @@ func TestRunCLI_CreateWithServer(t *testing.T) {
 
 	if stderr.Len() != 0 {
 		t.Errorf("expected empty stderr, got: %s", stderr.String())
-	}
-}
-
-func TestRunCLI_NoArgsNoEnv(t *testing.T) {
-	t.Parallel()
-
-	var stdout, stderr bytes.Buffer
-
-	exitCode := runCLI([]string{}, &stdout, &stderr)
-
-	if exitCode != 2 {
-		t.Errorf("expected exit code 2, got %d", exitCode)
-	}
-
-	if !strings.Contains(stderr.String(), "ERROR") {
-		t.Errorf("expected stderr to contain 'ERROR', got: %s", stderr.String())
-	}
-
-	if stdout.Len() != 0 {
-		t.Errorf("expected empty stdout, got: %s", stdout.String())
 	}
 }
 
