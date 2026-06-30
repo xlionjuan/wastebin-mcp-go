@@ -13,6 +13,7 @@ var (
 	errUnknownExpirationUnit = errors.New("unknown expiration unit")
 	errInvalidExpirationFmt  = errors.New("invalid expiration format")
 	errExpirationOverflow    = errors.New("expiration overflow")
+	errExpirationTooLarge    = errors.New("expiration exceeds maximum supported value")
 )
 
 // ParseExpiration parses an expiration string to seconds.
@@ -108,4 +109,28 @@ func unitMultiplier(unit string) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// maxExpirationSeconds is the maximum supported expiration value in seconds
+// based on Wastebin's API constraints. 0 means no expiration.
+const maxExpirationSeconds = 315360000 // 10 years
+
+// ValidateExpiration checks if the expiration value is within supported bounds.
+func ValidateExpiration(seconds int) error {
+	if seconds < 0 {
+		return errNegativeExpiration
+	}
+
+	if seconds == 0 {
+		return nil
+	}
+
+	if seconds > maxExpirationSeconds {
+		return fmt.Errorf(
+			"%w: %d seconds exceeds maximum of %d seconds",
+			errExpirationTooLarge, seconds, maxExpirationSeconds,
+		)
+	}
+
+	return nil
 }

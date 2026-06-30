@@ -115,7 +115,7 @@ func (t *Translator) Translate(sandboxPath string) (string, bool) {
 			return m.HostPath, true
 		}
 
-		if !strings.HasPrefix(rel, "..") {
+		if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return filepath.Join(m.HostPath, rel), true
 		}
 	}

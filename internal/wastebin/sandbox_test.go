@@ -294,6 +294,25 @@ func TestTranslator_PathTraversal_Rejected(t *testing.T) {
 	}
 }
 
+func TestTranslator_DotVaultNonTraversal(t *testing.T) {
+	t.Parallel()
+
+	mounts := []SandboxMount{
+		{HostPath: "/host/workspace", SandboxPath: "/workspace"},
+	}
+	tr := NewTranslator(mounts)
+
+	// ..vault is a legitimate name starting with "..", not traversal.
+	host, ok := tr.Translate("/workspace/..vault/file.go")
+	if !ok {
+		t.Fatal("expected match for ..vault path under mount")
+	}
+
+	if host != "/host/workspace/..vault/file.go" {
+		t.Errorf("got %q, want %q", host, "/host/workspace/..vault/file.go")
+	}
+}
+
 func TestTranslator_DoubleDotDot_Rejected(t *testing.T) {
 	t.Parallel()
 

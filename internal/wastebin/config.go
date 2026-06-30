@@ -12,10 +12,14 @@ import (
 
 // Sentinel errors for configuration validation.
 var (
-	errServerURLRequired              = errors.New("WASTEBIN_SERVER_URL is required and must not be empty")
-	errNegativeDefaultExpires         = errors.New("WASTEBIN_MCP_DEFAULT_EXPIRES cannot be negative")
-	errMaxContentSizeTooSmall         = errors.New("WASTEBIN_MCP_MAX_CONTENT_SIZE must be at least 1")
-	errSandboxMountNotAllowed         = errors.New("sandbox mount host_path is not under any allowed path")
+	errServerURLRequired               = errors.New("WASTEBIN_SERVER_URL is required and must not be empty")
+	errNegativeDefaultExpires          = errors.New("WASTEBIN_MCP_DEFAULT_EXPIRES cannot be negative")
+	errMaxContentSizeTooSmall          = errors.New("WASTEBIN_MCP_MAX_CONTENT_SIZE must be at least 1")
+	errSandboxMountNotAllowed          = errors.New("sandbox mount host_path is not under any allowed path")
+	errSandboxMountWithoutAllowedPaths = errors.New(
+		"WASTEBIN_MCP_SANDBOX_MOUNTS requires WASTEBIN_MCP_ALLOWED_PATHS to be set; " +
+			"mount host_paths must be explicitly covered by an allowed path",
+	)
 	errInvalidDisableBuiltinBlocklist = errors.New("invalid WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST")
 )
 
@@ -106,16 +110,23 @@ func ConfigFromEnv() (*Config, error) {
 			cfg.BlockedPaths = append(cfg.BlockedPaths, p)
 		}
 	}
-	// Resolve all blocked paths to absolute, cleaned paths.
+	// Resolve all blocked paths — first try EvalSymlinks (matching
+	// validateFilePath's resolution), then fall back to Abs+Clean for
+	// non-existent paths that may exist later.
 	var resolvedBlocked []string
 
 	for _, p := range cfg.BlockedPaths {
-		abs, err := filepath.Abs(p)
+		resolved, err := filepath.EvalSymlinks(p)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve blocked path %q: %w", p, err)
+			abs, aerr := filepath.Abs(p)
+			if aerr != nil {
+				return nil, fmt.Errorf("failed to resolve blocked path %q: %w", p, aerr)
+			}
+
+			resolved = abs
 		}
 
-		resolvedBlocked = append(resolvedBlocked, filepath.Clean(abs))
+		resolvedBlocked = append(resolvedBlocked, filepath.Clean(resolved))
 	}
 
 	cfg.BlockedPaths = resolvedBlocked
@@ -197,15 +208,17 @@ func resolveAndValidateMounts(mounts []SandboxMount, allowedPaths []string) erro
 		mounts[i].HostPath = filepath.Clean(resolved)
 	}
 
-	if len(allowedPaths) > 0 {
-		for _, m := range mounts {
-			if !isAllowedPath(m.HostPath, allowedPaths) {
-				return fmt.Errorf(
-					"%w: host_path %q is not under any allowed path; "+
-						"each mount host_path must be covered by WASTEBIN_MCP_ALLOWED_PATHS",
-					errSandboxMountNotAllowed, m.HostPath,
-				)
-			}
+	if len(allowedPaths) == 0 {
+		return errSandboxMountWithoutAllowedPaths
+	}
+
+	for _, m := range mounts {
+		if !isAllowedPath(m.HostPath, allowedPaths) {
+			return fmt.Errorf(
+				"%w: host_path %q is not under any allowed path; "+
+					"each mount host_path must be covered by WASTEBIN_MCP_ALLOWED_PATHS",
+				errSandboxMountNotAllowed, m.HostPath,
+			)
 		}
 	}
 

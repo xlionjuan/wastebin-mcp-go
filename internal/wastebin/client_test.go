@@ -265,6 +265,156 @@ func TestCreatePaste_413Response(t *testing.T) {
 	}
 }
 
+func TestCreatePaste_422Response(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte("expiration value is invalid")) //nolint:errcheck // Test helper write error is acceptable
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !errors.Is(err, errServerValidation) {
+		t.Errorf("expected errServerValidation, got: %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "expiration value is invalid") {
+		t.Errorf("expected body in 422 error message, got: %v", err)
+	}
+}
+
+func TestCreatePaste_422Response_EmptyBody(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !errors.Is(err, errServerValidation) {
+		t.Errorf("expected errServerValidation, got: %v", err)
+	}
+}
+
+func TestCreatePaste_ExpirationTooLarge(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("server should not be reached for too-large expiration")
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+	expires := "200y" // 6,307,200,000 seconds — far above max
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+		Expires: &expires,
+	})
+	if err == nil {
+		t.Fatal("expected error for too-large expiration, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "invalid expiration") {
+		t.Errorf("expected invalid expiration error, got: %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "exceeds maximum") {
+		t.Errorf("expected error mentioning maximum, got: %v", err)
+	}
+}
+
+func TestCreatePaste_ExpirationMax(t *testing.T) {
+	t.Parallel()
+
+	var capturedExpires any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		capturedExpires = req["expires"]
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/MAXEXP"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+	expires := "10y" // 315360000 — exactly maxExpirationSeconds
+
+	resp, err := client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+		Expires: &expires,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ID != "MAXEXP" {
+		t.Errorf("expected ID MAXEXP, got %q", resp.ID)
+	}
+
+	if capturedExpires != float64(maxExpirationSeconds) {
+		t.Errorf("expected expires=%f, got %v", float64(maxExpirationSeconds), capturedExpires)
+	}
+}
+
 func TestCreatePaste_UnknownHTTPError(t *testing.T) {
 	t.Parallel()
 
@@ -297,6 +447,44 @@ func TestCreatePaste_UnknownHTTPError(t *testing.T) {
 
 	if strings.Contains(err.Error(), "internal error") {
 		t.Errorf("expected body NOT to be leaked in error message, got: %v", err)
+	}
+}
+
+func TestCreatePaste_LargeNonOKBody(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+
+		// Write a 1 MB body to verify the client doesn't read it all.
+		largeBody := make([]byte, 1024*1024)
+		for i := range largeBody {
+			largeBody[i] = 'A'
+		}
+
+		_, _ = w.Write(largeBody) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "unknown HTTP error: HTTP 500") {
+		t.Errorf("expected unknown HTTP error message, got: %v", err)
 	}
 }
 
@@ -971,6 +1159,64 @@ func TestCreatePaste_FileMode_SandboxTranslation_Transparent(t *testing.T) {
 	}
 }
 
+func TestCreatePaste_SandboxPathWithBlockedComponent_Rejected(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	// Host directory — a neutral path not containing any blocked component.
+	hostDir := filepath.Join(tmpDir, "realssh")
+
+	err := os.Mkdir(hostDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a test file at the host path.
+	hostFilePath := filepath.Join(hostDir, "id_rsa")
+
+	err = os.WriteFile(hostFilePath, []byte("ssh-key-data"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Server handler that should NEVER be reached — the .ssh component
+	// must be caught before translation, so the server is never called.
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("server should not be reached when sandbox path contains .ssh")
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+	cfg.AllowedPaths = []string{hostDir}
+	cfg.SandboxMounts = []SandboxMount{
+		{HostPath: hostDir, SandboxPath: "/container/home/.ssh"},
+	}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	// The raw sandbox path contains .ssh — hasComponentBlocked must catch
+	// it before any translation occurs.
+	sandboxPath := "/container/home/.ssh/id_rsa"
+	translate := true
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath:             &sandboxPath,
+		TranslateSandboxPath: &translate,
+	})
+	if err == nil {
+		t.Fatal("expected error for sandbox path with .ssh component, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedComponent) {
+		t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+	}
+}
+
 func TestCreatePaste_FileMode_SandboxTranslationWithoutFlag(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
@@ -1595,6 +1841,55 @@ func TestBuildPasteResponse_TrailingSlashBaseURL(t *testing.T) {
 	}
 }
 
+func TestValidateWastebinResponse_EmptyPath(t *testing.T) {
+	t.Parallel()
+
+	err := validateWastebinResponse(wastebinResponse{Path: ""})
+	if !errors.Is(err, errInvalidWastebinResponse) {
+		t.Errorf("expected errInvalidWastebinResponse, got: %v", err)
+	}
+
+	if err == nil {
+		t.Fatal("expected error for empty path, got nil")
+	}
+}
+
+func TestValidateWastebinResponse_JustSlash(t *testing.T) {
+	t.Parallel()
+
+	err := validateWastebinResponse(wastebinResponse{Path: "/"})
+	if !errors.Is(err, errInvalidWastebinResponse) {
+		t.Errorf("expected errInvalidWastebinResponse, got: %v", err)
+	}
+}
+
+func TestValidateWastebinResponse_NonEmptyPath(t *testing.T) {
+	t.Parallel()
+
+	err := validateWastebinResponse(wastebinResponse{Path: "/ABC.go"})
+	if err != nil {
+		t.Errorf("expected no error for valid path, got: %v", err)
+	}
+}
+
+func TestValidateWastebinResponse_ValidPathOnlyID(t *testing.T) {
+	t.Parallel()
+
+	err := validateWastebinResponse(wastebinResponse{Path: "/abc123"})
+	if err != nil {
+		t.Errorf("expected no error for valid path without extension, got: %v", err)
+	}
+}
+
+func TestValidateWastebinResponse_AbsoluteURL(t *testing.T) {
+	t.Parallel()
+
+	err := validateWastebinResponse(wastebinResponse{Path: "https://evil.example.com/malicious"})
+	if !errors.Is(err, errInvalidWastebinResponse) {
+		t.Errorf("expected errInvalidWastebinResponse, got: %v", err)
+	}
+}
+
 // errorReader is a helper for testing closeResponseBody with a body that
 // returns an error on Close. It implements io.ReadCloser.
 type errorReader struct{}
@@ -1995,6 +2290,70 @@ func TestCreatePaste_JSONDecodeError(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "failed to parse Wastebin response") {
 		t.Errorf("expected parse error, got: %v", err)
+	}
+}
+
+func TestCreatePaste_EmptyPathResponse(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`)) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err == nil {
+		t.Fatal("expected error for empty path response")
+	}
+
+	if !errors.Is(err, errInvalidWastebinResponse) {
+		t.Errorf("expected errInvalidWastebinResponse, got: %v", err)
+	}
+}
+
+func TestCreatePaste_EmptyPathStringResponse(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": ""}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err == nil {
+		t.Fatal("expected error for empty path string response")
+	}
+
+	if !errors.Is(err, errInvalidWastebinResponse) {
+		t.Errorf("expected errInvalidWastebinResponse, got: %v", err)
 	}
 }
 
