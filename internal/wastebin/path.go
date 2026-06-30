@@ -29,7 +29,7 @@ func isContainedPath(base, target string) bool {
 		return false
 	}
 
-	return rel == "." || !strings.HasPrefix(rel, "..")
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 // builtinBlockedComponents are directory/file names blocked by default
