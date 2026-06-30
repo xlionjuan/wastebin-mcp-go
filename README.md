@@ -40,7 +40,7 @@ wastebin-mcp-go create --file-path /tmp/doc.md
 | `WASTEBIN_MCP_DEFAULT_EXPIRES` | | 31536000 | Default expiration in seconds |
 | `WASTEBIN_MCP_FILE_READ_ENABLED` | | true | Enable file reading mode |
 | `WASTEBIN_MCP_ALLOWED_PATHS` | | — | Comma-separated allowed directory paths |
-| `WASTEBIN_MCP_BLOCKED_PATHS` | | `/etc,/proc,/sys,/dev` | Comma-separated blocked directory paths |
+| `WASTEBIN_MCP_BLOCKED_PATHS` | | `/etc,/proc,/sys,/dev` | Comma-separated blocked directory paths (resolved via EvalSymlinks) |
 | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | | 1048576 | Max content size in bytes |
 | `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker mount mappings (`host:sandbox,...`) |
 | `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | | false | Transparent sandbox translation |
@@ -92,9 +92,11 @@ conditional fields that appear only in specific scenarios.
 ## Security
 
 - File reads are gated by an **allowlist** (ALLOWED_PATHS) and a **blocklist**
-  (BLOCKED_PATHS, defaults to `/etc,/proc,/sys,/dev`).
+   (BLOCKED_PATHS, defaults to `/etc,/proc,/sys,/dev`).
 - All paths are resolved via `filepath.EvalSymlinks` before checking,
-  preventing symlink-based bypass.
+   preventing symlink-based bypass. Blocked-path entries are also resolved
+   via `EvalSymlinks` at startup (with `Abs`+`Clean` fallback for
+   non-existent paths), so symlink aliases cannot evade the blocklist.
 - Binary and non-UTF-8 files are rejected at read time.
 - Sandbox translation is opt-in and ENV-gated.
 - Content size is pre-checked against a configurable limit.

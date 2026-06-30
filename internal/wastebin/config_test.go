@@ -521,6 +521,33 @@ func TestConfigFromEnv_BlockedPathsSymlink(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnv_BlockedPathsAbsError(t *testing.T) {
+	// Intentionally not parallel — removes the CWD to make filepath.Abs fail.
+	// EvalSymlinks fails first (relative non-existent path), then Abs fails
+	// because the CWD has been deleted. This exercises the error path at
+	// config.go lines 118-119 (the aerr branch).
+	tmpDir := t.TempDir()
+
+	t.Chdir(tmpDir)
+
+	err := os.Remove(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_BLOCKED_PATHS", "relative/blocked/path")
+
+	_, err = ConfigFromEnv()
+	if err == nil {
+		t.Fatal("expected error for blocked path with unreachable CWD")
+	}
+
+	if !strings.Contains(err.Error(), "failed to resolve blocked path") {
+		t.Errorf("expected 'failed to resolve blocked path', got: %v", err)
+	}
+}
+
 func TestConfigFromEnv_BlockedPathsNonExistent(t *testing.T) {
 	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_BLOCKED_PATHS", "/nonexistent/path/that/does/not/exist/blocked")

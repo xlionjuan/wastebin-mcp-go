@@ -310,6 +310,9 @@ The server applies a **five-stage path validation pipeline** (in order):
    The prefix check is bypassed by ALLOWED_PATHS; the component check is not.
    Can be disabled entirely via `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true`.
 5. **User blocklist** — configurable via `WASTEBIN_MCP_BLOCKED_PATHS`.
+   Blocked-path entries are resolved with `filepath.EvalSymlinks` at startup
+   (matching the file-path resolution in Stage 3) so symlink aliases cannot
+   bypass the blocklist. Non-existent entries fall back to `Abs` + `Clean`.
 
 Without `WASTEBIN_MCP_ALLOWED_PATHS`, file reads **are not automatically
 refused** — they fall through to the built-in blocklist, which blocks system
@@ -323,11 +326,13 @@ out-of-the-box experience without requiring mandatory allowlist configuration.
 - **Review the built-in blocklist defaults** — if your paths legitimately
   contain `.ssh` or similar components, you may need to adjust the component
   blocklist or disable the built-in blocklist entirely.
-- **Symlink protection (two-layer)** — (1) All paths are resolved via
-  `EvalSymlinks` and `Clean` before validation. (2) The actual file open uses
-  `openat(2)` with `O_NOFOLLOW`, walking every path component from a trusted
-  root fd (`/`). This prevents TOCTOU symlink-swap attacks where a validated
-  path is replaced with a symlink between validation and the file open.
+- **Symlink protection (two-layer)** — (1) All resolved paths are validated via
+   `EvalSymlinks` and `Clean`. User blocklist entries are also resolved with
+   `EvalSymlinks` at server startup, with fallback to `Abs`+`Clean` for
+   non-existent entries. (2) The actual file open uses `openat(2)` with
+   `O_NOFOLLOW`, walking every path component from a trusted root fd (`/`).
+   This prevents TOCTOU symlink-swap attacks where a validated path is replaced
+   with a symlink between validation and the file open.
 - **Binary detection** — files are checked for valid UTF-8 and control
   character ratio; binary and non-UTF-8 files are rejected.
 

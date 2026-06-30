@@ -195,15 +195,21 @@ allowlist check and falls through to the blocklist pipeline instead.
 
 **User Blocklist** (`WASTEBIN_MCP_BLOCKED_PATHS`): A comma-separated list of
 absolute directory paths that are denied by default. Default value:
-`/etc,/proc,/sys,/dev`. The allowlist takes precedence over the user blocklist.
+`/etc,/proc,/sys,/dev`. Blocked-path entries are resolved with
+`filepath.EvalSymlinks` at startup (matching the file-path resolution) to
+prevent symlink aliases from bypassing the blocklist. Non-existent entries
+fall back to `filepath.Abs` + `filepath.Clean`. The allowlist takes precedence
+over the user blocklist.
 
 **Path resolution**: Before any check, the path is resolved via
 `filepath.EvalSymlinks` and `filepath.Clean`. This prevents symlink-based
-allowlist bypass in the validation layer. After validation passes, the file
-is opened using `openat(2)` with `O_NOFOLLOW`, walking every path component
-from a trusted root fd (`/`). This two-layer approach prevents TOCTOU
-symlink-swap attacks where a validated path is replaced with a symlink
-between validation and the actual file open.
+allowlist bypass in the validation layer. Blocked-path entries are likewise
+resolved with `EvalSymlinks` at server startup (with `Abs`+`Clean` fallback
+for non-existent paths), so symlink aliases of blocked directories are also
+caught. After validation passes, the file is opened using `openat(2)` with
+`O_NOFOLLOW`, walking every path component from a trusted root fd (`/`). This
+two-layer approach prevents TOCTOU symlink-swap attacks where a validated
+path is replaced with a symlink between validation and the actual file open.
 
 **Validation flow:**
 
