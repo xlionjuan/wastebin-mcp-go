@@ -350,7 +350,7 @@ func (c *WastebinClient) readFileContent(
 		resolvedPath = translated
 	}
 
-	// 2. Validate path through the four-stage pipeline.
+	// 2. Validate path through the six-stage pipeline.
 	resolvedPath, err = validateFilePath(resolvedPath, c.config)
 	if err != nil {
 		return "", "", err

@@ -145,9 +145,10 @@ func isComponentBlocked(resolvedPath string) (string, bool) {
 	return "", false
 }
 
-// validateFilePath runs the four-stage path validation pipeline:
+// validateFilePath runs the six-stage path validation pipeline:
 //
-//	Stage 1: Path traversal detection on the raw input (before resolution).
+//	Stage 1a: Path traversal detection on the raw input (before resolution).
+//	Stage 1b: Sensitive component detection on the raw input (before resolution).
 //	Stage 2: ALLOWED_PATHS check — if configured and path is under one,
 //	         the prefix blocklist and user blocklist are bypassed, but the
 //	         sensitive component blocklist (Stage 3b) is still enforced.

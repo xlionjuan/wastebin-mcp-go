@@ -87,8 +87,11 @@ file_path (raw user input)
 | **MCP mode** | Absolute path (e.g. `/home/user/doc.txt`) | N/A — paths are always absolute |
 | **CLI mode** | Absolute or relative path | Relative paths are resolved against `$PWD` at invocation time; absolute paths are used as-is |
 
-Both modes apply the **same four-stage validation pipeline** after the path is
-resolved to an absolute form. CLI mode is not exempt from path validation.
+Both modes apply the **same six-stage validation pipeline**. Stages 1a
+(traversal detection) and 1b (sensitive component detection) run on the raw
+input **before** `EvalSymlinks` resolves symlinks. After resolution, Stages 2–4
+check allowlists and blocklists against the resolved absolute path. CLI mode is
+not exempt from path validation.
 
 ### Key design principles
 
@@ -249,8 +252,15 @@ in `internal/wastebin/open.go`:
 
 ### Security model
 
-- **Pre-validation (EvalSymlinks)**: Eliminates symlink-based evasion of the
-  allowlist/blocklist at validation time.
+- **Pre-resolution checks (raw input)**: Stages 1a and 1b run on the raw path
+  **before** `EvalSymlinks`: path traversal detection catches `..` components
+  that would be normalized away, and the sensitive component blocklist catches
+  blocked names (`.ssh`, `.gnupg`, etc.) before a symlink target could hide
+  them.
+- **Resolved-path validation (EvalSymlinks)**: After pre-resolution checks,
+  `filepath.EvalSymlinks` resolves all symlinks. The resolved path is then
+  validated against the allowlist and blocklists (Stages 2–4), preventing
+  symlink-based evasion of directory-level restrictions.
 - **Post-validation (openat+O_NOFOLLOW)**: Eliminates TOCTOU symlink-swap
   attacks where an attacker replaces a validated directory component with a
   symlink between validation and the file open.
