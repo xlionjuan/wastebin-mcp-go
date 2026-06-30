@@ -80,8 +80,13 @@ func findAllowedRoot(resolvedPath string, allowedPaths []string) (string, string
 // openRelNoFollow walks every component of relPath from the directory fd dir
 // using openat(2) with O_RDONLY|O_NOFOLLOW|O_CLOEXEC.  Intermediate components
 // are verified to be directories; the final component is returned as an
-// *os.File.  If any component is a symlink (or is replaced by one concurrently)
-// the call fails with ELOOP instead of following it.
+// *os.File after being verified as a regular file.  If any component is a
+// symlink (or is replaced by one concurrently) the call fails with ELOOP
+// instead of following it.
+//
+// The final component is opened with O_NONBLOCK so that FIFO file paths
+// (which block on O_RDONLY until a writer appears) fail immediately and are
+// rejected before any read can begin.
 func openRelNoFollow(dir *os.File, relPath string) (*os.File, error) {
 	parts := splitPath(relPath)
 	if len(parts) == 0 {
@@ -94,6 +99,10 @@ func openRelNoFollow(dir *os.File, relPath string) (*os.File, error) {
 	for i, part := range parts {
 		isLast := i == len(parts)-1
 		flags := unix.O_RDONLY | unix.O_NOFOLLOW | unix.O_CLOEXEC
+
+		if isLast {
+			flags |= unix.O_NONBLOCK
+		}
 
 		fd, err := unix.Openat(parentFd, part, flags, 0)
 		if err != nil {
@@ -109,7 +118,7 @@ func openRelNoFollow(dir *os.File, relPath string) (*os.File, error) {
 				_ = unix.Close(parentFd) //nolint:errcheck // Best-effort close; fd copied into os.File
 			}
 
-			return os.NewFile(uintptr(fd), filepath.Join(dir.Name(), relPath)), nil
+			return validateRegularFile(fd, filepath.Join(dir.Name(), relPath))
 		}
 
 		// Verify intermediate component is a directory.
@@ -144,6 +153,30 @@ func openRelNoFollow(dir *os.File, relPath string) (*os.File, error) {
 	}
 
 	return nil, errOpenEmptyPath
+}
+
+// validateRegularFile verifies that the file descriptor fd points to a
+// regular file.  If the fstat call itself fails the error is propagated as-is;
+// if the file exists but is not a regular file (e.g. a FIFO or device node)
+// errFilePathCannotBeUsed is returned.  On any failure fd is closed before
+// returning.
+func validateRegularFile(fd int, name string) (*os.File, error) {
+	var stat unix.Stat_t
+
+	fstatErr := unix.Fstat(fd, &stat)
+	if fstatErr != nil {
+		_ = unix.Close(fd) //nolint:errcheck // Close on stat failure
+
+		return nil, fstatErr
+	}
+
+	if stat.Mode&unix.S_IFMT != unix.S_IFREG {
+		_ = unix.Close(fd) //nolint:errcheck // Close non-regular file
+
+		return nil, errFilePathCannotBeUsed
+	}
+
+	return os.NewFile(uintptr(fd), name), nil
 }
 
 // splitPath splits a relative path into non-empty components.

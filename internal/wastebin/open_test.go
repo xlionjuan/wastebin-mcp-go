@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestOpenRelNoFollow_EmptyPath(t *testing.T) {
@@ -92,6 +95,115 @@ func TestOpenFileFromRoot_PathNotUnderAllowedRoot(t *testing.T) {
 	_, err := openFileFromRoot("/some/other/path/file.txt", []string{"/tmp/allowed"})
 	if !errors.Is(err, errPathNotAllowed) {
 		t.Errorf("expected errPathNotAllowed, got: %v", err)
+	}
+}
+
+func TestValidateRegularFile_RegularFile(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	filePath := filepath.Join(tmpDir, "regular.txt")
+
+	err := os.WriteFile(filePath, []byte("content"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	//nolint:gosec // Test helper opens known temp dir
+	f, openErr := os.Open(filePath)
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+
+	defer f.Close() //nolint:errcheck // Read-only; close error non-critical
+
+	result, validateErr := validateRegularFile(int(f.Fd()), filePath)
+	if validateErr != nil {
+		t.Fatalf("expected no error, got: %v", validateErr)
+	}
+
+	closeErr := result.Close()
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+}
+
+func TestValidateRegularFile_InvalidFd(t *testing.T) {
+	t.Parallel()
+
+	_, err := validateRegularFile(-1, "/nonexistent")
+	if err == nil {
+		t.Fatal("expected error for invalid fd")
+	}
+}
+
+func TestValidateRegularFile_FIFO(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	fifoPath := filepath.Join(tmpDir, "test.fifo")
+
+	mkfifoErr := unix.Mkfifo(fifoPath, 0o600)
+	if mkfifoErr != nil {
+		t.Fatal(mkfifoErr)
+	}
+
+	//nolint:gosec // Test helper opens known temp dir
+	f, openErr := os.OpenFile(fifoPath, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+
+	defer f.Close() //nolint:errcheck // Read-only; close error non-critical
+
+	_, err := validateRegularFile(int(f.Fd()), fifoPath)
+	if !errors.Is(err, errFilePathCannotBeUsed) {
+		t.Errorf("expected errFilePathCannotBeUsed, got: %v", err)
+	}
+}
+
+func TestOpenRelNoFollow_FIFORejected(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	fifoPath := filepath.Join(tmpDir, "test.fifo")
+
+	mkfifoErr := unix.Mkfifo(fifoPath, 0o600)
+	if mkfifoErr != nil {
+		t.Fatal(mkfifoErr)
+	}
+
+	//nolint:gosec // Test helper opens known temp dir
+	parent, err := os.Open(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	//nolint:errcheck // Read-only dir; close error non-critical
+	defer parent.Close()
+
+	// Use a goroutine with timeout to detect blocking: a FIFO opened
+	// without O_NONBLOCK hangs forever on O_RDONLY when no writer exists.
+	done := make(chan struct{})
+
+	var openErr error
+
+	go func() {
+		_, openErr = openRelNoFollow(parent, "test.fifo")
+
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		if !errors.Is(openErr, errFilePathCannotBeUsed) {
+			t.Errorf("expected errFilePathCannotBeUsed for FIFO, got: %v", openErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("openRelNoFollow blocked on FIFO (test timeout)")
 	}
 }
 
