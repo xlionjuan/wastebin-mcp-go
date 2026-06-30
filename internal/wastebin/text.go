@@ -14,22 +14,21 @@ const (
 )
 
 // IsLikelyText checks if content looks like text.
-// Reads first 8KB of data and checks:
-// 1. Valid UTF-8
-// 2. No null bytes
-// 3. Control character ratio (excluding \n\r\t) < 5%.
+// Checks:
+// 1. Complete data is valid UTF-8
+// 2. First 8KB has no null bytes
+// 3. First 8KB control character ratio (excluding \n\r\t) < 5%.
 func IsLikelyText(data []byte) bool {
 	if len(data) == 0 {
 		return true
 	}
 
-	size := min(len(data), sniffSize)
-
-	buf := data[:size]
-
-	if !utf8.Valid(buf) {
+	if !utf8.Valid(data) {
 		return false
 	}
+
+	size := min(len(data), sniffSize)
+	buf := data[:size]
 
 	var ctrlCount int
 
