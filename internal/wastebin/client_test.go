@@ -3194,3 +3194,181 @@ func TestCreatePaste_FileMode_AllowedRootParentSymlinkSwap(t *testing.T) {
 		t.Error("expected error even on second call — symlink should still be rejected")
 	}
 }
+
+func TestNormalizeExtension(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "plain md", input: "md", want: "md"},
+		{name: "dot md", input: ".md", want: "md"},
+		{name: "double dot md", input: "..md", want: "md"},
+		{name: "uppercase MD", input: "MD", want: "md"},
+		{name: "mixed case", input: "MarkDown", want: "markdown"},
+		{name: "dot uppercase", input: ".MD", want: "md"},
+		{name: "with whitespace", input: "  md  ", want: "md"},
+		{name: "dot markdown", input: ".markdown", want: "markdown"},
+		{name: "go", input: "go", want: "go"},
+		{name: "dot go", input: ".go", want: "go"},
+		{name: "dots only", input: "...", want: ""},
+		{name: "space only", input: "  ", want: ""},
+		{name: "empty string", input: "", want: ""},
+		{name: "path separator slash", input: "a/b", wantErr: true},
+		{name: "path separator backslash", input: "a\\b", wantErr: true},
+		{name: "query char", input: "md?refresh", wantErr: true},
+		{name: "fragment char", input: "md#section", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := normalizeExtension(tt.input)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+
+				if !errors.Is(err, errInvalidExtension) {
+					t.Errorf("expected errInvalidExtension, got %v", err)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if got != tt.want {
+				t.Errorf("normalizeExtension(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCreatePaste_MarkdownRendered_WithDotExtension(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		if req["extension"] != "md" {
+			t.Errorf("expected extension 'md' after normalization, got %v", req["extension"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/DOTMD.md"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "# Dot"
+	ext := ".md"
+
+	resp, err := client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content:   &content,
+		Extension: &ext,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.MarkdownRendered != "/md/DOTMD.md" {
+		t.Errorf("expected MarkdownRendered '/md/DOTMD.md', got %q", resp.MarkdownRendered)
+	}
+
+	if resp.URL != "/DOTMD.md" {
+		t.Errorf("expected URL without double dot, got %q", resp.URL)
+	}
+}
+
+func TestCreatePaste_MarkdownRendered_WithUppercaseExtension(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		if req["extension"] != "md" {
+			t.Errorf("expected extension 'md' after normalization, got %v", req["extension"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/UCMD.md"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "# UC"
+	ext := "MD"
+
+	resp, err := client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content:   &content,
+		Extension: &ext,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.MarkdownRendered != "/md/UCMD.md" {
+		t.Errorf("expected MarkdownRendered '/md/UCMD.md', got %q", resp.MarkdownRendered)
+	}
+}
+
+func TestCreatePaste_InvalidExtension_Rejected(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+	badExt := "a/b"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content:   &content,
+		Extension: &badExt,
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid extension, got nil")
+	}
+
+	if !errors.Is(err, errInvalidExtension) {
+		t.Errorf("expected errInvalidExtension, got: %v", err)
+	}
+}

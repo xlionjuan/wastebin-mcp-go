@@ -38,6 +38,7 @@ var (
 	errSandboxTranslationNoMounts = errors.New("sandbox path translation requested but no mounts configured")
 	errSandboxTranslationNoMatch  = errors.New("sandbox path does not match any configured mount")
 	errFileReadDisabled           = errors.New("file read is disabled by configuration")
+	errInvalidExtension           = errors.New("extension contains invalid path or query characters")
 	errInvalidWastebinResponse    = errors.New("invalid Wastebin response")
 )
 
@@ -197,10 +198,11 @@ func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs)
 			return nil, err
 		}
 	} else {
-		// Content mode.
-		content = *args.Content
-		if args.Extension != nil {
-			ext = *args.Extension
+		var err error
+
+		content, ext, err = resolveContentMode(args)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -427,12 +429,50 @@ func (c *WastebinClient) readFileContent(
 
 	// 6. Extension: extArg takes priority, otherwise detect from original file path.
 	if extArg != nil && *extArg != "" {
-		ext = *extArg
+		ext, err = normalizeExtension(*extArg)
+		if err != nil {
+			return "", "", err
+		}
 	} else {
 		ext = strings.TrimPrefix(filepath.Ext(filePath), ".")
+		ext = strings.ToLower(ext)
 	}
 
 	return content, ext, nil
+}
+
+// resolveContentMode extracts content and normalizes the extension for content
+// mode pastes.
+func resolveContentMode(args *CreatePasteArgs) (string, string, error) {
+	content := *args.Content
+
+	if args.Extension != nil {
+		ext, err := normalizeExtension(*args.Extension)
+		if err != nil {
+			return "", "", err
+		}
+
+		return content, ext, nil
+	}
+
+	return content, "", nil
+}
+
+// normalizeExtension normalizes a caller-provided extension for use in Wastebin
+// URLs. It trims whitespace, removes leading dots, lowercases, and validates that
+// the extension does not contain characters that would create malformed URLs.
+//
+// Returns an empty string (no error) when the result is empty after normalization.
+func normalizeExtension(ext string) (string, error) {
+	normalized := strings.TrimSpace(ext)
+	normalized = strings.TrimLeft(normalized, ".")
+	normalized = strings.ToLower(normalized)
+
+	if strings.ContainsAny(normalized, "/\\?#") {
+		return "", fmt.Errorf("%w: %q", errInvalidExtension, ext)
+	}
+
+	return normalized, nil
 }
 
 // validateWastebinResponse checks that the Wastebin API response contains a
