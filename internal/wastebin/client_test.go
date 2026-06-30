@@ -300,6 +300,44 @@ func TestCreatePaste_UnknownHTTPError(t *testing.T) {
 	}
 }
 
+func TestCreatePaste_LargeNonOKBody(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+
+		// Write a 1 MB body to verify the client doesn't read it all.
+		largeBody := make([]byte, 1024*1024)
+		for i := range largeBody {
+			largeBody[i] = 'A'
+		}
+
+		_, _ = w.Write(largeBody) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = server.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "unknown HTTP error: HTTP 500") {
+		t.Errorf("expected unknown HTTP error message, got: %v", err)
+	}
+}
+
 func TestCreatePaste_ContentTooLarge(t *testing.T) {
 	t.Parallel()
 

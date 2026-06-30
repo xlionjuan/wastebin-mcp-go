@@ -50,6 +50,11 @@ const (
 	maxIdleConns          = 100
 	maxIdleConnsPerHost   = 10
 	maxRedirects          = 10
+
+	// drainLimit is the maximum number of bytes read from error response
+	// bodies. Reading more than this is unnecessary since the body is not
+	// used for diagnostics, and a large body could cause OOM.
+	drainLimit = 4096
 )
 
 // WastebinClient handles HTTP communication with the Wastebin server.
@@ -268,10 +273,11 @@ func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs)
 
 	// Handle error status codes.
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body) //nolint:errcheck // Best-effort read of error body for diagnostics
-		msg := strings.TrimSpace(string(body))
+		// Bounded drain for connection reuse; don't read the full body
+		// since the error message is not used for diagnostics.
+		_, _ = io.CopyN(io.Discard, resp.Body, drainLimit) //nolint:errcheck // Best-effort drain; bounded to prevent OOM
 
-		return nil, translateHTTPError(resp.StatusCode, msg)
+		return nil, translateHTTPError(resp.StatusCode)
 	}
 
 	// Parse response body.
@@ -448,7 +454,7 @@ func buildPasteResponse(baseURL *url.URL, wastebinPath, ext string, passwordSet 
 }
 
 // translateHTTPError maps HTTP status codes to user-friendly error messages.
-func translateHTTPError(statusCode int, _ string) error {
+func translateHTTPError(statusCode int) error {
 	switch statusCode {
 	case http.StatusForbidden:
 		return errServerRejected
