@@ -80,8 +80,13 @@ func findAllowedRoot(resolvedPath string, allowedPaths []string) (string, string
 // openRelNoFollow walks every component of relPath from the directory fd dir
 // using openat(2) with O_RDONLY|O_NOFOLLOW|O_CLOEXEC.  Intermediate components
 // are verified to be directories; the final component is returned as an
-// *os.File.  If any component is a symlink (or is replaced by one concurrently)
-// the call fails with ELOOP instead of following it.
+// *os.File after being verified as a regular file.  If any component is a
+// symlink (or is replaced by one concurrently) the call fails with ELOOP
+// instead of following it.
+//
+// The final component is opened with O_NONBLOCK so that FIFO file paths
+// (which block on O_RDONLY until a writer appears) fail immediately and are
+// rejected before any read can begin.
 func openRelNoFollow(dir *os.File, relPath string) (*os.File, error) {
 	parts := splitPath(relPath)
 	if len(parts) == 0 {
@@ -95,6 +100,10 @@ func openRelNoFollow(dir *os.File, relPath string) (*os.File, error) {
 		isLast := i == len(parts)-1
 		flags := unix.O_RDONLY | unix.O_NOFOLLOW | unix.O_CLOEXEC
 
+		if isLast {
+			flags |= unix.O_NONBLOCK
+		}
+
 		fd, err := unix.Openat(parentFd, part, flags, 0)
 		if err != nil {
 			if parentFd != firstFd {
@@ -107,6 +116,21 @@ func openRelNoFollow(dir *os.File, relPath string) (*os.File, error) {
 		if isLast {
 			if parentFd != firstFd {
 				_ = unix.Close(parentFd) //nolint:errcheck // Best-effort close; fd copied into os.File
+			}
+
+			var stat unix.Stat_t
+
+			fstatErr := unix.Fstat(fd, &stat)
+			if fstatErr != nil {
+				_ = unix.Close(fd) //nolint:errcheck // Close on stat failure
+
+				return nil, fstatErr
+			}
+
+			if stat.Mode&unix.S_IFMT != unix.S_IFREG {
+				_ = unix.Close(fd) //nolint:errcheck // Close non-regular file
+
+				return nil, errFilePathCannotBeUsed
 			}
 
 			return os.NewFile(uintptr(fd), filepath.Join(dir.Name(), relPath)), nil
