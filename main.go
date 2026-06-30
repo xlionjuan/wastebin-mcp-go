@@ -49,31 +49,57 @@ type CLIFlags struct {
 }
 
 func main() {
-	args := os.Args[1:]
+	os.Exit(runCLI(os.Args[1:], os.Stdout, os.Stderr))
+}
 
+// runCLI parses CLI arguments, executes the requested action, and returns an
+// exit code. It is a testable entry point that does not call os.Exit.
+func runCLI(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		runMCPModeFromArgs()
+		cfg, err := wastebin.ConfigFromEnv()
+		if err != nil {
+			fmt.Fprintf(stderr, "ERROR: %v\n", err)
+			return exitCodeMCPError
+		}
 
-		return
+		if cfg.Debug {
+			slog.SetLogLoggerLevel(slog.LevelDebug)
+		}
+
+		mcpStdin, err := prepareMCPStdin(os.Stdin)
+		if err != nil {
+			fmt.Fprintf(stderr, "ERROR: %v\n", err)
+			return exitCodeMCPError
+		}
+
+		err = runMCPMode(cfg, mcpStdin)
+		if err != nil {
+			slog.Error("MCP server error", "error", err)
+			return exitCodeMCPError
+		}
+
+		return exitCodeSuccess
 	}
 
 	switch args[0] {
 	case "create":
-		err := runCreateCommand(args[1:])
+		err := runCreateCommand(args[1:], stdout)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ERROR: %v\n\n", err)
-			printCLIHelp(os.Stderr)
-			os.Exit(exitCodeCLIError)
+			fmt.Fprintf(stderr, "ERROR: %v\n\n", err)
+			printCLIHelp(stderr)
+			return exitCodeCLIError
 		}
 	case "--help":
-		printCLIHelp(os.Stdout)
+		printCLIHelp(stdout)
 	case "--version":
-		fmt.Printf("wastebin-mcp-go version %s (commit: %s, built: %s)\n", version, commit, date)
+		fmt.Fprintf(stdout, "wastebin-mcp-go version %s (commit: %s, built: %s)\n", version, commit, date)
 	default:
-		fmt.Fprintf(os.Stderr, "ERROR: unknown command or flag: %q\n\n", args[0])
-		printCLIHelp(os.Stderr)
-		os.Exit(exitCodeCLIError)
+		fmt.Fprintf(stderr, "ERROR: unknown command or flag: %q\n\n", args[0])
+		printCLIHelp(stderr)
+		return exitCodeCLIError
 	}
+
+	return exitCodeSuccess
 }
 
 // parseCreateFlags parses CLI flags for the "create" subcommand using Go's flag
@@ -125,15 +151,15 @@ func parseCreateFlags(args []string) (*CLIFlags, error) {
 
 // runCreateCommand parses the create subcommand arguments, validates them, and
 // executes the paste creation flow. It returns an error if validation fails or
-// execution fails.
-func runCreateCommand(args []string) error {
+// execution fails. The stdout writer is used for help-text output.
+func runCreateCommand(args []string, stdout io.Writer) error {
 	flags, err := parseCreateFlags(args)
 	if err != nil {
 		return err
 	}
 
 	if flags.Help {
-		printCLIHelp(os.Stdout)
+		printCLIHelp(stdout)
 
 		return nil
 	}
@@ -145,29 +171,4 @@ func runCreateCommand(args []string) error {
 	return runCLIMode(flags)
 }
 
-// runMCPModeFromArgs reads configuration from environment variables, validates
-// that stdin contains a valid MCP initialize message, and starts the MCP stdio
-// server. It exits the process with exitCodeMCPError on failure.
-func runMCPModeFromArgs() {
-	cfg, err := wastebin.ConfigFromEnv()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
-		os.Exit(exitCodeMCPError)
-	}
 
-	if cfg.Debug {
-		slog.SetLogLoggerLevel(slog.LevelDebug)
-	}
-
-	mcpStdin, err := prepareMCPStdin(os.Stdin)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
-		os.Exit(exitCodeMCPError)
-	}
-
-	err = runMCPMode(cfg, mcpStdin)
-	if err != nil {
-		slog.Error("MCP server error", "error", err)
-		os.Exit(exitCodeMCPError)
-	}
-}
