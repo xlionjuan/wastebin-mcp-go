@@ -145,7 +145,7 @@ func isComponentBlocked(resolvedPath string) (string, bool) {
 	return "", false
 }
 
-// validateFilePath runs the six-stage path validation pipeline:
+// validateFilePath runs the five-stage path validation pipeline:
 //
 //	Stage 1a: Path traversal detection on the raw input (before resolution).
 //	Stage 1b: Sensitive component detection on the raw input (before resolution).
@@ -156,9 +156,10 @@ func isComponentBlocked(resolvedPath string) (string, bool) {
 //	         cfg.DisableBuiltinBlocklist is true.
 //	Stage 4: USER BLOCKLIST check (WASTEBIN_MCP_BLOCKED_PATHS).
 //
-// Path traversal detection (Stage 1) runs on the path as received — callers
-// must apply sandbox path translation AFTER the traversal check has already
-// been performed on the original sandbox path (see readFileContent).
+// Stages 1a and 1b run on the path as received. For sandbox paths, the caller
+// (readFileContent) applies traversal and component checks on the original
+// sandbox path before translation, then runs validateFilePath on the
+// translated path for defense in depth.
 //
 //nolint:nonamedreturns // Named returns improve godoc clarity
 func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err error) {

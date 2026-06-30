@@ -25,7 +25,7 @@ both a blocklist and an optional allowlist. This design had several issues:
 
 ## Decision
 
-We separate path validation into four **independent, composable** stages, each
+We separate path validation into five **independent, composable** stages, each
 implemented as its own function. The stages are evaluated in strict order:
 
 ```
@@ -87,7 +87,7 @@ file_path (raw user input)
 | **MCP mode** | Absolute path (e.g. `/home/user/doc.txt`) | N/A — paths are always absolute |
 | **CLI mode** | Absolute or relative path | Relative paths are resolved against `$PWD` at invocation time; absolute paths are used as-is |
 
-Both modes apply the **same six-stage validation pipeline**. Stages 1a
+Both modes apply the **same five-stage validation pipeline**. Stages 1a
 (traversal detection) and 1b (sensitive component detection) run on the raw
 input **before** `EvalSymlinks` resolves symlinks. After resolution, Stages 2–4
 check allowlists and blocklists against the resolved absolute path. CLI mode is
