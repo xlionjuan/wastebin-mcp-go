@@ -60,7 +60,7 @@ jobs:
           git -C "$HOME/.agents/skills/cc-skills-golang" checkout --detach "$CC_SKILLS_GOLANG_SHA"
 
       - name: Run opencode
-        uses: xlionjuan/opencode-github-actions@3a08b4883ca2b6add8f4dc15feaf8f5168088b10 # main
+        uses: xlionjuan/opencode-github-actions@6dfa909c0f55cfa631be5225840030c94f8aa19e # main
         with:
           model: opencode-go/deepseek-v4-flash
         env:
