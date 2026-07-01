@@ -321,6 +321,30 @@ func TestBuildPasteSchemaBasicFields(t *testing.T) {
 			t.Errorf("expected property %q to exist", field)
 		}
 	}
+
+	// Password description must not recommend query-string secret transport.
+	passwordProp, ok := props["password"]
+	if !ok {
+		t.Fatal("expected 'password' property to exist")
+	}
+
+	passwordMap, ok := passwordProp.(map[string]any)
+	if !ok {
+		t.Fatalf("expected password to be a map, got %T", passwordProp)
+	}
+
+	passwordDesc, ok := passwordMap["description"].(string)
+	if !ok {
+		t.Fatalf("expected password description to be a string, got %T", passwordMap["description"])
+	}
+
+	if !strings.Contains(passwordDesc, "Wastebin-Password header") {
+		t.Error("password description should mention Wastebin-Password header")
+	}
+
+	if strings.Contains(passwordDesc, "query parameter") {
+		t.Error("password description must not recommend query-parameter password transport (URL secrets are logged)")
+	}
 }
 
 func TestBuildToolDescription(t *testing.T) {
@@ -346,6 +370,14 @@ func TestBuildToolDescription(t *testing.T) {
 
 	if !strings.Contains(desc, "markdown_rendered") {
 		t.Error("expected description to mention markdown_rendered")
+	}
+
+	if !strings.Contains(desc, "Wastebin-Password header") {
+		t.Error("tool description should mention Wastebin-Password header")
+	}
+
+	if strings.Contains(desc, "query parameter") {
+		t.Error("tool description must not recommend query-parameter password transport (URL secrets are logged)")
 	}
 }
 

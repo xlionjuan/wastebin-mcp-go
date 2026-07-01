@@ -99,7 +99,7 @@ func buildPasteSchema(cfg *wastebin.Config) (json.RawMessage, error) {
 		"type": "string",
 		"description": "Optional password to protect the paste. NOTE: " +
 			"Password-protected pastes cannot be retrieved via /raw/{id}; " +
-			"use curl with the Wastebin-Password header or password query parameter instead.",
+			"retrieve using curl with the Wastebin-Password header instead.",
 	}
 
 	// translate_sandbox_path — only when mounts configured and not transparent
@@ -143,7 +143,7 @@ func buildToolDescription() string {
 		"When 'extension' is 'md' or 'markdown', a 'markdown_rendered' " +
 		"field appears with the rendered view URL. " +
 		"Password-protected pastes require the Wastebin-Password header " +
-		"or password query parameter for retrieval. " +
+		"for retrieval. " +
 		"File mode validates paths against an allowlist (when configured) and blocklist pipeline."
 }
 

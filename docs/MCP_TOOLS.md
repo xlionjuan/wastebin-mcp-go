@@ -16,8 +16,7 @@ use to reconstruct full retrieval URLs.
 **Important considerations:**
 
 - Password-protected pastes: Retrieval requires providing the password via the
-  `Wastebin-Password` header or as a `password` query parameter. There is no
-  `get_paste`
+  `Wastebin-Password` header. There is no `get_paste`
   tool — agents must use `curl` directly.
 - File mode applies sandbox pre-validation checks (traversal detection,
   sensitive component detection) before optional sandbox path translation,
@@ -216,7 +215,7 @@ For extensionless filenames, use the `extension` parameter explicitly.
   "id": "XyZ789AbCdE",
   "url": "/XyZ789AbCdE.txt",
   "raw": "/raw/XyZ789AbCdE.txt",
-  "password_hint": "This paste is password-protected. Retrieve raw content via the Wastebin-Password header:\n  curl -H 'Wastebin-Password: YOUR_PASSWORD' https://bin-staging.xlion.tw/raw/XyZ789AbCdE.txt\nOr as a query parameter:\n  curl 'https://bin-staging.xlion.tw/raw/XyZ789AbCdE.txt?password=YOUR_PASSWORD'\n(Replace YOUR_PASSWORD with the actual password.)"
+  "password_hint": "This paste is password-protected. Retrieve raw content via the Wastebin-Password header:\n  curl -H 'Wastebin-Password: YOUR_PASSWORD' https://bin-staging.xlion.tw/raw/XyZ789AbCdE.txt\n(Replace YOUR_PASSWORD with the actual password.)"
 }
 ```
 
@@ -426,20 +425,21 @@ startup that:
 #### Password-Protected Pastes
 
 Password-protected pastes cannot be retrieved via `/raw/{id}` with a simple GET
-request. The Wastebin server accepts the password through two mechanisms:
+request. Provide the password via the `Wastebin-Password` header:
 
-1. **HTTP header** — pass the `Wastebin-Password` header:
-   ```bash
-   curl -H "Wastebin-Password: your-password" https://bin-staging.xlion.tw/raw/AbCdEfGh123
-   ```
+```bash
+curl -H "Wastebin-Password: your-password" https://bin-staging.xlion.tw/raw/AbCdEfGh123
+```
 
-2. **Query parameter** — append `?password=...` to the raw URL:
-   ```bash
-   curl "https://bin-staging.xlion.tw/raw/AbCdEfGh123?password=your-password"
-   ```
-
-Both methods return the raw paste content directly. If the password is missing
+This returns the raw paste content directly. If the password is missing
 or incorrect, Wastebin returns an HTML password form instead.
+
+> **⚠️ Security warning:** Secrets in URL query parameters (e.g.
+> `?password=...`) are commonly logged by proxies, retained in browser
+> history, and visible in terminal scrollback. The `Wastebin-Password`
+> header is the preferred mechanism. The query-parameter form is
+> supported by the Wastebin server for legacy compatibility but should
+> be avoided.
 
 This is by design — there is no `get_paste` tool. Agents must use `curl`
 (or equivalent) for paste retrieval.

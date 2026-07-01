@@ -525,8 +525,6 @@ func buildPasteResponse(baseURL *url.URL, wastebinPath, ext string, passwordSet 
 		resp.PasswordHint = "This paste is password-protected. " +
 			"Retrieve raw content via the Wastebin-Password header:\n" +
 			"  curl -H 'Wastebin-Password: YOUR_PASSWORD' " + hostname + "/raw/" + cleanPath + "\n" +
-			"Or as a query parameter:\n" +
-			"  curl '" + hostname + "/raw/" + cleanPath + "?password=YOUR_PASSWORD'\n" +
 			"(Replace YOUR_PASSWORD with the actual password.)"
 	}
 
