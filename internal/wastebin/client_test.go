@@ -2190,8 +2190,10 @@ func TestCreatePaste_PasswordOverHTTP(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// httptest binds to 127.0.0.1 (loopback), so password over loopback HTTP
+	// is allowed but triggers a warning.
 	cfg := DefaultConfig()
-	cfg.ServerURL = server.URL // httptest uses http, so password over HTTP warning triggers.
+	cfg.ServerURL = server.URL
 
 	client, err := NewWastebinClient(cfg)
 	if err != nil {
@@ -2211,6 +2213,127 @@ func TestCreatePaste_PasswordOverHTTP(t *testing.T) {
 
 	if resp.PasswordHint == "" {
 		t.Error("expected PasswordHint to be set for password-protected paste")
+	}
+}
+
+func TestCreatePaste_PasswordOverHTTP_NonLoopbackRejected(t *testing.T) {
+	t.Parallel()
+
+	// Non-loopback HTTP URL — password should be rejected.
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://wastebin.example.com:8080"
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "secret"
+	password := "hunter2"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content:  &content,
+		Password: &password,
+	})
+	if err == nil {
+		t.Fatal("expected error for password over non-loopback HTTP, got nil")
+	}
+
+	if !errors.Is(err, errPasswordOverHTTP) {
+		t.Errorf("expected errPasswordOverHTTP, got: %v", err)
+	}
+}
+
+func TestCreatePaste_PasswordOverHTTP_NonLoopbackAllowedWithOverride(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		if _, ok := req["password"]; !ok {
+			t.Error("expected password in request body")
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/PASSWD"}) //nolint:errcheck // Test helper OK
+	}))
+	defer server.Close()
+
+	// Override URL to a non-loopback host but keep the server port.
+	// We set AllowInsecurePassword=true to bypass the restriction.
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://wastebin.example.com:12345"
+	cfg.AllowInsecurePassword = true
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	// Override the httpClient to point to the test server so the request
+	// actually succeeds.
+	var parseErr error
+
+	client.baseURL, parseErr = url.Parse(server.URL)
+	if parseErr != nil {
+		t.Fatalf("failed to parse server URL: %v", parseErr)
+	}
+
+	client.postURL = server.URL + "/"
+
+	content := "secret"
+	password := "hunter2"
+
+	resp, err := client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content:  &content,
+		Password: &password,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.PasswordHint == "" {
+		t.Error("expected PasswordHint to be set for password-protected paste")
+	}
+}
+
+func TestIsLoopbackHost(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		host string
+		want bool
+	}{
+		{name: "localhost", host: "localhost", want: true},
+		{name: "localhost with port", host: "localhost:8080", want: true},
+		{name: "IPv4 loopback", host: "127.0.0.1", want: true},
+		{name: "IPv4 loopback with port", host: "127.0.0.1:8080", want: true},
+		{name: "IPv6 loopback", host: "::1", want: true},
+		{name: "IPv6 loopback with port", host: "[::1]:8080", want: true},
+		{name: "non-loopback hostname", host: "example.com", want: false},
+		{name: "non-loopback hostname with port", host: "example.com:8080", want: false},
+		{name: "non-loopback IPv4", host: "10.0.0.1", want: false},
+		{name: "non-loopback IPv4 with port", host: "10.0.0.1:3000", want: false},
+		{name: "empty string", host: "", want: false},
+		{name: "IP without port IPv6", host: "::face", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := isLoopbackHost(tt.host)
+			if got != tt.want {
+				t.Errorf("isLoopbackHost(%q) = %v, want %v", tt.host, got, tt.want)
+			}
+		})
 	}
 }
 
