@@ -127,10 +127,14 @@ Uses Go's `filepath.Ext()` which returns the trailing extension only:
   can be used explicitly.
 
 Password-protected pastes: If you create a paste with a password, retrieval
-requires providing the password via the `Wastebin-Password` header or the
-`password` query parameter. Since there is no
-`get_paste` tool, agents must use `curl -H "Wastebin-Password: ..." {hostname}/raw/{id}`
-to retrieve it. This is a known limitation by design.
+requires providing the password via the `Wastebin-Password` header. Since there
+is no `get_paste` tool, agents must use
+`curl -H "Wastebin-Password: ..." {hostname}/raw/{id}` to retrieve it.
+This is a known limitation by design.
+
+> **Security**: The `password` query parameter is deprecated and should not be
+> used. URL query parameters are commonly logged by proxies, load balancers,
+> and web servers, which can leak secrets.
 
 ### Operation Modes
 
