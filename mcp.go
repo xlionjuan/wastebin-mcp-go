@@ -75,12 +75,12 @@ func buildPasteSchema(cfg *wastebin.Config) (json.RawMessage, error) {
 	}
 
 	// expires — optional
-	defaultExpiryDesc := wastebin.DescribeDefaultExpires(cfg.DefaultExpires)
+	defaultExpiresDesc := wastebin.DescribeDefaultExpires(cfg.DefaultExpires)
 	props["expires"] = map[string]any{
 		"type": "string",
 		"description": "Expiration time: bare number (seconds) or number plus unit " +
 			"suffix (s, m, h, d, w, M=30d, y=365d). Examples: '3600', '1h', " +
-			"'7d', '30M'. Defaults to " + defaultExpiryDesc + ". " +
+			"'7d', '30M'. Defaults to " + defaultExpiresDesc + ". " +
 			"Configured via WASTEBIN_MCP_DEFAULT_EXPIRES.",
 	}
 
