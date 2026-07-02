@@ -47,3 +47,13 @@ from the dispatcher.
 - Project documents the agent should consult by file name. Do not name
   third-party skills or tools that the agent may or may not have
   installed.
+
+## Dispatch comments for code changes
+
+Every dispatch comment requesting code changes must include:
+
+> Read AGENTS.md before making changes.
+
+The agent will follow the verification gate documented there and discover
+the related `docs/agents/` files on its own. Do not repeat verification
+commands or gate instructions inline.
