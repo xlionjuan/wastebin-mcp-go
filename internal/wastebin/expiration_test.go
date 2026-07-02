@@ -338,6 +338,7 @@ func TestDescribeDefaultExpires_Zero(t *testing.T) {
 
 	got := DescribeDefaultExpires(0)
 	want := "no expiration (paste persists until manually deleted)"
+
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
