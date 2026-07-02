@@ -102,9 +102,8 @@ func buildPasteSchema(cfg *wastebin.Config) (json.RawMessage, error) {
 	// password — optional
 	props["password"] = map[string]any{
 		"type": "string",
-		"description": "Optional password to protect the paste. NOTE: " +
-			"Password-protected pastes cannot be retrieved via /raw/{id}; " +
-			"retrieve using curl with the Wastebin-Password header instead.",
+		"description": "Optional password to protect the paste. " +
+			"Password-protected pastes require the Wastebin-Password header for retrieval.",
 	}
 
 	// translate_sandbox_path — only when mounts configured and not transparent
