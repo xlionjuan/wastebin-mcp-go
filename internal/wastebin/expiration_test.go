@@ -333,6 +333,101 @@ func TestValidateExpiration_WellBelowMax(t *testing.T) {
 	}
 }
 
+func TestDescribeDefaultExpires_Zero(t *testing.T) {
+	t.Parallel()
+
+	got := DescribeDefaultExpires(0)
+	want := "no expiration (paste persists until manually deleted)"
+
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestDescribeDefaultExpires_SingleUnit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		seconds int
+		want    string
+	}{
+		{1, "1 seconds (1 second)"},
+		{59, "59 seconds (59 seconds)"},
+		{60, "60 seconds (1 minute)"},
+		{3540, "3540 seconds (59 minutes)"},
+		{3600, "3600 seconds (1 hour)"},
+		{82800, "82800 seconds (23 hours)"},
+		{86400, "86400 seconds (1 day)"},
+		{172800, "172800 seconds (2 days)"},
+		{2592000, "2592000 seconds (30 days)"},
+		{5184000, "5184000 seconds (60 days)"},
+		{31536000, "31536000 seconds (1 year)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(strconv.Itoa(tt.seconds), func(t *testing.T) {
+			t.Parallel()
+
+			got := DescribeDefaultExpires(tt.seconds)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDescribeDefaultExpires_Mixed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		seconds int
+		want    string
+	}{
+		{3661, "3661 seconds (1 hour, 1 minute, 1 second)"},
+		{90061, "90061 seconds (1 day, 1 hour, 1 minute, 1 second)"},
+		{31626061, "31626061 seconds (1 year, 1 day, 1 hour, 1 minute, 1 second)"},
+		{12345, "12345 seconds (3 hours, 25 minutes, 45 seconds)"},
+		{100000, "100000 seconds (1 day, 3 hours, 46 minutes, 40 seconds)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(strconv.Itoa(tt.seconds), func(t *testing.T) {
+			t.Parallel()
+
+			got := DescribeDefaultExpires(tt.seconds)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDescribeDefaultExpires_Plural(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		seconds int
+		want    string
+	}{
+		{63072000, "63072000 seconds (2 years)"},
+		{259200, "259200 seconds (3 days)"},
+		{14400, "14400 seconds (4 hours)"},
+		{600, "600 seconds (10 minutes)"},
+		{120, "120 seconds (2 minutes)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(strconv.Itoa(tt.seconds), func(t *testing.T) {
+			t.Parallel()
+
+			got := DescribeDefaultExpires(tt.seconds)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func FuzzParseExpiration(f *testing.F) {
 	f.Add("")
 	f.Add("0")

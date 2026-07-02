@@ -31,9 +31,9 @@ use to reconstruct full retrieval URLs.
 | `content` | string | conditional | The text content of the paste. Provide this OR `file_path`, not both. Required when file mode is disabled. |
 | `file_path` | string | conditional | Path to a local file to read and upload as paste content. Provide this OR `content`, not both. Only present when file mode is enabled. |
 | `extension` | string | no | File extension for syntax highlighting (e.g. `go`, `py`, `js`, `md`). When using `file_path`, detected from the file name if not provided. |
-| `expires` | string | no | Expiration time: bare number (seconds) or number with unit suffix. Examples: `3600`, `1h`, `7d`, `30M`. Defaults to `WASTEBIN_MCP_DEFAULT_EXPIRES`. |
+| `expires` | string | no | Expiration time: bare number (seconds) or number plus unit suffix (s, m, h, d, w, M=30d, y=365d). Examples: `3600`, `1h`, `7d`, `30M`. Defaults to the configured default. Configured via `WASTEBIN_MCP_DEFAULT_EXPIRES`. |
 | `title` | string | no | Optional title for the paste. |
-| `burn_after_reading` | boolean | no | If `true`, the paste is deleted after being read once. |
+| `burn_after_reading` | boolean | no | If `true`, the paste is deleted automatically after being retrieved via any access method (raw, web, API) for the first time. The agent's own reads also count — creating a burn-after-reading paste and then reading it back will delete it. |
 | `password` | string | no | Encrypt the paste with a password. See [Password-Protected Pastes](#password-protected-pastes) for retrieval instructions. |
 | `translate_sandbox_path` | boolean | no | Only present when sandbox mounts are configured and transparent mode is off. Set to `true` to translate a sandbox-internal `file_path` to the corresponding host path. |
 

@@ -75,11 +75,13 @@ func buildPasteSchema(cfg *wastebin.Config) (json.RawMessage, error) {
 	}
 
 	// expires — optional
+	defaultExpiresDesc := wastebin.DescribeDefaultExpires(cfg.DefaultExpires)
 	props["expires"] = map[string]any{
 		"type": "string",
 		"description": "Expiration time: bare number (seconds) or number plus unit " +
 			"suffix (s, m, h, d, w, M=30d, y=365d). Examples: '3600', '1h', " +
-			"'7d', '30M'. Defaults to server-configured expiry.",
+			"'7d', '30M'. Defaults to " + defaultExpiresDesc + ". " +
+			"Configured via WASTEBIN_MCP_DEFAULT_EXPIRES.",
 	}
 
 	// title — optional
@@ -90,8 +92,11 @@ func buildPasteSchema(cfg *wastebin.Config) (json.RawMessage, error) {
 
 	// burn_after_reading — optional
 	props["burn_after_reading"] = map[string]any{
-		"type":        "boolean",
-		"description": "If true, the paste is deleted after being read once.",
+		"type": "boolean",
+		"description": "If true, the paste is deleted automatically after being " +
+			"retrieved via any access method (raw, web, API) for the first " +
+			"time. The agent's own reads also count — creating a " +
+			"burn-after-reading paste and then reading it back will delete it.",
 	}
 
 	// password — optional
