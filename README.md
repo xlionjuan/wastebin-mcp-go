@@ -85,7 +85,7 @@ conditional fields that appear only in specific scenarios.
   "id": "XyZ789AbCdE",
   "url": "/XyZ789AbCdE.txt",
   "raw": "/raw/XyZ789AbCdE.txt",
-  "password_hint": "curl -H 'Wastebin-Password: <password>' https://bin-staging.xlion.tw/raw/XyZ789AbCdE.txt"
+  "password_hint": "This paste is password-protected. Retrieve raw content via the Wastebin-Password header:\n  curl -H 'Wastebin-Password: YOUR_PASSWORD' https://bin-staging.xlion.tw/raw/XyZ789AbCdE.txt\n(Replace YOUR_PASSWORD with the actual password.)"
 }
 ```
 

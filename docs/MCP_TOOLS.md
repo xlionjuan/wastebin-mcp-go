@@ -147,14 +147,14 @@ For extensionless filenames, use the `extension` parameter explicitly.
 
 ### Output Scenarios
 
-| Scenario | extension | markdown_rendered | hint |
-|---|---|---|---|
-| Content mode + `.md` extension | from caller | ✅ | ❌ |
-| Content mode + non-`.md` extension | from caller | ❌ | ❌ |
-| Content mode + no extension | unset | ❌ | ✅ |
-| File mode + `.md` extension | from path | ✅ | ❌ |
-| File mode + non-`.md` extension | from path | ❌ | ❌ |
-| File mode + no extension | unset | ❌ | ✅ |
+| Scenario | extension | markdown_rendered | hint | password_hint |
+|---|---|---|---|---|
+| Content mode + `.md` extension | from caller | ✅ | ❌ | when password set |
+| Content mode + non-`.md` extension | from caller | ❌ | ❌ | when password set |
+| Content mode + no extension | unset | ❌ | ✅ | when password set |
+| File mode + `.md` extension | from path | ✅ | ❌ | when password set |
+| File mode + non-`.md` extension | from path | ❌ | ❌ | when password set |
+| File mode + no extension | unset | ❌ | ✅ | when password set |
 
 ### Example Usage
 
@@ -286,9 +286,11 @@ These errors are returned from the `create_paste` handler and always follow the
 | Server returns response with non-relative paste path | `"Create paste error: invalid Wastebin response: path must be relative, got <path>"` |
 | Server returns response without paste ID | `"Create paste error: invalid Wastebin response: path is missing paste ID"` |
 | Server returns malformed JSON | `"Create paste error: failed to parse Wastebin response: <details>"` |
-| Cross-host redirect blocked | `"Create paste error: redirect to different host blocked: <from> -> <to>"` |
-| Redirect scheme downgrade from https to http | `"Create paste error: redirect scheme downgrade from https to http blocked: <host> (https -> http)"` |
-| Too many redirects (>10) | `"Create paste error: stopped after 10 redirects"` |
+| HTTP 422 from server (with body) | `"Create paste error: server rejected the request due to a validation error: <details>"` |
+| HTTP 422 from server (empty body) | `"Create paste error: server rejected the request due to a validation error"` |
+| Cross-host redirect blocked | `"Create paste error: HTTP request failed: Get {path}: redirect to different host blocked: <from> -> <to>"` |
+| Redirect scheme downgrade from https to http | `"Create paste error: HTTP request failed: Get {path}: redirect scheme downgrade from https to http blocked: <host> (https -> http)"` |
+| Too many redirects (>10) | `"Create paste error: HTTP request failed: Get {path}: stopped after 10 redirects"` |
 
 **File mode errors (only when `WASTEBIN_MCP_FILE_READ_ENABLED=true`):**
 
