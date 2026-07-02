@@ -3,6 +3,7 @@ package wastebin
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,14 +13,9 @@ import (
 
 // Sentinel errors for configuration validation.
 var (
-	errServerURLRequired               = errors.New("WASTEBIN_SERVER_URL is required and must not be empty")
-	errNegativeDefaultExpires          = errors.New("WASTEBIN_MCP_DEFAULT_EXPIRES cannot be negative")
-	errMaxContentSizeTooSmall          = errors.New("WASTEBIN_MCP_MAX_CONTENT_SIZE must be at least 1")
-	errSandboxMountNotAllowed          = errors.New("sandbox mount host_path is not under any allowed path")
-	errSandboxMountWithoutAllowedPaths = errors.New(
-		"WASTEBIN_MCP_SANDBOX_MOUNTS requires WASTEBIN_MCP_ALLOWED_PATHS to be set; " +
-			"mount host_paths must be explicitly covered by an allowed path",
-	)
+	errServerURLRequired              = errors.New("WASTEBIN_SERVER_URL is required and must not be empty")
+	errNegativeDefaultExpires         = errors.New("WASTEBIN_MCP_DEFAULT_EXPIRES cannot be negative")
+	errMaxContentSizeTooSmall         = errors.New("WASTEBIN_MCP_MAX_CONTENT_SIZE must be at least 1")
 	errInvalidDisableBuiltinBlocklist = errors.New("invalid WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST")
 	errConfiguredPathNotAbsolute      = errors.New("configured path must be absolute")
 )
@@ -232,17 +228,14 @@ func resolveAndValidateMounts(mounts []SandboxMount, allowedPaths []string) erro
 		mounts[i].HostPath = filepath.Clean(resolved)
 	}
 
-	if len(allowedPaths) == 0 {
-		return errSandboxMountWithoutAllowedPaths
-	}
-
 	for _, m := range mounts {
-		if !isAllowedPath(m.HostPath, allowedPaths) {
-			return fmt.Errorf(
-				"%w: host_path %q is not under any allowed path; "+
-					"each mount host_path must be covered by WASTEBIN_MCP_ALLOWED_PATHS",
-				errSandboxMountNotAllowed, m.HostPath,
+		if len(allowedPaths) > 0 && !isAllowedPath(m.HostPath, allowedPaths) {
+			slog.Warn("sandbox mount host_path not under any allowed path; skipping mount",
+				"host_path", m.HostPath,
+				"sandbox_path", m.SandboxPath,
 			)
+
+			continue
 		}
 	}
 

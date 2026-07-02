@@ -407,9 +407,21 @@ func TestConfigFromEnv_SandboxMountNotInAllowed(t *testing.T) {
 	t.Setenv("WASTEBIN_MCP_ALLOWED_PATHS", allowedDir)
 	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", otherDir+":/workspace")
 
-	_, err = ConfigFromEnv()
-	if err == nil {
-		t.Fatal("expected error for mount not in allowed paths")
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.SandboxMounts) != 1 {
+		t.Fatalf("expected 1 SandboxMount, got %d", len(cfg.SandboxMounts))
+	}
+
+	if cfg.SandboxMounts[0].HostPath != filepath.Clean(otherDir) {
+		t.Errorf("got %q, want %q", cfg.SandboxMounts[0].HostPath, filepath.Clean(otherDir))
+	}
+
+	if cfg.SandboxMounts[0].SandboxPath != "/workspace" {
+		t.Errorf("got %q, want %q", cfg.SandboxMounts[0].SandboxPath, "/workspace")
 	}
 }
 
@@ -433,17 +445,25 @@ func TestConfigFromEnv_InvalidDebug(t *testing.T) {
 	}
 }
 
-func TestConfigFromEnv_SandboxMountWithoutAllowedPaths(t *testing.T) {
+func TestConfigFromEnv_SandboxMountsSelfAuthorize(t *testing.T) {
 	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
 	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", "/tmp:/workspace")
 
-	_, err := ConfigFromEnv()
-	if err == nil {
-		t.Fatal("expected error for sandbox mounts without allowed paths")
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !errors.Is(err, errSandboxMountWithoutAllowedPaths) {
-		t.Errorf("expected %v, got: %v", errSandboxMountWithoutAllowedPaths, err)
+	if len(cfg.SandboxMounts) != 1 {
+		t.Fatalf("expected 1 SandboxMount, got %d", len(cfg.SandboxMounts))
+	}
+
+	if cfg.SandboxMounts[0].HostPath != "/tmp" {
+		t.Errorf("got %q, want %q", cfg.SandboxMounts[0].HostPath, "/tmp")
+	}
+
+	if cfg.SandboxMounts[0].SandboxPath != "/workspace" {
+		t.Errorf("got %q, want %q", cfg.SandboxMounts[0].SandboxPath, "/workspace")
 	}
 }
 
