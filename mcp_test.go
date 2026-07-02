@@ -347,6 +347,42 @@ func TestBuildPasteSchemaBasicFields(t *testing.T) {
 	}
 }
 
+func TestCreatePasteToolAnnotations(t *testing.T) {
+	t.Parallel()
+
+	tool := newCreatePasteTool(json.RawMessage(`{}`))
+
+	if tool.Annotations == nil {
+		t.Fatal("create_paste tool should have ToolAnnotations set")
+	}
+
+	if tool.Annotations.DestructiveHint == nil {
+		t.Fatal("create_paste tool DestructiveHint should be set (non-nil)")
+	}
+
+	if *tool.Annotations.DestructiveHint {
+		t.Error("create_paste tool DestructiveHint should be false (additive only)")
+	}
+
+	if tool.Annotations.OpenWorldHint == nil {
+		t.Fatal("create_paste tool OpenWorldHint should be set (non-nil)")
+	}
+
+	if *tool.Annotations.OpenWorldHint {
+		t.Error("create_paste tool OpenWorldHint should be false (closed domain)")
+	}
+}
+
+func TestCreatePasteToolName(t *testing.T) {
+	t.Parallel()
+
+	tool := newCreatePasteTool(json.RawMessage(`{}`))
+
+	if tool.Name != "create_paste" {
+		t.Errorf("expected tool name 'create_paste', got %q", tool.Name)
+	}
+}
+
 func TestBuildToolDescription(t *testing.T) {
 	t.Parallel()
 

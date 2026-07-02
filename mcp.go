@@ -147,6 +147,25 @@ func buildToolDescription() string {
 		"File mode validates paths against an allowlist (when configured) and blocklist pipeline."
 }
 
+// newCreatePasteTool creates the create_paste tool definition with annotations
+// marking it as non-destructive and closed-world: it only creates new pastes
+// (additive), and targets a configured Wastebin instance with scoped file
+// access rather than an open external domain.
+func newCreatePasteTool(schema json.RawMessage) *mcp.Tool {
+	destructiveHint := false
+	openWorldHint := false
+
+	return &mcp.Tool{
+		Name:        "create_paste",
+		Description: buildToolDescription(),
+		InputSchema: schema,
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: &destructiveHint,
+			OpenWorldHint:   &openWorldHint,
+		},
+	}
+}
+
 type mcpInitializeMessage struct {
 	JSONRPC string `json:"jsonrpc"`
 	Method  string `json:"method"`
@@ -216,11 +235,7 @@ func runMCPMode(cfg *wastebin.Config, stdin io.Reader) error {
 		Version: version,
 	}, nil)
 
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "create_paste",
-		Description: buildToolDescription(),
-		InputSchema: schema,
-	}, NewCreatePasteHandler(client))
+	mcp.AddTool(server, newCreatePasteTool(schema), NewCreatePasteHandler(client))
 
 	slog.Info("starting Wastebin MCP server")
 
