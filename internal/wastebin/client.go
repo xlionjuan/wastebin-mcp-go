@@ -39,6 +39,11 @@ var (
 	errFileReadDisabled           = errors.New("file read is disabled by configuration")
 	errInvalidExtension           = errors.New("extension contains invalid path or query characters")
 	errInvalidWastebinResponse    = errors.New("invalid Wastebin response")
+	errPasswordOverHTTP           = errors.New(
+		"password-protected pastes are not allowed over non-loopback HTTP " +
+			"connections; use HTTPS or set " +
+			"WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD=true for local development",
+	)
 )
 
 // HTTP transport defaults.
@@ -242,6 +247,10 @@ func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs)
 		reqBody.Password = *args.Password
 
 		if c.baseURL.Scheme == "http" {
+			if !isLoopbackHost(c.baseURL.Host) && !c.config.AllowInsecurePassword {
+				return nil, errPasswordOverHTTP
+			}
+
 			slog.Warn("password is being sent over an unencrypted HTTP connection")
 		}
 	}
@@ -571,6 +580,32 @@ func isDNSError(err error) bool {
 	var dnsErr *net.DNSError
 
 	return errors.As(err, &dnsErr)
+}
+
+// isLoopbackHost checks whether the given host (with optional port) refers
+// to a loopback address. Returns true for "localhost", "127.0.0.1", "::1",
+// "[::1]", and any IP in the loopback range.
+func isLoopbackHost(hostPort string) bool {
+	host := hostPort
+
+	h, _, err := net.SplitHostPort(hostPort)
+	if err == nil {
+		host = h
+	}
+
+	// Strip brackets from bracketed IPv6 without port, e.g. "[::1]" -> "::1".
+	host = strings.Trim(host, "[]")
+
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+
+	return ip.IsLoopback()
 }
 
 // closeResponseBody closes the response body with debug logging on failure.

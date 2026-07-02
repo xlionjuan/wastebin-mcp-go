@@ -32,15 +32,16 @@ const (
 // DefaultConfig returns Config with safe defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		ServerURL:          "",
-		DefaultExpires:     defaultExpirySeconds, // 1 year
-		FileReadEnabled:    true,
-		AllowedPaths:       nil,
-		BlockedPaths:       slices.Clone([]string{"/etc", "/proc", "/sys", "/dev"}),
-		MaxContentSize:     defaultMaxContentSize, // 1 MB
-		SandboxMounts:      nil,
-		SandboxTransparent: false,
-		Debug:              false,
+		ServerURL:             "",
+		DefaultExpires:        defaultExpirySeconds, // 1 year
+		FileReadEnabled:       true,
+		AllowedPaths:          nil,
+		BlockedPaths:          slices.Clone([]string{"/etc", "/proc", "/sys", "/dev"}),
+		MaxContentSize:        defaultMaxContentSize, // 1 MB
+		SandboxMounts:         nil,
+		SandboxTransparent:    false,
+		AllowInsecurePassword: false,
+		Debug:                 false,
 	}
 }
 
@@ -174,6 +175,16 @@ func ConfigFromEnv() (*Config, error) {
 		}
 
 		cfg.DisableBuiltinBlocklist = b
+	}
+
+	// Allow insecure password over HTTP.
+	if v := os.Getenv("WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD: %w", err)
+		}
+
+		cfg.AllowInsecurePassword = b
 	}
 
 	// Debug.

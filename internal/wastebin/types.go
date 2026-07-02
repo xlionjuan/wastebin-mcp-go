@@ -37,4 +37,9 @@ type Config struct {
 	SandboxTransparent      bool
 	DisableBuiltinBlocklist bool
 	Debug                   bool
+
+	// AllowInsecurePassword allows password-protected pastes over
+	// non-loopback HTTP connections. When false (default), password-protected
+	// pastes are rejected for non-loopback http:// URLs.
+	AllowInsecurePassword bool
 }
