@@ -99,7 +99,7 @@ Examples: `3600`, `1h`, `7d`, `30d`, `1y`.
   "url": "/FTuutJssdSh.md",
   "raw": "/raw/FTuutJssdSh.md",
   "markdown_rendered": "/md/FTuutJssdSh.md",
-  "password_hint": "curl -H 'Wastebin-Password: <password>' https://bin-staging.xlion.tw/raw/FTuutJssdSh.md"
+  "password_hint": "This paste is password-protected. Retrieve raw content via the Wastebin-Password header:\n  curl -H 'Wastebin-Password: YOUR_PASSWORD' https://bin-staging.xlion.tw/raw/FTuutJssdSh.md\n(Replace YOUR_PASSWORD with the actual password.)"
 }
 ```
 
@@ -320,3 +320,5 @@ using `filepath.Join` normalization to bypass the traversal check.
 | Disable built-in blocklist | `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST` | false |
 | Server URL | `WASTEBIN_SERVER_URL` | — (required) |
 | Default expires | `WASTEBIN_MCP_DEFAULT_EXPIRES` | 31536000 |
+| Insecure password (HTTP) | `WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD` | false |
+| Debug logging | `DEBUG` | — |
