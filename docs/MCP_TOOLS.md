@@ -279,6 +279,7 @@ These errors are returned from the `create_paste` handler and always follow the
 | Connection refused / timeout | `"Create paste error: cannot connect to Wastebin server; verify the server is running: <details>"` |
 | DNS resolution failure | `"Create paste error: cannot resolve the server hostname: <details>"` |
 | Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE` | `"Create paste error: content exceeds the maximum allowed size: <N> bytes exceeds limit of <N> bytes"` |
+| Password over non-loopback HTTP without override | `"Create paste error: password-protected pastes are not allowed over non-loopback HTTP connections; use HTTPS or set WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD=true for local development"` |
 | Unknown HTTP error | `"Create paste error: unknown HTTP error: HTTP <CODE>"` |
 | Invalid expiration format | `"Create paste error: invalid expiration: <reason>"` (reason: `expiration cannot be negative`, `unknown expiration unit`, `invalid expiration format`, `expiration overflow`) |
 | Extension contains invalid path or query characters | `"Create paste error: extension contains invalid path or query characters: <ext>"` |
@@ -450,8 +451,11 @@ reconstructing the retrieval commands.
 
 > **⚠️ Security warning:** When the Wastebin server URL uses `http://`
 > (not recommended), the password is sent in cleartext over the network.
-> A warning is logged to stderr at paste creation time, but MCP clients
-> never see it. Prefer `https://` for production use.
+> Password-protected pastes over non-loopback HTTP are **rejected** by
+> default. Loopback addresses (localhost, 127.0.0.1, ::1) are allowed
+> with a warning. To allow non-loopback HTTP for local development, set
+> `WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD=true`. Prefer `https://` for
+> production use.
 
 ---
 

@@ -44,6 +44,7 @@ wastebin-mcp-go create --file-path /tmp/doc.md
 | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | | 1048576 | Max content size in bytes |
 | `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker mount mappings (`host:sandbox,...`); sandbox paths must be absolute and must not contain `..` components |
 | `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | | false | Transparent sandbox translation |
+| `WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD` | | false | Allow password-protected pastes over non-loopback HTTP (not recommended) |
 | `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST` | | false | Disable built-in blocklist (system + sensitive paths) |
 | `DEBUG` | | — | Set to `1` or `true` to enable debug logging |
 
@@ -104,6 +105,9 @@ conditional fields that appear only in specific scenarios.
   validated at startup; relative sandbox paths and `..` components are
   rejected before path cleanup.
 - Content size is pre-checked against a configurable limit.
+- Password-protected pastes over `http://` are only allowed for loopback
+  addresses (localhost, 127.0.0.1, ::1). Non-loopback HTTP is rejected unless
+  `WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD=true` is set.
 - See `CONTEXT.md` for the full security model.
 
 ## License

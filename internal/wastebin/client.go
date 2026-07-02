@@ -584,7 +584,7 @@ func isDNSError(err error) bool {
 
 // isLoopbackHost checks whether the given host (with optional port) refers
 // to a loopback address. Returns true for "localhost", "127.0.0.1", "::1",
-// and any IP in the loopback range.
+// "[::1]", and any IP in the loopback range.
 func isLoopbackHost(hostPort string) bool {
 	host := hostPort
 
@@ -592,6 +592,9 @@ func isLoopbackHost(hostPort string) bool {
 	if err == nil {
 		host = h
 	}
+
+	// Strip brackets from bracketed IPv6 without port, e.g. "[::1]" -> "::1".
+	host = strings.Trim(host, "[]")
 
 	if host == "localhost" {
 		return true

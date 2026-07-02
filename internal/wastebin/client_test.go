@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -2265,8 +2266,9 @@ func TestCreatePaste_PasswordOverHTTP_NonLoopbackAllowedWithOverride(t *testing.
 	}))
 	defer server.Close()
 
-	// Override URL to a non-loopback host but keep the server port.
-	// We set AllowInsecurePassword=true to bypass the restriction.
+	// Keep baseURL as the non-loopback configured host so the policy check
+	// still sees the non-loopback URL. Route only the HTTP transport to
+	// the test server by overriding the dialer.
 	cfg := DefaultConfig()
 	cfg.ServerURL = "http://wastebin.example.com:12345"
 	cfg.AllowInsecurePassword = true
@@ -2276,16 +2278,16 @@ func TestCreatePaste_PasswordOverHTTP_NonLoopbackAllowedWithOverride(t *testing.
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	// Override the httpClient to point to the test server so the request
-	// actually succeeds.
-	var parseErr error
-
-	client.baseURL, parseErr = url.Parse(server.URL)
+	serverBase, parseErr := url.Parse(server.URL) //nolint:errcheck // URL from httptest is safe
 	if parseErr != nil {
 		t.Fatalf("failed to parse server URL: %v", parseErr)
 	}
 
-	client.postURL = server.URL + "/"
+	client.httpClient.Transport = &http.Transport{
+		DialContext: func(_ context.Context, network, _ string) (net.Conn, error) {
+			return net.Dial(network, serverBase.Host)
+		},
+	}
 
 	content := "secret"
 	password := "hunter2"
@@ -2316,6 +2318,7 @@ func TestIsLoopbackHost(t *testing.T) {
 		{name: "IPv4 loopback", host: "127.0.0.1", want: true},
 		{name: "IPv4 loopback with port", host: "127.0.0.1:8080", want: true},
 		{name: "IPv6 loopback", host: "::1", want: true},
+		{name: "IPv6 loopback bracketed", host: "[::1]", want: true},
 		{name: "IPv6 loopback with port", host: "[::1]:8080", want: true},
 		{name: "non-loopback hostname", host: "example.com", want: false},
 		{name: "non-loopback hostname with port", host: "example.com:8080", want: false},

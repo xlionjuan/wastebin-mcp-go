@@ -40,11 +40,12 @@ go build -ldflags="-X main.version=$(git describe --tags --always)" -o wastebin-
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `WASTEBIN_SERVER_URL` | ✅ | — | Wastebin server URL (e.g. `https://bin-staging.xlion.tw`). When using `http://` with a password, the password is sent in cleartext — prefer `https://` for production use. |
+| `WASTEBIN_SERVER_URL` | ✅ | — | Wastebin server URL (e.g. `https://bin-staging.xlion.tw`). When using `http://` with a password, the password is sent in cleartext — prefer `https://` for production use. Password-protected pastes over non-loopback HTTP are rejected unless `WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD=true` is set. |
 | `WASTEBIN_MCP_FILE_READ_ENABLED` | | `true` | Enable file-reading mode; set to `false` to restrict to inline content only |
 | `WASTEBIN_MCP_DEFAULT_EXPIRES` | | `31536000` | Default paste expiration in seconds when no `expires` parameter is given |
 | `WASTEBIN_MCP_ALLOWED_PATHS` | | — | Comma-separated absolute directory paths allowed for file reads. Relative entries are rejected at startup. When set, only paths under these directories are accepted. When empty, skips allowlist and falls through to blocklist checks |
 | `WASTEBIN_MCP_BLOCKED_PATHS` | | `/etc,/proc,/sys,/dev` | Comma-separated absolute directory paths to block for file reads (e.g. `/home/user/secret`). Relative entries are rejected at startup. Resolved via `EvalSymlinks` (matching file-path resolution) with fallback to `Clean` for non-existent absolute paths. Applied after the built-in blocklist. Defaults to common system directories |
+| `WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD` | | `false` | Allow password-protected pastes over non-loopback HTTP connections. By default, password-protected pastes are rejected when using `http://` with a non-loopback host. Loopback addresses (localhost, 127.0.0.1, ::1) are always allowed with a warning |
 | `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST` | | `false` | Set to `true` to disable the built-in blocklist (system directory prefixes + sensitive path components). Use with caution |
 | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | | `1048576` | Maximum paste content size in bytes (client-side guard) |
 | `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker-style mount mappings (`host_path:sandbox_path,...`) for sandbox path translation. Sandbox paths must be absolute POSIX paths and must not contain `..` components |
