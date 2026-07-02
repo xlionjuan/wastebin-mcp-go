@@ -596,7 +596,7 @@ func isLoopbackHost(hostPort string) bool {
 	// Strip brackets from bracketed IPv6 without port, e.g. "[::1]" -> "::1".
 	host = strings.Trim(host, "[]")
 
-	if host == "localhost" {
+	if strings.EqualFold(host, "localhost") {
 		return true
 	}
 

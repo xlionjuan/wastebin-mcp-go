@@ -2278,14 +2278,14 @@ func TestCreatePaste_PasswordOverHTTP_NonLoopbackAllowedWithOverride(t *testing.
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	serverBase, parseErr := url.Parse(server.URL) //nolint:errcheck // URL from httptest is safe
-	if parseErr != nil {
-		t.Fatalf("failed to parse server URL: %v", parseErr)
+	serverBase, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("failed to parse server URL: %v", err)
 	}
 
 	client.httpClient.Transport = &http.Transport{
-		DialContext: func(_ context.Context, network, _ string) (net.Conn, error) {
-			return net.Dial(network, serverBase.Host)
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return new(net.Dialer).DialContext(ctx, network, serverBase.Host)
 		},
 	}
 
@@ -2314,6 +2314,8 @@ func TestIsLoopbackHost(t *testing.T) {
 		want bool
 	}{
 		{name: "localhost", host: "localhost", want: true},
+		{name: "localhost uppercase", host: "LOCALHOST", want: true},
+		{name: "localhost mixed case", host: "LocalHost", want: true},
 		{name: "localhost with port", host: "localhost:8080", want: true},
 		{name: "IPv4 loopback", host: "127.0.0.1", want: true},
 		{name: "IPv4 loopback with port", host: "127.0.0.1:8080", want: true},
