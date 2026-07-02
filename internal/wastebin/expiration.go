@@ -133,21 +133,25 @@ func DescribeDefaultExpires(seconds int) string {
 	} else if years > 1 {
 		parts = append(parts, fmt.Sprintf("%d years", years))
 	}
+
 	if days == 1 {
 		parts = append(parts, "1 day")
 	} else if days > 1 {
 		parts = append(parts, fmt.Sprintf("%d days", days))
 	}
+
 	if hours == 1 {
 		parts = append(parts, "1 hour")
 	} else if hours > 1 {
 		parts = append(parts, fmt.Sprintf("%d hours", hours))
 	}
+
 	if minutes == 1 {
 		parts = append(parts, "1 minute")
 	} else if minutes > 1 {
 		parts = append(parts, fmt.Sprintf("%d minutes", minutes))
 	}
+
 	if secs == 1 {
 		parts = append(parts, "1 second")
 	} else if secs > 1 {
@@ -159,6 +163,7 @@ func DescribeDefaultExpires(seconds int) string {
 	}
 
 	human := strings.Join(parts, ", ")
+
 	return fmt.Sprintf("%d seconds (%s)", seconds, human)
 }
 
