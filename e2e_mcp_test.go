@@ -268,6 +268,11 @@ func TestPastePasswordProtected(t *testing.T) {
 			response.PasswordHint, stderr.String())
 	}
 
+	if strings.Contains(response.PasswordHint, "?password=") {
+		t.Fatalf("password_hint must not recommend query-parameter password transport (URL secrets are logged)\npassword_hint: %q\nstderr:\n%s",
+			response.PasswordHint, stderr.String())
+	}
+
 	t.Log("password protected paste verified")
 }
 

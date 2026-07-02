@@ -2215,6 +2215,14 @@ func TestCreatePaste_PasswordOverHTTP(t *testing.T) {
 	if resp.PasswordHint == "" {
 		t.Error("expected PasswordHint to be set for password-protected paste")
 	}
+
+	if !strings.Contains(resp.PasswordHint, "Wastebin-Password") {
+		t.Error("PasswordHint should mention Wastebin-Password header")
+	}
+
+	if strings.Contains(resp.PasswordHint, "?password=") {
+		t.Error("PasswordHint must not recommend query-parameter password transport (URL secrets are logged)")
+	}
 }
 
 func TestCreatePaste_PasswordOverHTTP_NonLoopbackRejected(t *testing.T) {
