@@ -125,6 +125,8 @@ If `which go` fails, report and stop — do not install, download, or work aroun
 
 ### Verification
 
+- Code changes that add or alter behaviour must include corresponding tests,
+  unless the change is purely cosmetic or documentation-only.
 - Code changes must be verified with the narrowest meaningful build/test
   command before committing.
 - Before opening or updating a PR, or reporting a code-changing task complete,
