@@ -3,6 +3,7 @@ package wastebin
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -16,6 +17,8 @@ var (
 	errBuiltinBlockedComponent = errors.New("file path contains a blocked component")
 	errUserBlockedPath         = errors.New("file path is in a user-blocked directory")
 	errFilePathCannotBeUsed    = errors.New("file path cannot be used")
+	errPathNotFound            = errors.New("file path not found")
+	errPathPermissionDenied    = errors.New("permission denied for file path")
 )
 
 // builtinBlockedPrefixes are absolute path prefixes blocked by default.
@@ -182,6 +185,14 @@ func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err err
 
 	resolved, err := filepath.EvalSymlinks(normalized)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("%w: %w", errPathNotFound, err)
+		}
+
+		if os.IsPermission(err) {
+			return "", fmt.Errorf("%w: %w", errPathPermissionDenied, err)
+		}
+
 		return "", errFilePathCannotBeUsed
 	}
 

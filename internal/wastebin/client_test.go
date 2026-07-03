@@ -824,7 +824,7 @@ func TestCreatePaste_FileMode_StatError(t *testing.T) {
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	// File doesn't exist yet — should get errFilePathCannotBeUsed.
+	// File doesn't exist yet — should get errPathNotFound from validateFilePath.
 	nonExistentPath := filepath.Join(allowedDir, "nonexistent.txt")
 
 	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
@@ -834,8 +834,8 @@ func TestCreatePaste_FileMode_StatError(t *testing.T) {
 		t.Fatal("expected error for nonexistent file")
 	}
 
-	if !errors.Is(err, errFilePathCannotBeUsed) {
-		t.Errorf("expected errFilePathCannotBeUsed, got: %v", err)
+	if !errors.Is(err, errPathNotFound) {
+		t.Errorf("expected errPathNotFound, got: %v", err)
 	}
 }
 
@@ -913,6 +913,56 @@ func TestCreatePaste_FileMode_ReadError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for unreadable file")
+	}
+
+	if !errors.Is(err, errFilePathCannotBeUsed) {
+		t.Errorf("expected errFilePathCannotBeUsed, got: %v", err)
+	}
+}
+
+func TestCreatePaste_FileMode_PermissionDenied(t *testing.T) {
+	t.Parallel()
+
+	if os.Getuid() == 0 {
+		t.Skip("skipping permission-denied test when running as root")
+	}
+
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	noPermFile := filepath.Join(allowedDir, "noperm.txt")
+
+	err = os.WriteFile(noPermFile, []byte("test"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Remove all permissions.
+	err = os.Chmod(noPermFile, 0o000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.AllowedPaths = []string{allowedDir}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath: &noPermFile,
+	})
+	if err == nil {
+		t.Fatal("expected error for permission-denied file, got nil")
 	}
 
 	if !errors.Is(err, errFilePathCannotBeUsed) {
