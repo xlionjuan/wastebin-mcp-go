@@ -1212,3 +1212,75 @@ func TestValidateFilePath_DisableBuiltinBlocklistWithBlockedComponent(t *testing
 		}
 	})
 }
+
+// ──────────────────────────────────────────────
+// Permission / not-found error tests
+// ──────────────────────────────────────────────
+
+func TestValidateFilePath_NotFound(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{}
+
+	_, err := validateFilePath(filepath.Join(t.TempDir(), "missing"), cfg)
+	if err == nil {
+		t.Fatal("expected error for nonexistent path, got nil")
+	}
+
+	if !errors.Is(err, errPathNotFound) {
+		t.Errorf("expected errPathNotFound, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_PermissionDenied(t *testing.T) {
+	t.Parallel()
+
+	if os.Getuid() == 0 {
+		t.Skip("skipping permission-denied test when running as root")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create a subdirectory and remove execute permission so that
+	// EvalSymlinks cannot lstat files inside it, triggering a permission error.
+	noXDir := filepath.Join(tmpDir, "noexec")
+
+	err := os.Mkdir(noXDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testFile := filepath.Join(noXDir, "test.txt")
+
+	err = os.WriteFile(testFile, []byte("test"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Remove all permissions from the directory so EvalSymlinks
+	// cannot traverse into it.
+	err = os.Chmod(noXDir, 0o000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		// Restore permissions so TempDir cleanup succeeds.
+		//nolint:gosec // Restore permissions so TempDir cleanup succeeds
+		restoreErr := os.Chmod(noXDir, 0o750)
+		if restoreErr != nil {
+			t.Logf("failed to restore directory permissions: %v", restoreErr)
+		}
+	})
+
+	cfg := &Config{}
+
+	_, err = validateFilePath(testFile, cfg)
+	if err == nil {
+		t.Fatal("expected error for permission-denied path, got nil")
+	}
+
+	if !errors.Is(err, errPathPermissionDenied) {
+		t.Errorf("expected errPathPermissionDenied, got: %v", err)
+	}
+}
