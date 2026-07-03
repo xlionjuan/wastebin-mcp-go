@@ -53,7 +53,7 @@ func IsLikelyTextFile(path string) (bool, error) {
 	}
 	defer func() { _ = f.Close() }() //nolint:errcheck // Close failure is non-critical; file was already read successfully
 
-	buf := make([]byte, sniffSize)
+	buf := make([]byte, sniffSize+utf8.UTFMax)
 
 	n, err := io.ReadFull(f, buf)
 	if err != nil {
