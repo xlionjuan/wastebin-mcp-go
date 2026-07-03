@@ -1212,3 +1212,65 @@ func TestValidateFilePath_DisableBuiltinBlocklistWithBlockedComponent(t *testing
 		}
 	})
 }
+
+// ──────────────────────────────────────────────
+// validateFilePath error message tests
+// ──────────────────────────────────────────────
+
+func TestValidateFilePath_NonExistentPath(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	nonexistent := filepath.Join(tmpDir, "does-not-exist")
+
+	cfg := &Config{}
+
+	_, err := validateFilePath(nonexistent, cfg)
+	if err == nil {
+		t.Fatal("expected error for non-existent path, got nil")
+	}
+
+	if !errors.Is(err, errPathNotFound) {
+		t.Errorf("expected errPathNotFound, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_PermissionDenied(t *testing.T) {
+	t.Parallel()
+
+	// Skip if running as root — root bypasses permission checks.
+	if os.Getuid() == 0 {
+		t.Skip("skipping permission denied test: running as root")
+	}
+
+	tmpDir := t.TempDir()
+
+	noPermDir := filepath.Join(tmpDir, "noperm")
+
+	err := os.Mkdir(noPermDir, 0o000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Ensure cleanup can remove the directory.
+	t.Cleanup(func() {
+		chmodErr := os.Chmod(noPermDir, 0o700) //nolint:gosec // Restoring permissions for cleanup; test-only.
+		if chmodErr != nil {
+			t.Logf("failed to restore directory permissions during cleanup: %v", chmodErr)
+		}
+	})
+
+	noPermFile := filepath.Join(noPermDir, "file.txt")
+
+	cfg := &Config{}
+
+	_, err = validateFilePath(noPermFile, cfg)
+	if err == nil {
+		t.Fatal("expected permission denied error, got nil")
+	}
+
+	if !errors.Is(err, errPathPermissionDenied) {
+		t.Errorf("expected errPathPermissionDenied, got: %v", err)
+	}
+}

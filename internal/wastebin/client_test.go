@@ -824,7 +824,7 @@ func TestCreatePaste_FileMode_StatError(t *testing.T) {
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	// File doesn't exist yet — should get errFilePathCannotBeUsed.
+	// File doesn't exist yet — should get errPathNotFound.
 	nonExistentPath := filepath.Join(allowedDir, "nonexistent.txt")
 
 	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
@@ -834,8 +834,8 @@ func TestCreatePaste_FileMode_StatError(t *testing.T) {
 		t.Fatal("expected error for nonexistent file")
 	}
 
-	if !errors.Is(err, errFilePathCannotBeUsed) {
-		t.Errorf("expected errFilePathCannotBeUsed, got: %v", err)
+	if !errors.Is(err, errPathNotFound) {
+		t.Errorf("expected errPathNotFound, got: %v", err)
 	}
 }
 
