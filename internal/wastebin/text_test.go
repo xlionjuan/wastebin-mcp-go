@@ -238,7 +238,9 @@ func TestIsLikelyTextFile_UTF8CrossingSniffBoundary(t *testing.T) {
 	// 3-byte UTF-8 character (中 = 0xE4 0xB8 0xAD) straddling the
 	// 8192-byte sniff boundary. 8190 bytes of ASCII + 3-byte rune
 	// starting at byte 8190 means the last byte of the rune is at
-	// index 8192, which is beyond the sniff window.
+	// index 8192. Since the file is 8193 bytes (≤ readSize), the
+	// entire file is read (EOF) and no trimming is needed — the
+	// full rune is present in the buffer.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "utf8_boundary.txt")
 
@@ -271,7 +273,9 @@ func TestIsLikelyTextFile_EmojiCrossingSniffBoundary(t *testing.T) {
 
 	// 4-byte emoji (🔥 = 0xF0 0x9F 0x94 0xA5) straddling the 8192-byte
 	// sniff boundary. 8190 bytes of ASCII + 4-byte emoji starting at
-	// byte 8190. The first 8192-byte read ends mid-emoji.
+	// byte 8190. Since the file is 8194 bytes (≤ readSize), the entire
+	// file is read (EOF) — the full emoji is present and no trimming
+	// is needed.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "emoji_boundary.txt")
 
@@ -304,11 +308,11 @@ func TestIsLikelyTextFile_EmojiCrossingSniffBoundary(t *testing.T) {
 func TestIsLikelyTextFile_ExactSniffSizeWithTruncation(t *testing.T) {
 	t.Parallel()
 
-	// File of exactly 8192 bytes where the last byte is a continuation
-	// byte of an incomplete multi-byte sequence. Since we can't tell
-	// whether the file is exactly 8192 bytes or larger, trimming treats
-	// it as a boundary straddle for safety — the trimmed ASCII prefix
-	// should be classified as text.
+	// File of exactly 8192 bytes where the last byte is 0x80 (a lone
+	// continuation byte — invalid UTF-8 on its own). With readSize =
+	// sniffSize + utf8.UTFMax, the entire 8192-byte file is read (EOF),
+	// so no trimming is applied. 0x80 at the end makes the buffer
+	// invalid UTF-8, and the file is correctly classified as non-text.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "exact_sniff.txt")
 
@@ -317,7 +321,6 @@ func TestIsLikelyTextFile_ExactSniffSizeWithTruncation(t *testing.T) {
 		data[i] = 'A'
 	}
 
-	// 0x80 is a lone continuation byte — invalid UTF-8 on its own.
 	data[8191] = 0x80
 
 	err := os.WriteFile(path, data, 0o600)
@@ -330,10 +333,8 @@ func TestIsLikelyTextFile_ExactSniffSizeWithTruncation(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// After trimming the lone continuation byte, the remaining 8191
-	// bytes are all ASCII and should be identified as text.
-	if !ok {
-		t.Error("expected file with lone continuation byte at exact sniff boundary to be likely text after trimming")
+	if ok {
+		t.Error("expected file with lone continuation byte at EOF boundary to NOT be likely text")
 	}
 }
 

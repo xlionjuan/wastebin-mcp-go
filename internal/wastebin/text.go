@@ -45,7 +45,13 @@ func IsLikelyText(data []byte) bool {
 	return float64(ctrlCount)/float64(len(buf)) < binaryThreshold
 }
 
-// IsLikelyTextFile reads first 8KB from path and calls IsLikelyText.
+// readSize is the number of bytes to read from a file for text detection.
+// It is sniffSize + utf8.UTFMax: the extra bytes confirm whether the file
+// extends beyond the sniff boundary, so trailing incomplete runes can be
+// trimmed safely only when we know more data follows.
+const readSize = sniffSize + utf8.UTFMax
+
+// IsLikelyTextFile reads readSize bytes from path and calls IsLikelyText.
 func IsLikelyTextFile(path string) (bool, error) {
 	f, err := os.Open(path) //nolint:gosec // Path validated through validateFilePath pipeline
 	if err != nil {
@@ -53,26 +59,34 @@ func IsLikelyTextFile(path string) (bool, error) {
 	}
 	defer func() { _ = f.Close() }() //nolint:errcheck // Close failure is non-critical; file was already read successfully
 
-	buf := make([]byte, sniffSize)
+	buf := make([]byte, readSize)
 
 	n, err := io.ReadFull(f, buf)
 	if err != nil {
 		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
-			// File is smaller than the buffer; n may be 0.
+			// File ≤ readSize — entire content was read. The extra
+			// bytes (if any) ensure no mid-rune truncation at the
+			// sniff boundary, so no trimming is needed.
 			return IsLikelyText(buf[:n]), nil
 		}
 
 		return false, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	data := buf[:n]
+	// File is larger than readSize. A multi-byte rune may straddle
+	// the sniffSize boundary, so trim trailing incomplete UTF-8
+	// from the first sniffSize bytes before checking.
+	data := trimTrailingIncompleteUTF8(buf[:sniffSize])
 
-	// Trim trailing incomplete UTF-8 bytes. When a file is larger than
-	// sniffSize, a multi-byte rune may straddle the boundary, leaving
-	// the buffer with a truncated trailing sequence that would cause
-	// utf8.Valid to fail. Walk backward from the end, dropping
-	// continuation bytes and incomplete start bytes until the buffer
-	// is valid (or we hit the trim limit).
+	return IsLikelyText(data), nil
+}
+
+// trimTrailingIncompleteUTF8 removes up to utf8.UTFMax trailing bytes
+// from the end of data when they form an incomplete UTF-8 sequence.
+// It stops early when data is valid or the invalidity is not fixable
+// by trailing trim (e.g., an ASCII byte at the end with invalid bytes
+// elsewhere).
+func trimTrailingIncompleteUTF8(data []byte) []byte {
 	for i := 0; i < utf8.UTFMax && len(data) > 0; i++ {
 		if utf8.Valid(data) {
 			break
@@ -101,5 +115,5 @@ func IsLikelyTextFile(path string) (bool, error) {
 		}
 	}
 
-	return IsLikelyText(data), nil
+	return data
 }
