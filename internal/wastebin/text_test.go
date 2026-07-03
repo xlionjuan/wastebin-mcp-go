@@ -365,3 +365,36 @@ func TestIsLikelyTextFile_ValidUTF8AtExactSniffSize(t *testing.T) {
 		t.Error("expected exactly 8192 bytes of ASCII to be likely text")
 	}
 }
+
+func TestIsLikelyTextFile_LoneContinuationByteNotCompletable(t *testing.T) {
+	t.Parallel()
+
+	// File larger than readSize (sniffSize + utf8.UTFMax). First
+	// sniffSize-1 bytes are 'A', byte sniffSize-1 is a lone 0x80
+	// (continuation byte), and everything from sniffSize onward is
+	// ASCII. The 0x80 cannot be completed by the extra bytes into
+	// valid UTF-8 — it's genuinely invalid, not boundary-truncated.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lone_cont.txt")
+
+	data := make([]byte, readSize+100)
+	for i := range data {
+		data[i] = 'A'
+	}
+
+	data[sniffSize-1] = 0x80
+
+	err := os.WriteFile(path, data, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ok, err := IsLikelyTextFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ok {
+		t.Error("expected file with lone continuation byte not completable by extra bytes to NOT be likely text")
+	}
+}

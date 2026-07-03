@@ -73,47 +73,66 @@ func IsLikelyTextFile(path string) (bool, error) {
 		return false, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// File is larger than readSize. A multi-byte rune may straddle
-	// the sniffSize boundary, so trim trailing incomplete UTF-8
-	// from the first sniffSize bytes before checking.
-	data := trimTrailingIncompleteUTF8(buf[:sniffSize])
+	// File is larger than readSize. Check whether trailing bytes at
+	// the sniffSize boundary are an incomplete UTF-8 sequence that can
+	// be completed by the extra bytes — only trim when confirmed.
+	data := trimTrailingIncompleteUTF8(buf[:sniffSize], buf[sniffSize:readSize])
 
 	return IsLikelyText(data), nil
 }
 
-// trimTrailingIncompleteUTF8 removes up to utf8.UTFMax trailing bytes
-// from the end of data when they form an incomplete UTF-8 sequence.
-// It stops early when data is valid or the invalidity is not fixable
-// by trailing trim (e.g., an ASCII byte at the end with invalid bytes
-// elsewhere).
-func trimTrailingIncompleteUTF8(data []byte) []byte {
-	for i := 0; i < utf8.UTFMax && len(data) > 0; i++ {
-		if utf8.Valid(data) {
-			break
-		}
+// trimTrailingIncompleteUTF8 removes trailing bytes from data when they
+// form an incomplete UTF-8 sequence truncated at a boundary.
+//
+// When extra is non-empty, trailing bytes are only trimmed if extra can
+// complete them into valid UTF-8 (confirming boundary truncation). Without
+// this check, a genuinely invalid byte at the boundary — e.g. a lone
+// continuation byte followed by ASCII in the actual file — would be
+// incorrectly trimmed away.
+//
+// When extra is empty, trailing non-ASCII bytes are trimmed optimistically
+// (backward-compatible behavior for callers without boundary context).
+func trimTrailingIncompleteUTF8(data, extra []byte) []byte {
+	if utf8.Valid(data) {
+		return data
+	}
 
-		lastByte := data[len(data)-1]
+	// Walk backward to find the start of the trailing non-ASCII sequence.
+	split := len(data)
+	for split > 0 && data[split-1] >= 0x80 {
+		split--
+	}
 
-		// ASCII byte at end: the invalidity is elsewhere and
-		// cannot be fixed by trailing trim.
-		if lastByte < 0x80 { //nolint:mnd // ASCII upper bound
-			break
-		}
+	if split == len(data) {
+		// No trailing non-ASCII bytes; invalidity is elsewhere.
+		return data
+	}
 
-		// Continuation bytes (10xxxxxx) are always trailing fragments.
-		if lastByte&0xC0 == 0x80 { //nolint:mnd // UTF-8 continuation byte bitmask
-			data = data[:len(data)-1]
+	trail := data[split:]
 
-			continue
-		}
+	// If trail alone is valid UTF-8, it's a complete rune at the
+	// boundary — don't trim. The invalidity is earlier in data.
+	if utf8.Valid(trail) {
+		return data
+	}
 
-		// Start byte (11xxxxxx). DecodeLastRune distinguishes complete
-		// multi-byte runes from truncated ones.
-		r, _ := utf8.DecodeLastRune(data)
-		if r == utf8.RuneError {
-			data = data[:len(data)-1]
+	if len(extra) == 0 {
+		// No extra bytes to verify — optimistic trim.
+		return data[:split]
+	}
+
+	// Combine trail with extra bytes. If any prefix is valid UTF-8,
+	// the trail was boundary-truncated → safe to trim.
+	combined := make([]byte, len(trail)+len(extra))
+	copy(combined, trail)
+	copy(combined[len(trail):], extra)
+
+	for k := len(trail) + 1; k <= len(combined); k++ {
+		if utf8.Valid(combined[:k]) {
+			return data[:split]
 		}
 	}
 
+	// Trail cannot be completed by extra — genuinely invalid → keep.
 	return data
 }
