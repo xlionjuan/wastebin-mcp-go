@@ -185,6 +185,13 @@ func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err err
 
 	resolved, err := filepath.EvalSymlinks(normalized)
 	if err != nil {
+		// When ALLOWED_PATHS is configured, don't leak whether a
+		// path outside the sandbox exists or is accessible — the
+		// caller might probe arbitrary paths.
+		if len(cfg.AllowedPaths) > 0 {
+			return "", errFilePathCannotBeUsed
+		}
+
 		if os.IsNotExist(err) {
 			return "", fmt.Errorf("%w: %w", errPathNotFound, err)
 		}

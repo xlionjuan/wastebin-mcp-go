@@ -303,7 +303,9 @@ These errors are returned from the `create_paste` handler and always follow the
 | File path rejected by built-in blocklist (sensitive component) | `"Create paste error: file path contains a blocked component (<name>)"` |
 | File path rejected by user blocklist | `"Create paste error: file path is in a user-blocked directory"` |
 | File is binary or non-UTF-8 | `"Create paste error: file is binary or not valid UTF-8 text"` |
-| File cannot be read (not found, permissions, symlink error) | `"Create paste error: file path cannot be used"` |
+| File does not exist | `"Create paste error: file path not found"` |
+| Permission denied accessing file path | `"Create paste error: permission denied for file path"` |
+| File cannot be read (symlink error, other I/O error) | `"Create paste error: file path cannot be used"` |
 
 **Sandbox errors (only when sandbox mounts are configured):**
 

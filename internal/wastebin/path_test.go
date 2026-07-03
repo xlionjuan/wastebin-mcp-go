@@ -1222,7 +1222,7 @@ func TestValidateFilePath_NotFound(t *testing.T) {
 
 	cfg := &Config{}
 
-	_, err := validateFilePath("/tmp/nonexistent-file-12345-xyz", cfg)
+	_, err := validateFilePath(filepath.Join(t.TempDir(), "missing"), cfg)
 	if err == nil {
 		t.Fatal("expected error for nonexistent path, got nil")
 	}
