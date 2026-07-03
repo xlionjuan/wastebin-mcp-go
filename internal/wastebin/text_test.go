@@ -231,3 +231,68 @@ func TestIsLikelyTextFile_BinaryFile(t *testing.T) {
 		t.Error("expected binary file to not be likely text")
 	}
 }
+
+func TestIsLikelyText_PDFMagic(t *testing.T) {
+	t.Parallel()
+	// PDF files start with %PDF — should be rejected as binary.
+	data := append([]byte("%PDF-1.4\n"), []byte("some text content that would otherwise pass")...)
+	if IsLikelyText(data) {
+		t.Error("expected PDF magic bytes to be rejected as binary")
+	}
+}
+
+func TestIsLikelyText_PNGMagic(t *testing.T) {
+	t.Parallel()
+	// PNG files start with \x89PNG\r\n\x1a\n — should be rejected as binary.
+	data := []byte("\x89PNG\r\n\x1a\n")
+
+	data = append(data, []byte("padding to make the buffer larger")...)
+	if IsLikelyText(data) {
+		t.Error("expected PNG magic bytes to be rejected as binary")
+	}
+}
+
+func TestIsLikelyText_ZIPMagic(t *testing.T) {
+	t.Parallel()
+	// ZIP files (and .docx, .jar etc.) start with PK — should be rejected.
+	data := append([]byte("PK\x03\x04"), []byte("some padded content that could be valid UTF-8 trailing data")...)
+	if IsLikelyText(data) {
+		t.Error("expected ZIP magic bytes to be rejected as binary")
+	}
+}
+
+func TestIsLikelyText_GZipMagic(t *testing.T) {
+	t.Parallel()
+	// GZip files start with \x1f\x8b — should be rejected.
+	data := append([]byte("\x1f\x8b\x08"), []byte("some padded content that could be valid UTF-8 trailing data")...)
+	if IsLikelyText(data) {
+		t.Error("expected GZip magic bytes to be rejected as binary")
+	}
+}
+
+func TestIsLikelyText_ELFMagic(t *testing.T) {
+	t.Parallel()
+	// ELF files start with \x7fELF — should be rejected.
+	data := append([]byte("\x7fELF\x02\x01\x01\x00"), []byte("trailing data to make it larger")...)
+	if IsLikelyText(data) {
+		t.Error("expected ELF magic bytes to be rejected as binary")
+	}
+}
+
+func TestIsLikelyText_StartsWithPButNotPDF(t *testing.T) {
+	t.Parallel()
+	// Text starting with 'P' but not '%PDF' should still pass.
+	data := []byte("Plain text file starting with P\nMore content here to fill up the buffer\n")
+	if !IsLikelyText(data) {
+		t.Error("expected text starting with 'P' (not %PDF) to be likely text")
+	}
+}
+
+func TestIsLikelyText_StartsWithPercentButNotPDF(t *testing.T) {
+	t.Parallel()
+	// Text starting with '%' but not '%PDF' should still pass.
+	data := []byte("% Comment line in a text file\nMore valid UTF-8 Content.\n")
+	if !IsLikelyText(data) {
+		t.Error("expected text starting with '%%' (not %%PDF) to be likely text")
+	}
+}
