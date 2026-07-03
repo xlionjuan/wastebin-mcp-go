@@ -824,7 +824,7 @@ func TestCreatePaste_FileMode_StatError(t *testing.T) {
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	// File doesn't exist yet — should get errFilePathCannotBeUsed.
+	// File doesn't exist yet — should get errPathNotFound.
 	nonExistentPath := filepath.Join(allowedDir, "nonexistent.txt")
 
 	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
@@ -832,6 +832,61 @@ func TestCreatePaste_FileMode_StatError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for nonexistent file")
+	}
+
+	if !errors.Is(err, errPathNotFound) {
+		t.Errorf("expected errPathNotFound, got: %v", err)
+	}
+}
+
+func TestCreatePaste_FileMode_OpenErrorAfterValidation(t *testing.T) {
+	t.Parallel()
+
+	// Skip if running as root — root bypasses permission checks.
+	if os.Getuid() == 0 {
+		t.Skip("skipping permission denied test: running as root")
+	}
+
+	tmpDir := t.TempDir()
+
+	allowedDir := filepath.Join(tmpDir, "allowed")
+
+	err := os.Mkdir(allowedDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	filePath := filepath.Join(allowedDir, "noperm.txt")
+
+	err = os.WriteFile(filePath, []byte("hello"), 0o000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Ensure parent dir is traversable for cleanup.
+	t.Cleanup(func() {
+		chmodErr := os.Chmod(allowedDir, 0o700) //nolint:gosec // Restoring permissions for cleanup; test-only.
+		if chmodErr != nil {
+			t.Logf("failed to chmod allowed dir during cleanup: %v", chmodErr)
+		}
+	})
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.AllowedPaths = []string{allowedDir}
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	// File exists and is under ALLOWED_PATHS, so validateFilePath passes.
+	// But openFileResolved fails because the file is chmod 000.
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		FilePath: &filePath,
+	})
+	if err == nil {
+		t.Fatal("expected error for unreadable file, got nil")
 	}
 
 	if !errors.Is(err, errFilePathCannotBeUsed) {

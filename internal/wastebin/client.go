@@ -391,13 +391,13 @@ func (c *WastebinClient) readFileContent(
 	//    a post-validation symlink swap cannot cause a blocked-path read.
 	f, openErr := openFileResolved(resolvedPath, c.config.AllowedPaths)
 	if openErr != nil {
-		return "", "", errFilePathCannotBeUsed
+		return "", "", fmt.Errorf("%w: %w", errFilePathCannotBeUsed, openErr)
 	}
 	defer f.Close() //nolint:errcheck // Read-only file; close error non-critical
 
 	fi, statErr := f.Stat()
 	if statErr != nil {
-		return "", "", errFilePathCannotBeUsed
+		return "", "", fmt.Errorf("%w: %w", errFilePathCannotBeUsed, statErr)
 	}
 
 	// Reject non-regular files — ensures the opened object is a plain
@@ -414,7 +414,7 @@ func (c *WastebinClient) readFileContent(
 
 	data, readErr := io.ReadAll(io.LimitReader(f, c.config.MaxContentSize+1))
 	if readErr != nil {
-		return "", "", errFilePathCannotBeUsed
+		return "", "", fmt.Errorf("%w: %w", errFilePathCannotBeUsed, readErr)
 	}
 
 	// Post-read size check — catches the case where LimitReader truncated
