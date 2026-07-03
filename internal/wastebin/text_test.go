@@ -212,6 +212,70 @@ func TestIsLikelyTextFile_TextFile(t *testing.T) {
 	}
 }
 
+func TestIsLikelyTextFile_UTF8TruncationFalsePositive(t *testing.T) {
+	t.Parallel()
+
+	// File with multi-byte UTF-8 character spanning bytes 8191-8193 (3-byte sequence).
+	// Without the fix, IsLikelyTextFile reads exactly 8192 bytes, truncating the
+	// sequence, and utf8.Valid fails. With sniffSize+utf8.UTFMax read buffer, the
+	// extra bytes guarantee the sequence is complete.
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "utf8_boundary.txt")
+
+	data := make([]byte, 8194)
+	for i := range 8191 {
+		data[i] = 'A'
+	}
+	// U+4E2D (中) in UTF-8: 0xE4 0xB8 0xAD
+	data[8191] = 0xE4
+	data[8192] = 0xB8
+	data[8193] = 0xAD
+
+	err := os.WriteFile(filePath, data, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := IsLikelyTextFile(filePath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !result {
+		t.Error("expected UTF-8 text with multi-byte char at sniff boundary to be likely text")
+	}
+}
+
+func TestIsLikelyTextFile_InvalidUTF8AtSniffBoundary(t *testing.T) {
+	t.Parallel()
+
+	// Exactly sniffSize (8192) bytes with a lone continuation byte (0xB8) at the end.
+	// This is invalid UTF-8 and should be rejected (not crash).
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "bad_utf8.txt")
+
+	data := make([]byte, sniffSize)
+	for i := range sniffSize - 1 {
+		data[i] = 'A'
+	}
+	// Lone continuation byte at the last position: invalid UTF-8.
+	data[sniffSize-1] = 0xB8
+
+	err := os.WriteFile(filePath, data, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := IsLikelyTextFile(filePath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result {
+		t.Error("expected invalid UTF-8 (lone continuation byte) to not be likely text")
+	}
+}
+
 func TestIsLikelyTextFile_BinaryFile(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
