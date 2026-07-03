@@ -65,5 +65,41 @@ func IsLikelyTextFile(path string) (bool, error) {
 		return false, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	return IsLikelyText(buf[:n]), nil
+	data := buf[:n]
+
+	// Trim trailing incomplete UTF-8 bytes. When a file is larger than
+	// sniffSize, a multi-byte rune may straddle the boundary, leaving
+	// the buffer with a truncated trailing sequence that would cause
+	// utf8.Valid to fail. Walk backward from the end, dropping
+	// continuation bytes and incomplete start bytes until the buffer
+	// is valid (or we hit the trim limit).
+	for i := 0; i < utf8.UTFMax && len(data) > 0; i++ {
+		if utf8.Valid(data) {
+			break
+		}
+
+		lastByte := data[len(data)-1]
+
+		// ASCII byte at end: the invalidity is elsewhere and
+		// cannot be fixed by trailing trim.
+		if lastByte < 0x80 { //nolint:mnd // ASCII upper bound
+			break
+		}
+
+		// Continuation bytes (10xxxxxx) are always trailing fragments.
+		if lastByte&0xC0 == 0x80 { //nolint:mnd // UTF-8 continuation byte bitmask
+			data = data[:len(data)-1]
+
+			continue
+		}
+
+		// Start byte (11xxxxxx). DecodeLastRune distinguishes complete
+		// multi-byte runes from truncated ones.
+		r, _ := utf8.DecodeLastRune(data)
+		if r == utf8.RuneError {
+			data = data[:len(data)-1]
+		}
+	}
+
+	return IsLikelyText(data), nil
 }
