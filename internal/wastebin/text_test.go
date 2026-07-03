@@ -232,6 +232,173 @@ func TestIsLikelyTextFile_BinaryFile(t *testing.T) {
 	}
 }
 
+func TestIsLikelyTextFile_UTF8CrossingSniffBoundary(t *testing.T) {
+	t.Parallel()
+
+	// 3-byte UTF-8 character (中 = 0xE4 0xB8 0xAD) straddling the
+	// 8192-byte sniff boundary. 8190 bytes of ASCII + 3-byte rune
+	// starting at byte 8190 means the last byte of the rune is at
+	// index 8192. Since the file is 8193 bytes (≤ readSize), the
+	// entire file is read (EOF) and no trimming is needed — the
+	// full rune is present in the buffer.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "utf8_boundary.txt")
+
+	data := make([]byte, 8193)
+	for i := range 8190 {
+		data[i] = 'A'
+	}
+
+	data[8190] = 0xE4
+	data[8191] = 0xB8
+	data[8192] = 0xAD
+
+	err := os.WriteFile(path, data, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ok, err := IsLikelyTextFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !ok {
+		t.Error("expected UTF-8 file with rune straddling sniff boundary to be likely text")
+	}
+}
+
+func TestIsLikelyTextFile_EmojiCrossingSniffBoundary(t *testing.T) {
+	t.Parallel()
+
+	// 4-byte emoji (🔥 = 0xF0 0x9F 0x94 0xA5) straddling the 8192-byte
+	// sniff boundary. 8190 bytes of ASCII + 4-byte emoji starting at
+	// byte 8190. Since the file is 8194 bytes (≤ readSize), the entire
+	// file is read (EOF) — the full emoji is present and no trimming
+	// is needed.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "emoji_boundary.txt")
+
+	data := make([]byte, 8194)
+	for i := range 8190 {
+		data[i] = 'A'
+	}
+
+	// 🔥 = F0 9F 94 A5
+	data[8190] = 0xF0
+	data[8191] = 0x9F
+	data[8192] = 0x94
+	data[8193] = 0xA5
+
+	err := os.WriteFile(path, data, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ok, err := IsLikelyTextFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !ok {
+		t.Error("expected file with emoji straddling sniff boundary to be likely text")
+	}
+}
+
+func TestIsLikelyTextFile_ExactSniffSizeWithTruncation(t *testing.T) {
+	t.Parallel()
+
+	// File of exactly 8192 bytes where the last byte is 0x80 (a lone
+	// continuation byte — invalid UTF-8 on its own). With readSize =
+	// sniffSize + utf8.UTFMax, the entire 8192-byte file is read (EOF),
+	// so no trimming is applied. 0x80 at the end makes the buffer
+	// invalid UTF-8, and the file is correctly classified as non-text.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "exact_sniff.txt")
+
+	data := make([]byte, 8192)
+	for i := range 8191 {
+		data[i] = 'A'
+	}
+
+	data[8191] = 0x80
+
+	err := os.WriteFile(path, data, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ok, err := IsLikelyTextFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ok {
+		t.Error("expected file with lone continuation byte at EOF boundary to NOT be likely text")
+	}
+}
+
+func TestIsLikelyTextFile_ValidUTF8AtExactSniffSize(t *testing.T) {
+	t.Parallel()
+
+	// File of exactly 8192 bytes with valid UTF-8 (all ASCII).
+	// No trimming should occur, and it should be identified as text.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "exact_valid.txt")
+
+	data := make([]byte, 8192)
+	for i := range data {
+		data[i] = 'A'
+	}
+
+	err := os.WriteFile(path, data, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ok, err := IsLikelyTextFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !ok {
+		t.Error("expected exactly 8192 bytes of ASCII to be likely text")
+	}
+}
+
+func TestIsLikelyTextFile_LoneContinuationByteNotCompletable(t *testing.T) {
+	t.Parallel()
+
+	// File larger than readSize (sniffSize + utf8.UTFMax). First
+	// sniffSize-1 bytes are 'A', byte sniffSize-1 is a lone 0x80
+	// (continuation byte), and everything from sniffSize onward is
+	// ASCII. The 0x80 cannot be completed by the extra bytes into
+	// valid UTF-8 — it's genuinely invalid, not boundary-truncated.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lone_cont.txt")
+
+	data := make([]byte, readSize+100)
+	for i := range data {
+		data[i] = 'A'
+	}
+
+	data[sniffSize-1] = 0x80
+
+	err := os.WriteFile(path, data, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ok, err := IsLikelyTextFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ok {
+		t.Error("expected file with lone continuation byte not completable by extra bytes to NOT be likely text")
+	}
+}
+
 // --- Magic-byte signature tests ---
 
 func TestIsLikelyText_PDFMagicBytes(t *testing.T) {
