@@ -398,3 +398,114 @@ func TestIsLikelyTextFile_LoneContinuationByteNotCompletable(t *testing.T) {
 		t.Error("expected file with lone continuation byte not completable by extra bytes to NOT be likely text")
 	}
 }
+
+// --- Magic-byte signature tests ---
+
+func TestIsLikelyText_PDFMagicBytes(t *testing.T) {
+	t.Parallel()
+	// Minimal ASCII PDF — valid UTF-8 but must be caught by magic-byte check.
+	data := []byte("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n")
+	if IsLikelyText(data) {
+		t.Error("expected PDF magic bytes to be detected as non-text")
+	}
+}
+
+func TestIsLikelyText_PNGMagicBytes(t *testing.T) {
+	t.Parallel()
+	// PNG header.
+	data := []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}
+	if IsLikelyText(data) {
+		t.Error("expected PNG magic bytes to be detected as non-text")
+	}
+}
+
+func TestIsLikelyText_ZIPLocalFileMagicBytes(t *testing.T) {
+	t.Parallel()
+	// ZIP local file header: PK\x03\x04
+	data := []byte{'P', 'K', 0x03, 0x04, 'h', 'e', 'l', 'l', 'o'}
+	if IsLikelyText(data) {
+		t.Error("expected ZIP PK\\x03\\x04 magic bytes to be detected as non-text")
+	}
+}
+
+func TestIsLikelyText_ZIPCentralDirMagicBytes(t *testing.T) {
+	t.Parallel()
+	// ZIP central directory: PK\x05\x06
+	data := []byte{'P', 'K', 0x05, 0x06, 'h', 'e', 'l', 'l', 'o'}
+	if IsLikelyText(data) {
+		t.Error("expected ZIP PK\\x05\\x06 magic bytes to be detected as non-text")
+	}
+}
+
+func TestIsLikelyText_ZIP64MagicBytes(t *testing.T) {
+	t.Parallel()
+	// ZIP64 end of central dir: PK\x07\x08
+	data := []byte{'P', 'K', 0x07, 0x08, 'h', 'e', 'l', 'l', 'o'}
+	if IsLikelyText(data) {
+		t.Error("expected ZIP PK\\x07\\x08 magic bytes to be detected as non-text")
+	}
+}
+
+func TestIsLikelyText_GZipMagicBytes(t *testing.T) {
+	t.Parallel()
+	// GZip header.
+	data := []byte{0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00}
+	if IsLikelyText(data) {
+		t.Error("expected GZip magic bytes to be detected as non-text")
+	}
+}
+
+func TestIsLikelyText_ELFMagicBytes(t *testing.T) {
+	t.Parallel()
+	// ELF header; 0x7f and ASCII are valid UTF-8, so this specifically tests
+	// the magic-byte guard (would otherwise pass UTF-8 validation).
+	data := []byte{0x7f, 'E', 'L', 'F', 0x02, 0x01, 0x01, 0x00}
+	if IsLikelyText(data) {
+		t.Error("expected ELF magic bytes to be detected as non-text")
+	}
+}
+
+// --- Edge cases: text that starts like a signature but is not binary ---
+
+func TestIsLikelyText_TextStartingWithP(t *testing.T) {
+	t.Parallel()
+	// "P" + not ZIP signature → still text.
+	data := []byte("Parking instructions for the building")
+	if !IsLikelyText(data) {
+		t.Error("expected text starting with 'P' (no ZIP sig) to be likely text")
+	}
+}
+
+func TestIsLikelyText_TextStartingWithPercent(t *testing.T) {
+	t.Parallel()
+	// "%" + not PDF signature → still text.
+	data := []byte("% discount applied to all items")
+	if !IsLikelyText(data) {
+		t.Error("expected text starting with '%' (no PDF sig) to be likely text")
+	}
+}
+
+func TestIsLikelyText_TextStartingWithPK(t *testing.T) {
+	t.Parallel()
+	// "PK" without \x03\x04, \x05\x06, or \x07\x08 is fine.
+	data := []byte("PK is a common initialism in many contexts")
+	if !IsLikelyText(data) {
+		t.Error("expected text starting with 'PK' (without ZIP sig) to be likely text")
+	}
+}
+
+func TestIsLikelyText_ShortInputNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	// Data too short for any 4-byte signature should not trigger.
+	if !IsLikelyText([]byte("PK")) {
+		t.Error("expected 2-byte 'PK' to be likely text")
+	}
+
+	if !IsLikelyText([]byte("%")) {
+		t.Error("expected 1-byte '%' to be likely text")
+	}
+
+	if !IsLikelyText([]byte("P")) {
+		t.Error("expected 1-byte 'P' to be likely text")
+	}
+}
