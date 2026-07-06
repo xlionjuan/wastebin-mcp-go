@@ -1,6 +1,12 @@
 package wastebin //nolint:testpackage // white-box tests need access to unexported functions
 
 import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -308,5 +314,391 @@ func TestNewHandler_Invalid(t *testing.T) {
 				t.Fatal("expected error, got nil")
 			}
 		})
+	}
+}
+
+func TestNewHandler_RedirectFollowed(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect/" {
+			http.Redirect(w, r, "/", http.StatusFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/REDIRECTED"})
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL + "/redirect"
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	resp, err := h.sendRequest(t.Context(), []byte(`{"text":"test"}`))
+	if err != nil {
+		t.Fatalf("sendRequest: %v", err)
+	}
+
+	if resp.Path != "/REDIRECTED" {
+		t.Errorf("expected path /REDIRECTED, got %q", resp.Path)
+	}
+}
+
+func TestNewHandler_RedirectDifferentHostBlocked(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect/" {
+			http.Redirect(w, r, "http://evil.example.com/malicious", http.StatusFound)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL + "/redirect"
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	_, err = h.sendRequest(t.Context(), []byte(`{"text":"test"}`))
+	if err == nil {
+		t.Fatal("expected redirect error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "redirect to different host") {
+		t.Errorf("expected redirect blocked error, got: %v", err)
+	}
+}
+
+func TestNewHandler_RedirectSchemeDowngradeBlocked(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect/" {
+			http.Redirect(w, r, "http://"+r.Host+"/", http.StatusFound)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL + "/redirect"
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	h.httpClient.Transport = ts.Client().Transport
+
+	_, err = h.sendRequest(t.Context(), []byte(`{"text":"test"}`))
+	if err == nil {
+		t.Fatal("expected redirect scheme downgrade error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "redirect scheme downgrade") {
+		t.Errorf("expected scheme downgrade error, got: %v", err)
+	}
+}
+
+func TestSendRequest_Success(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+
+		if r.URL.Path != "/" {
+			t.Errorf("expected /, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/ABC123"})
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	resp, err := h.sendRequest(t.Context(), []byte(`{"text":"hello"}`))
+	if err != nil {
+		t.Fatalf("sendRequest: %v", err)
+	}
+
+	if resp.Path != "/ABC123" {
+		t.Errorf("expected path /ABC123, got %q", resp.Path)
+	}
+}
+
+func TestSendRequest_NonOKResponse(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	_, err = h.sendRequest(t.Context(), []byte(`{"text":"test"}`))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "unknown HTTP error: HTTP 500") {
+		t.Errorf("expected unknown HTTP error, got: %v", err)
+	}
+}
+
+func TestSendRequest_JSONDecodeError(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{invalid json`))
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	_, err = h.sendRequest(t.Context(), []byte(`{"text":"test"}`))
+	if err == nil {
+		t.Fatal("expected error for invalid JSON response")
+	}
+
+	if !strings.Contains(err.Error(), "failed to parse Wastebin response") {
+		t.Errorf("expected parse error, got: %v", err)
+	}
+}
+
+func TestSendRequest_EmptyPathResponse(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": ""})
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	_, err = h.sendRequest(t.Context(), []byte(`{"text":"test"}`))
+	if err == nil {
+		t.Fatal("expected error for empty path response")
+	}
+
+	if !errors.Is(err, errInvalidWastebinResponse) {
+		t.Errorf("expected errInvalidWastebinResponse, got: %v", err)
+	}
+}
+
+func TestBuildRequest_WithTitle(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "https://bin.example.com"
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	title := "My Paste"
+	args := &CreatePasteArgs{Title: &title}
+
+	body, err := h.buildRequest(args, "content", "go", 3600)
+	if err != nil {
+		t.Fatalf("buildRequest: %v", err)
+	}
+
+	var parsed map[string]any
+	_ = json.Unmarshal(body, &parsed)
+
+	if parsed["title"] != "My Paste" {
+		t.Errorf("expected title 'My Paste', got %v", parsed["title"])
+	}
+
+	if parsed["text"] != "content" {
+		t.Errorf("expected text 'content', got %v", parsed["text"])
+	}
+}
+
+func TestBuildRequest_WithBurnAfterReading(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "https://bin.example.com"
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	burn := true
+	args := &CreatePasteArgs{BurnAfterReading: &burn}
+
+	body, err := h.buildRequest(args, "content", "go", 0)
+	if err != nil {
+		t.Fatalf("buildRequest: %v", err)
+	}
+
+	var parsed map[string]any
+	_ = json.Unmarshal(body, &parsed)
+
+	if parsed["burn_after_reading"] != true {
+		t.Errorf("expected burn_after_reading=true, got %v", parsed["burn_after_reading"])
+	}
+}
+
+func TestBuildRequest_PasswordLoopback(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		// Not reached — testing buildRequest only.
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	password := "hunter2"
+	args := &CreatePasteArgs{Password: &password}
+
+	body, err := h.buildRequest(args, "secret", "go", 0)
+	if err != nil {
+		t.Fatalf("buildRequest: %v", err)
+	}
+
+	var parsed map[string]any
+	_ = json.Unmarshal(body, &parsed)
+
+	if parsed["password"] != "hunter2" {
+		t.Errorf("expected password 'hunter2', got %v", parsed["password"])
+	}
+}
+
+func TestBuildRequest_PasswordNonLoopbackRejected(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://wastebin.example.com:8080"
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	password := "hunter2"
+	args := &CreatePasteArgs{Password: &password}
+
+	_, err = h.buildRequest(args, "secret", "go", 0)
+	if err == nil {
+		t.Fatal("expected error for password over non-loopback HTTP")
+	}
+
+	if !errors.Is(err, errPasswordOverHTTP) {
+		t.Errorf("expected errPasswordOverHTTP, got: %v", err)
+	}
+}
+
+func TestReadFileContent_NonRegularNoAllowedPaths(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	_, _, err = h.readFileContent(tmpDir, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for non-regular path, got nil")
+	}
+
+	if !errors.Is(err, errFilePathCannotBeUsed) {
+		t.Errorf("expected errFilePathCannotBeUsed, got: %v", err)
+	}
+}
+
+func TestReadFileContent_InvalidExtensionRejected(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	filePath := filepath.Join(tmpDir, "test.txt")
+
+	err := os.WriteFile(filePath, []byte("hello"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.AllowedPaths = []string{tmpDir}
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	badExt := "a/b"
+	translate := false
+
+	_, _, err = h.readFileContent(filePath, &translate, &badExt)
+	if err == nil {
+		t.Fatal("expected error for invalid extension, got nil")
+	}
+
+	if !errors.Is(err, errInvalidExtension) {
+		t.Errorf("expected errInvalidExtension, got: %v", err)
 	}
 }
