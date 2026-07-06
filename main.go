@@ -30,7 +30,7 @@ var errUnexpectedArgs = errors.New("unexpected arguments")
 var errMissingContentOrFile = errors.New("either --content or --file-path must be provided")
 
 var (
-	version = "v0.12.2"
+	version = "v0.12.3"
 	commit  = "none"
 	date    = "unknown"
 )
