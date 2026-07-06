@@ -51,7 +51,7 @@ jobs:
       - name: Install Go skills for OpenCode
         env:
           # renovate: datasource=git-refs packageName=https://github.com/samber/cc-skills-golang currentValue=main
-          CC_SKILLS_GOLANG_SHA: 8b2d019212d6a5390d472a7660a8489109d7db49
+          CC_SKILLS_GOLANG_SHA: f4be06f6ba90da05d0a963fd4079a8056cee7300
         run: |
           mkdir -p "$HOME/.agents/skills"
           git init "$HOME/.agents/skills/cc-skills-golang"
