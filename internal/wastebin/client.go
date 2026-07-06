@@ -69,7 +69,6 @@ type WastebinClient struct {
 	httpClient *http.Client
 	config     *Config
 	postURL    string
-	blocklist  BlocklistStages
 }
 
 // wastebinRequest is the JSON body sent to the Wastebin API.
@@ -90,25 +89,9 @@ type wastebinResponse struct {
 
 // NewWastebinClient creates a new client from Config.
 func NewWastebinClient(cfg *Config) (*WastebinClient, error) {
-	if cfg == nil {
-		return nil, errConfigRequired
-	}
-
-	if cfg.ServerURL == "" {
-		return nil, errServerURLRequired
-	}
-
-	baseURL, err := url.Parse(cfg.ServerURL)
+	baseURL, err := validateServerURL(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("invalid server URL: %w", err)
-	}
-
-	if baseURL.Scheme != "http" && baseURL.Scheme != "https" {
-		return nil, errUnsupportedURLScheme
-	}
-
-	if baseURL.Host == "" {
-		return nil, errURLMissingHost
+		return nil, err
 	}
 
 	httpClient := newHTTPClient()
@@ -124,7 +107,6 @@ func NewWastebinClient(cfg *Config) (*WastebinClient, error) {
 		httpClient: httpClient,
 		config:     &cfgCopy,
 		postURL:    baseURL.JoinPath("/").String(),
-		blocklist:  newBlocklistStages(cfgCopy.DisableBuiltinBlocklist),
 	}, nil
 }
 
@@ -332,6 +314,33 @@ func isLoopbackHost(hostPort string) bool {
 	}
 
 	return ip.IsLoopback()
+}
+
+// validateServerURL validates the configuration and parses the server URL,
+// returning the parsed URL or an appropriate sentinel error.
+func validateServerURL(cfg *Config) (*url.URL, error) {
+	if cfg == nil {
+		return nil, errConfigRequired
+	}
+
+	if cfg.ServerURL == "" {
+		return nil, errServerURLRequired
+	}
+
+	baseURL, err := url.Parse(cfg.ServerURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid server URL: %w", err)
+	}
+
+	if baseURL.Scheme != "http" && baseURL.Scheme != "https" {
+		return nil, errUnsupportedURLScheme
+	}
+
+	if baseURL.Host == "" {
+		return nil, errURLMissingHost
+	}
+
+	return baseURL, nil
 }
 
 // closeResponseBody closes the response body with debug logging on failure.

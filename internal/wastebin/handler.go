@@ -26,25 +26,9 @@ type Handler struct {
 
 // NewHandler creates a Handler with the given configuration.
 func NewHandler(cfg *Config) (*Handler, error) {
-	if cfg == nil {
-		return nil, errConfigRequired
-	}
-
-	if cfg.ServerURL == "" {
-		return nil, errServerURLRequired
-	}
-
-	baseURL, err := url.Parse(cfg.ServerURL)
+	baseURL, err := validateServerURL(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("invalid server URL: %w", err)
-	}
-
-	if baseURL.Scheme != "http" && baseURL.Scheme != "https" {
-		return nil, errUnsupportedURLScheme
-	}
-
-	if baseURL.Host == "" {
-		return nil, errURLMissingHost
+		return nil, err
 	}
 
 	return &Handler{
@@ -282,7 +266,7 @@ func (h *Handler) readFileContent(
 
 	content = string(data)
 
-	// 6. Extension.
+	// 4. Extension.
 	if extArg != nil && *extArg != "" {
 		ext, err = normalizeExtension(*extArg)
 		if err != nil {
