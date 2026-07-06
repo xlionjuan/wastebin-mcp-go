@@ -111,62 +111,6 @@ func unitMultiplier(unit string) (int, bool) {
 	}
 }
 
-// DescribeDefaultExpires returns a human-readable description of a default
-// expiration value in seconds for use in MCP tool descriptions.
-func DescribeDefaultExpires(seconds int) string {
-	if seconds == 0 {
-		return "no expiration (paste persists until manually deleted)"
-	}
-
-	years := seconds / secondsPerYear
-	r := seconds % secondsPerYear
-	days := r / secondsPerDay
-	r %= secondsPerDay
-	hours := r / secondsPerHour
-	r %= secondsPerHour
-	minutes := r / secondsPerMinute
-	secs := r % secondsPerMinute
-
-	var parts []string
-	if years == 1 {
-		parts = append(parts, "1 year")
-	} else if years > 1 {
-		parts = append(parts, fmt.Sprintf("%d years", years))
-	}
-
-	if days == 1 {
-		parts = append(parts, "1 day")
-	} else if days > 1 {
-		parts = append(parts, fmt.Sprintf("%d days", days))
-	}
-
-	if hours == 1 {
-		parts = append(parts, "1 hour")
-	} else if hours > 1 {
-		parts = append(parts, fmt.Sprintf("%d hours", hours))
-	}
-
-	if minutes == 1 {
-		parts = append(parts, "1 minute")
-	} else if minutes > 1 {
-		parts = append(parts, fmt.Sprintf("%d minutes", minutes))
-	}
-
-	if secs == 1 {
-		parts = append(parts, "1 second")
-	} else if secs > 1 {
-		parts = append(parts, fmt.Sprintf("%d seconds", secs))
-	}
-
-	if len(parts) == 0 {
-		return "0 seconds"
-	}
-
-	human := strings.Join(parts, ", ")
-
-	return fmt.Sprintf("%d seconds (%s)", seconds, human)
-}
-
 // maxExpirationSeconds is the maximum supported expiration value in seconds
 // based on Wastebin's API constraints. 0 means no expiration.
 const maxExpirationSeconds = 315360000 // 10 years
