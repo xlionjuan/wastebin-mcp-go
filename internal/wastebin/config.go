@@ -1,7 +1,6 @@
 package wastebin
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,14 +10,7 @@ import (
 	"strings"
 )
 
-// Sentinel errors for configuration validation.
-var (
-	errServerURLRequired              = errors.New("WASTEBIN_SERVER_URL is required and must not be empty")
-	errNegativeDefaultExpires         = errors.New("WASTEBIN_MCP_DEFAULT_EXPIRES cannot be negative")
-	errMaxContentSizeTooSmall         = errors.New("WASTEBIN_MCP_MAX_CONTENT_SIZE must be at least 1")
-	errInvalidDisableBuiltinBlocklist = errors.New("invalid WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST")
-	errConfiguredPathNotAbsolute      = errors.New("configured path must be absolute")
-)
+// Sentinel errors are defined in errors.go.
 
 const (
 	defaultExpirySeconds  = 31536000 // 1 year

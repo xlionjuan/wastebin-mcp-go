@@ -1,7 +1,6 @@
 package wastebin
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,7 +8,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-var errOpenEmptyPath = errors.New("open: empty relative path")
+// Sentinel errors are defined in errors.go.
 
 // openFileResolved opens a file with symlink-safe semantics:
 //   - When allowed paths are configured, uses openat(2) with O_NOFOLLOW from each

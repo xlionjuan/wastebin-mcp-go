@@ -1,18 +1,13 @@
 package wastebin
 
 import (
-	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
 )
 
-// errInvalidSandboxMount is returned when a mount string does not match host:sandbox format.
-var (
-	errInvalidSandboxMount = errors.New("invalid sandbox mount format")
-	errOverlappingMounts   = errors.New("overlapping sandbox mount paths")
-)
+// Sentinel errors are defined in errors.go.
 
 // SandboxMount maps a host path to a sandbox path.
 type SandboxMount struct {
