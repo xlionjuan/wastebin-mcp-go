@@ -11,6 +11,7 @@ wastebin-mcp-go
 
 # Output of the go coverage tool
 *.out
+coverage.*
 
 # Go workspace file
 go.work
