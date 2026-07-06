@@ -323,12 +323,17 @@ func TestNewHandler_RedirectFollowed(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/redirect/" {
 			http.Redirect(w, r, "/", http.StatusFound)
+
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/REDIRECTED"})
+
+		err := json.NewEncoder(w).Encode(map[string]string{"path": "/REDIRECTED"})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer ts.Close()
 
@@ -356,6 +361,7 @@ func TestNewHandler_RedirectDifferentHostBlocked(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/redirect/" {
 			http.Redirect(w, r, "http://evil.example.com/malicious", http.StatusFound)
+
 			return
 		}
 
@@ -386,7 +392,8 @@ func TestNewHandler_RedirectSchemeDowngradeBlocked(t *testing.T) {
 
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/redirect/" {
-			http.Redirect(w, r, "http://"+r.Host+"/", http.StatusFound)
+			http.Redirect(w, r, "http://"+r.Host+"/", http.StatusFound) //nolint:gosec // intentional redirect test
+
 			return
 		}
 
@@ -428,7 +435,11 @@ func TestSendRequest_Success(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{"path": "/ABC123"})
+
+		err := json.NewEncoder(w).Encode(map[string]string{"path": "/ABC123"})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer ts.Close()
 
@@ -482,7 +493,11 @@ func TestSendRequest_JSONDecodeError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{invalid json`))
+
+		_, err := w.Write([]byte(`{invalid json`))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer ts.Close()
 
@@ -510,7 +525,11 @@ func TestSendRequest_EmptyPathResponse(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{"path": ""})
+
+		err := json.NewEncoder(w).Encode(map[string]string{"path": ""})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer ts.Close()
 
@@ -552,7 +571,11 @@ func TestBuildRequest_WithTitle(t *testing.T) {
 	}
 
 	var parsed map[string]any
-	_ = json.Unmarshal(body, &parsed)
+
+	err = json.Unmarshal(body, &parsed)
+	if err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 
 	if parsed["title"] != "My Paste" {
 		t.Errorf("expected title 'My Paste', got %v", parsed["title"])
@@ -583,7 +606,11 @@ func TestBuildRequest_WithBurnAfterReading(t *testing.T) {
 	}
 
 	var parsed map[string]any
-	_ = json.Unmarshal(body, &parsed)
+
+	err = json.Unmarshal(body, &parsed)
+	if err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 
 	if parsed["burn_after_reading"] != true {
 		t.Errorf("expected burn_after_reading=true, got %v", parsed["burn_after_reading"])
@@ -615,7 +642,11 @@ func TestBuildRequest_PasswordLoopback(t *testing.T) {
 	}
 
 	var parsed map[string]any
-	_ = json.Unmarshal(body, &parsed)
+
+	err = json.Unmarshal(body, &parsed)
+	if err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 
 	if parsed["password"] != "hunter2" {
 		t.Errorf("expected password 'hunter2', got %v", parsed["password"])
