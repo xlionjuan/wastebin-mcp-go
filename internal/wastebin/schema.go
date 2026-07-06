@@ -179,10 +179,6 @@ func DescribeDefaultExpires(seconds int) string {
 		parts = append(parts, fmt.Sprintf("%d seconds", secs))
 	}
 
-	if len(parts) == 0 {
-		return "0 seconds"
-	}
-
 	human := strings.Join(parts, ", ")
 
 	return fmt.Sprintf("%d seconds (%s)", seconds, human)
