@@ -13,34 +13,7 @@ import (
 	"time"
 )
 
-// Sentinel errors for the WastebinClient.
-var (
-	errBothContentAndFilePath     = errors.New("provide either 'content' or 'file_path', not both")
-	errNeitherContentNorFilePath  = errors.New("provide either 'content' or 'file_path'")
-	errContentEmpty               = errors.New("content cannot be empty")
-	errContentTooLarge            = errors.New("content exceeds the maximum allowed size")
-	errServerRejected             = errors.New("server rejected the request; content may contain disallowed data")
-	errContentTooLargeServer      = errors.New("content exceeds the server's maximum allowed size")
-	errUnknownHTTP                = errors.New("unknown HTTP error")
-	errFileNotText                = errors.New("file is binary or not valid UTF-8 text")
-	errServerValidation           = errors.New("server rejected the request due to a validation error")
-	errConfigRequired             = errors.New("config is required")
-	errUnsupportedURLScheme       = errors.New("server URL must use http or https scheme")
-	errURLMissingHost             = errors.New("server URL must include a host")
-	errTooManyRedirects           = errors.New("stopped after 10 redirects")
-	errRedirectDifferentHost      = errors.New("redirect to different host blocked")
-	errRedirectSchemeDowngrade    = errors.New("redirect scheme downgrade from https to http blocked")
-	errSandboxTranslationNoMounts = errors.New("sandbox path translation requested but no mounts configured")
-	errSandboxTranslationNoMatch  = errors.New("sandbox path does not match any configured mount")
-	errFileReadDisabled           = errors.New("file read is disabled by configuration")
-	errInvalidExtension           = errors.New("extension contains invalid path or query characters")
-	errInvalidWastebinResponse    = errors.New("invalid Wastebin response")
-	errPasswordOverHTTP           = errors.New(
-		"password-protected pastes are not allowed over non-loopback HTTP " +
-			"connections; use HTTPS or set " +
-			"WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD=true for local development",
-	)
-)
+// Sentinel errors are defined in errors.go.
 
 // HTTP transport defaults.
 const (

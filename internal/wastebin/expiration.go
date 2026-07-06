@@ -1,20 +1,12 @@
 package wastebin
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 )
 
-// Sentinel errors for expiration parsing.
-var (
-	errNegativeExpiration    = errors.New("expiration cannot be negative")
-	errUnknownExpirationUnit = errors.New("unknown expiration unit")
-	errInvalidExpirationFmt  = errors.New("invalid expiration format")
-	errExpirationOverflow    = errors.New("expiration overflow")
-	errExpirationTooLarge    = errors.New("expiration exceeds maximum supported value")
-)
+// Sentinel errors are defined in errors.go.
 
 // ParseExpiration parses an expiration string to seconds.
 // Bare number -> seconds.

@@ -1,7 +1,6 @@
 package wastebin
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,17 +8,7 @@ import (
 	"strings"
 )
 
-// Stage-specific sentinel errors for the path validation pipeline.
-var (
-	errPathTraversal           = errors.New("path traversal is not allowed")
-	errPathNotAllowed          = errors.New("file path is not under any allowed path")
-	errBuiltinBlockedPrefix    = errors.New("file path is in a blocked system directory")
-	errBuiltinBlockedComponent = errors.New("file path contains a blocked component")
-	errUserBlockedPath         = errors.New("file path is in a user-blocked directory")
-	errFilePathCannotBeUsed    = errors.New("file path cannot be used")
-	errPathNotFound            = errors.New("file path not found")
-	errPathPermissionDenied    = errors.New("permission denied for file path")
-)
+// Sentinel errors are defined in errors.go.
 
 // builtinBlockedPrefixes are absolute path prefixes blocked by default.
 var builtinBlockedPrefixes = []string{"/etc", "/proc", "/sys", "/dev"}
