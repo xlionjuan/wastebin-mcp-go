@@ -73,6 +73,7 @@ type WastebinClient struct {
 	httpClient *http.Client
 	config     *Config
 	postURL    string
+	blocklist  BlocklistStages
 }
 
 // wastebinRequest is the JSON body sent to the Wastebin API.
@@ -158,6 +159,7 @@ func NewWastebinClient(cfg *Config) (*WastebinClient, error) {
 		httpClient: httpClient,
 		config:     &cfgCopy,
 		postURL:    baseURL.JoinPath("/").String(),
+		blocklist:  newBlocklistStages(cfgCopy.DisableBuiltinBlocklist),
 	}, nil
 }
 
@@ -334,7 +336,40 @@ func shouldTranslateSandboxPath(cfg *Config, requested *bool) bool {
 
 // readFileContent reads file content from the given path, handling sandbox
 // translation, path validation, text detection, and extension detection.
-//
+func (c *WastebinClient) doSandboxTranslation(
+	resolvedPath, filePath string, translateSandboxPath *bool,
+) (string, error) {
+	if !shouldTranslateSandboxPath(c.config, translateSandboxPath) {
+		return resolvedPath, nil
+	}
+
+	if hasPathTraversal(resolvedPath) {
+		return "", errPathTraversal
+	}
+
+	if c.blocklist.rawComponent != nil {
+		_, err := c.blocklist.rawComponent(resolvedPath)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	translator := NewTranslator(c.config.SandboxMounts)
+
+	translated, ok := translator.Translate(resolvedPath)
+	if !ok {
+		return "", fmt.Errorf("%w: %s", errSandboxTranslationNoMatch, filePath)
+	}
+
+	if !isUnderMountHost(translated, c.config.SandboxMounts) {
+		return "", errPathTraversal
+	}
+
+	slog.Debug("translated sandbox path", "from", resolvedPath, "to", translated)
+
+	return translated, nil
+}
+
 //nolint:nonamedreturns // Both returns are string — named disambiguates.
 func (c *WastebinClient) readFileContent(
 	filePath string, translateSandboxPath *bool, extArg *string,
@@ -346,37 +381,9 @@ func (c *WastebinClient) readFileContent(
 		return "", "", errSandboxTranslationNoMounts
 	}
 
-	if shouldTranslateSandboxPath(c.config, translateSandboxPath) {
-		// Check path traversal on the original sandbox path BEFORE any
-		// translation occurs. Translate uses filepath.Join which normalizes
-		// ".." out of the result, so we must catch traversal here first.
-		if hasPathTraversal(resolvedPath) {
-			return "", "", errPathTraversal
-		}
-
-		// Check blocked components on the original sandbox path BEFORE
-		// translation. The translated host path may resolve a symlinked
-		// blocked component (e.g. .ssh -> realssh), losing the evidence.
-		if reason, blocked := hasComponentBlocked(resolvedPath); blocked && !c.config.DisableBuiltinBlocklist {
-			return "", "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
-		}
-
-		translator := NewTranslator(c.config.SandboxMounts)
-
-		translated, ok := translator.Translate(resolvedPath)
-		if !ok {
-			return "", "", fmt.Errorf("%w: %s", errSandboxTranslationNoMatch, filePath)
-		}
-
-		// Defense-in-depth: verify the translated path is still under
-		// a configured mount's host root. Prevents any filepath.Join
-		// normalization from escaping the intended sandbox scope.
-		if !isUnderMountHost(translated, c.config.SandboxMounts) {
-			return "", "", errPathTraversal
-		}
-
-		slog.Debug("translated sandbox path", "from", resolvedPath, "to", translated)
-		resolvedPath = translated
+	resolvedPath, err = c.doSandboxTranslation(resolvedPath, filePath, translateSandboxPath)
+	if err != nil {
+		return "", "", err
 	}
 
 	// 2. Validate path through the five-stage pipeline.
