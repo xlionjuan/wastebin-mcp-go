@@ -73,6 +73,7 @@ type WastebinClient struct {
 	httpClient *http.Client
 	config     *Config
 	postURL    string
+	blocklist  BlocklistStages
 }
 
 // wastebinRequest is the JSON body sent to the Wastebin API.
@@ -158,6 +159,7 @@ func NewWastebinClient(cfg *Config) (*WastebinClient, error) {
 		httpClient: httpClient,
 		config:     &cfgCopy,
 		postURL:    baseURL.JoinPath("/").String(),
+		blocklist:  newBlocklistStages(cfgCopy.DisableBuiltinBlocklist),
 	}, nil
 }
 
@@ -357,8 +359,11 @@ func (c *WastebinClient) readFileContent(
 		// Check blocked components on the original sandbox path BEFORE
 		// translation. The translated host path may resolve a symlinked
 		// blocked component (e.g. .ssh -> realssh), losing the evidence.
-		if reason, blocked := hasComponentBlocked(resolvedPath); blocked && !c.config.DisableBuiltinBlocklist {
-			return "", "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+		if c.blocklist.rawComponent != nil {
+			_, err = c.blocklist.rawComponent(resolvedPath)
+			if err != nil {
+				return "", "", err
+			}
 		}
 
 		translator := NewTranslator(c.config.SandboxMounts)
