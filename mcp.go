@@ -22,146 +22,20 @@ import (
 // buildPasteSchema generates the JSON Schema for the create_paste tool input
 // dynamically based on the server configuration.
 func buildPasteSchema(cfg *wastebin.Config) (json.RawMessage, error) {
-	props := map[string]any{}
-
-	var required []string
-
-	// content — always included
-	contentDesc := "The text content of the paste. Provide this OR file_path (not both)."
-	if cfg.FileReadEnabled {
-		contentDesc += " When file_path is provided instead, this field is not needed."
-	}
-
-	props["content"] = map[string]any{
-		"type":        "string",
-		"description": contentDesc,
-	}
-
-	if !cfg.FileReadEnabled {
-		required = append(required, "content")
-	}
-
-	// file_path — only when FileReadEnabled
-	if cfg.FileReadEnabled {
-		filePathDesc := "Path to a local file to read and upload as paste content. " +
-			"Provide this OR content (not both). The file must be a text file."
-
-		if len(cfg.SandboxMounts) > 0 && !cfg.SandboxTransparent {
-			filePathDesc += " Sandbox path translation is available: when " +
-				"`translate_sandbox_path` is set to `true`, the path is " +
-				"translated to the corresponding host path."
-		}
-
-		if len(cfg.AllowedPaths) > 0 {
-			filePathDesc += " SECURITY: Only paths under ALLOWED_PATHS are accepted."
-		} else {
-			filePathDesc += " SECURITY: Paths pass through the built-in and user blocklist pipeline."
-		}
-
-		filePathDesc += " Blocked system paths (/etc, /proc, /sys, /dev by default) are rejected."
-
-		props["file_path"] = map[string]any{
-			"type":        "string",
-			"description": filePathDesc,
-		}
-	}
-
-	// extension — optional
-	props["extension"] = map[string]any{
-		"type": "string",
-		"description": "File extension for syntax highlighting (e.g. 'go', 'py', 'js', " +
-			"'md'). When using file_path, the extension is detected from the " +
-			"file name if not provided.",
-	}
-
-	// expires — optional
-	defaultExpiresDesc := wastebin.DescribeDefaultExpires(cfg.DefaultExpires)
-	props["expires"] = map[string]any{
-		"type": "string",
-		"description": "Expiration time: bare number (seconds) or number plus unit " +
-			"suffix (s, m, h, d, w, M=30d, y=365d). Examples: '3600', '1h', " +
-			"'7d', '30M'. Defaults to " + defaultExpiresDesc + ". " +
-			"Configured via WASTEBIN_MCP_DEFAULT_EXPIRES.",
-	}
-
-	// title — optional
-	props["title"] = map[string]any{
-		"type":        "string",
-		"description": "Optional title for the paste.",
-	}
-
-	// burn_after_reading — optional
-	props["burn_after_reading"] = map[string]any{
-		"type": "boolean",
-		"description": "If true, the paste is deleted automatically after being " +
-			"retrieved via any access method (raw, web, API) for the first " +
-			"time. The agent's own reads also count — creating a " +
-			"burn-after-reading paste and then reading it back will delete it.",
-	}
-
-	// password — optional
-	props["password"] = map[string]any{
-		"type": "string",
-		"description": "Optional password to protect the paste. " +
-			"Password-protected pastes require the Wastebin-Password header for retrieval.",
-	}
-
-	// translate_sandbox_path — only when mounts configured and not transparent
-	if cfg.FileReadEnabled && len(cfg.SandboxMounts) > 0 && !cfg.SandboxTransparent {
-		props["translate_sandbox_path"] = map[string]any{
-			"type": "boolean",
-			"description": "Set to true if file_path is a sandbox-internal " +
-				"path that should be translated to the corresponding host " +
-				"path using configured sandbox mounts.",
-		}
-	}
-
-	schema := map[string]any{
-		"type":                 "object",
-		"properties":           props,
-		"additionalProperties": false,
-	}
-
-	if len(required) > 0 {
-		schema["required"] = required
-	}
-
-	data, err := json.Marshal(schema)
-	if err != nil {
-		return nil, fmt.Errorf("marshal paste schema: %w", err)
-	}
-
-	return json.RawMessage(data), nil
-}
-
-// buildToolDescription returns the tool-level description for create_paste.
-func buildToolDescription() string {
-	return "Create a text paste on the configured Wastebin instance. " +
-		"Use 'content' for inline text or 'file_path' to upload a local " +
-		"file (when file mode is enabled). " +
-		"Content supports multiple lines naturally — include newlines " +
-		"directly in the string value. " +
-		"The response includes 'hostname', " +
-		"'id', 'url', and 'raw' fields. Reconstruct full URLs as " +
-		"{hostname}{url} or {hostname}{raw}. " +
-		"When 'extension' is 'md' or 'markdown', a 'markdown_rendered' " +
-		"field appears with the rendered view URL. " +
-		"Password-protected pastes require the Wastebin-Password header " +
-		"for retrieval. " +
-		"File mode validates paths against an allowlist (when configured) and blocklist pipeline."
+	return wastebin.NewSchemaBuilder(cfg).BuildToolSchema()
 }
 
 // newCreatePasteTool creates the create_paste tool definition with annotations
 // marking it as non-destructive and closed-world: it only creates new pastes
 // (additive), and targets a configured Wastebin instance with scoped file
 // access rather than an open external domain.
-func newCreatePasteTool(schema json.RawMessage) *mcp.Tool {
+func newCreatePasteTool(schema json.RawMessage, description string) *mcp.Tool {
 	destructiveHint := false
 	openWorldHint := false
 
 	return &mcp.Tool{
 		Name:        "create_paste",
-		Description: buildToolDescription(),
+		Description: description,
 		InputSchema: schema,
 		Annotations: &mcp.ToolAnnotations{
 			DestructiveHint: &destructiveHint,
@@ -234,12 +108,14 @@ func runMCPMode(cfg *wastebin.Config, stdin io.Reader) error {
 		return fmt.Errorf("failed to build paste schema: %w", err)
 	}
 
+	sb := wastebin.NewSchemaBuilder(cfg)
+
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "wastebin-mcp-go",
 		Version: version,
 	}, nil)
 
-	mcp.AddTool(server, newCreatePasteTool(schema), NewCreatePasteHandler(client))
+	mcp.AddTool(server, newCreatePasteTool(schema, sb.BuildToolDescription()), NewCreatePasteHandler(client))
 
 	slog.Info("starting Wastebin MCP server")
 

@@ -47,20 +47,25 @@ func hasPathTraversal(path string) bool {
 	return false
 }
 
-// hasComponentBlocked checks the normalized raw path for blocked components.
-// This is performed before path resolution (EvalSymlinks), so it catches
-// cases where a blocked component (e.g. .ssh) is a symlink to an unaffected
-// directory name.
-func hasComponentBlocked(path string) (string, bool) {
-	normalized := normalizePath(path)
-
-	for part := range strings.SplitSeq(normalized, "/") {
-		if slices.Contains(builtinBlockedComponents, part) {
+// hasComponentBlockedIn reports whether any component of path matches the
+// given blocked components. Path is split by "/". This is the consolidated
+// component matching function that replaces the separate raw/resolved matchers.
+func hasComponentBlockedIn(path string, components []string) (string, bool) {
+	for part := range strings.SplitSeq(path, "/") {
+		if slices.Contains(components, part) {
 			return part, true
 		}
 	}
 
 	return "", false
+}
+
+// hasComponentBlocked checks the normalized raw path for blocked components.
+// This is performed before path resolution (EvalSymlinks), so it catches
+// cases where a blocked component (e.g. .ssh) is a symlink to an unaffected
+// directory name.
+func hasComponentBlocked(path string) (string, bool) {
+	return hasComponentBlockedIn(normalizePath(path), builtinBlockedComponents)
 }
 
 // isAllowedPath checks if a resolved (cleaned, absolute) path falls under
@@ -93,13 +98,7 @@ func isBuiltinBlocked(resolvedPath string) (string, bool) {
 	}
 
 	// Stage 3b: Path component match.
-	for part := range strings.SplitSeq(cleaned, string(filepath.Separator)) {
-		if slices.Contains(builtinBlockedComponents, part) {
-			return part, true
-		}
-	}
-
-	return "", false
+	return hasComponentBlockedIn(cleaned, builtinBlockedComponents)
 }
 
 // isUserBlocked checks the resolved path against the user-defined blocklist
@@ -121,21 +120,76 @@ func isUserBlocked(resolvedPath string, userBlockedPaths []string) (string, bool
 	return "", false
 }
 
-// isComponentBlocked checks the resolved path against the built-in sensitive
-// component blocklist only (Stage 3b). Unlike isBuiltinBlocked, it does NOT
-// check absolute path prefixes. This allows ALLOWED_PATHS to bypass prefix
-// checks while still blocking sensitive path components.
-func isComponentBlocked(resolvedPath string) (string, bool) {
-	cleaned := filepath.Clean(resolvedPath)
+// ──────────────────────────────────────────────
+// Blocklist pipeline types
+// ──────────────────────────────────────────────
 
-	for part := range strings.SplitSeq(cleaned, string(filepath.Separator)) {
-		if slices.Contains(builtinBlockedComponents, part) {
-			return part, true
+// Stage is a composable path validation or transformation step.
+type Stage func(path string) (string, error)
+
+// BlocklistStages holds the optional builtin blocklist validation stages.
+// When the builtin blocklist is disabled, all fields are nil and the
+// corresponding checks are skipped without branching in the validation code.
+type BlocklistStages struct {
+	rawComponent      Stage // Stage 1b: pre-resolution component check
+	resolvedComponent Stage // Stage 2/3b: post-resolution component-only check
+	builtinFull       Stage // Stage 3: post-resolution prefix + component check
+}
+
+// newBlocklistStages creates blocklist stages from the disable flag.
+// This is the only place DisableBuiltinBlocklist is consumed.
+func newBlocklistStages(disabled bool) BlocklistStages {
+	if disabled {
+		return BlocklistStages{}
+	}
+
+	return BlocklistStages{
+		rawComponent:      stageRawComponentBlocked,
+		resolvedComponent: stageResolvedComponentBlocked,
+		builtinFull:       stageBuiltinBlocked,
+	}
+}
+
+// stageRawComponentBlocked checks the normalized raw path for blocked
+// components. Used as Stage 1b (pre-resolution).
+func stageRawComponentBlocked(path string) (string, error) {
+	if reason, blocked := hasComponentBlockedIn(normalizePath(path), builtinBlockedComponents); blocked {
+		return "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+	}
+
+	return path, nil
+}
+
+// stageResolvedComponentBlocked checks the cleaned resolved path for blocked
+// components. Used as the component check inside ALLOWED_PATHS (Stage 2).
+func stageResolvedComponentBlocked(path string) (string, error) {
+	if reason, blocked := hasComponentBlockedIn(filepath.Clean(path), builtinBlockedComponents); blocked {
+		return "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+	}
+
+	return path, nil
+}
+
+// stageBuiltinBlocked checks the resolved path against the full builtin
+// blocklist (prefixes + components). Used as Stage 3.
+func stageBuiltinBlocked(path string) (string, error) {
+	reason, blocked := isBuiltinBlocked(path)
+	if !blocked {
+		return path, nil
+	}
+
+	for _, prefix := range builtinBlockedPrefixes {
+		if reason == filepath.Clean(prefix) {
+			return "", fmt.Errorf("%w (%s)", errBuiltinBlockedPrefix, reason)
 		}
 	}
 
-	return "", false
+	return "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
 }
+
+// ──────────────────────────────────────────────
+// validateFilePath
+// ──────────────────────────────────────────────
 
 // validateFilePath runs the five-stage path validation pipeline:
 //
@@ -144,8 +198,7 @@ func isComponentBlocked(resolvedPath string) (string, bool) {
 //	Stage 2: ALLOWED_PATHS check — if configured and path is under one,
 //	         the prefix blocklist and user blocklist are bypassed, but the
 //	         sensitive component blocklist (Stage 3b) is still enforced.
-//	Stage 3: BUILT-IN BLOCKLIST check (prefix + component) — unless
-//	         cfg.DisableBuiltinBlocklist is true.
+//	Stage 3: BUILT-IN BLOCKLIST check (prefix + component).
 //	Stage 4: USER BLOCKLIST check (WASTEBIN_MCP_BLOCKED_PATHS).
 //
 // Stages 1a and 1b run on the path as received. For sandbox paths, the caller
@@ -155,6 +208,10 @@ func isComponentBlocked(resolvedPath string) (string, bool) {
 //
 //nolint:nonamedreturns // Named returns improve godoc clarity
 func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err error) {
+	// Build blocklist stages from config. DisableBuiltinBlocklist is consumed
+	// here — the stages are either present or absent.
+	blk := newBlocklistStages(cfg.DisableBuiltinBlocklist)
+
 	// Stage 1a: Path traversal detection on the raw input.
 	if hasPathTraversal(rawPath) {
 		return "", errPathTraversal
@@ -163,9 +220,10 @@ func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err err
 	// Stage 1b: Sensitive component detection on the raw input, before
 	// symlink resolution. This catches symlinked blocked components
 	// (e.g. .ssh -> realssh) that would disappear after resolution.
-	if !cfg.DisableBuiltinBlocklist {
-		if reason, blocked := hasComponentBlocked(rawPath); blocked {
-			return "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+	if blk.rawComponent != nil {
+		_, err = blk.rawComponent(rawPath)
+		if err != nil {
+			return "", err
 		}
 	}
 
@@ -208,9 +266,10 @@ func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err err
 
 		// ALLOWED_PATHS bypasses the prefix blocklist and user blocklist,
 		// but not the sensitive component blocklist.
-		if !cfg.DisableBuiltinBlocklist {
-			if reason, blocked := isComponentBlocked(resolvedPath); blocked {
-				return "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+		if blk.resolvedComponent != nil {
+			_, err = blk.resolvedComponent(resolvedPath)
+			if err != nil {
+				return "", err
 			}
 		}
 
@@ -218,17 +277,10 @@ func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err err
 	}
 
 	// Stage 3: BUILT-IN BLOCKLIST.
-	if !cfg.DisableBuiltinBlocklist {
-		if reason, blocked := isBuiltinBlocked(resolvedPath); blocked {
-			// Determine whether it was a prefix or component match.
-			for _, prefix := range builtinBlockedPrefixes {
-				if reason == filepath.Clean(prefix) || reason == prefix {
-					return "", fmt.Errorf("%w (%s)", errBuiltinBlockedPrefix, reason)
-				}
-			}
-
-			// If not matched by prefix, it's a component match.
-			return "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+	if blk.builtinFull != nil {
+		_, err = blk.builtinFull(resolvedPath)
+		if err != nil {
+			return "", err
 		}
 	}
 
