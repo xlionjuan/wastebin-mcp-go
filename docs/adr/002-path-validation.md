@@ -171,11 +171,22 @@ Key points:
 
 ## Implementation notes
 
-- There are now five stages (1a, 1b, 2, 3, 4). Stage 1b checks the raw,
+- There are five stages (1a, 1b, 2, 3, 4). Stage 1b checks the raw,
   un-resolved path for blocked components, while Stage 3b repeats the same
   check on the resolved path for defense in depth.
-- `hasComponentBlocked` performs the pre-resolution check by operating on
-  forward-slash-normalized strings instead of OS-separator-split paths.
+- Builtin blocklist stages are composed via the `BlocklistStages` type, which
+  holds optional `Stage` closures. `DisableBuiltinBlocklist` is consumed exactly
+  at the point of pipeline construction (`newBlocklistStages`) — the validation
+  code itself never checks the flag.
+- `Stage func(path string) (string, error)` is a composable validation step.
+  Stages are composed via `BlocklistStages` struct fields rather than a
+  `Pipeline` runner (the `Pipeline` type was dropped as dead code — stages
+  are always dispatched through their `BlocklistStages` accessor).
+- Component matching is consolidated into a single helper:
+  `hasComponentBlockedIn(path string, components []string) (string, bool)`.
+  The pre-resolution `hasComponentBlocked`, the resolved-path-only
+  `isComponentBlocked`, and the component check inside `isBuiltinBlocked` all
+  delegate to this function.
 - All stages are pure functions operating on strings/paths —
   no external dependencies.
 - The `Config` struct gains: `DisableBuiltinBlocklist bool` field.

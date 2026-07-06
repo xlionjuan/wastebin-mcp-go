@@ -69,6 +69,7 @@ type WastebinClient struct {
 	httpClient *http.Client
 	config     *Config
 	postURL    string
+	blocklist  BlocklistStages
 }
 
 // wastebinRequest is the JSON body sent to the Wastebin API.
@@ -154,6 +155,7 @@ func NewWastebinClient(cfg *Config) (*WastebinClient, error) {
 		httpClient: httpClient,
 		config:     &cfgCopy,
 		postURL:    baseURL.JoinPath("/").String(),
+		blocklist:  newBlocklistStages(cfgCopy.DisableBuiltinBlocklist),
 	}, nil
 }
 

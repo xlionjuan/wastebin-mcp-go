@@ -177,7 +177,7 @@ If `which go` fails, report and stop — do not install, download, or work aroun
   BLOCKED_PATHS defaults for sandbox deployments.
 - **Schema is dynamic** — `file_path` and `translate_sandbox_path` are excluded
   from the MCP tool schema when their respective features are disabled.
-- **Upstream**: `github.com/xlionjuan/wastebin-mcp-go` (private)
+- **Upstream**: `github.com/xlionjuan/wastebin-mcp-go`
 - **SDK**: `github.com/modelcontextprotocol/go-sdk` (same as searxng-mcp-go).
 - **Error messages**: English.
 - **All docs**: English.

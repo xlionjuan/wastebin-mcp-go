@@ -37,7 +37,7 @@ jobs:
           go-version: "1.26.4"
 
       - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9.2.1
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.12.2
           install-only: true
@@ -51,7 +51,7 @@ jobs:
       - name: Install Go skills for OpenCode
         env:
           # renovate: datasource=git-refs packageName=https://github.com/samber/cc-skills-golang currentValue=main
-          CC_SKILLS_GOLANG_SHA: 8b2d019212d6a5390d472a7660a8489109d7db49
+          CC_SKILLS_GOLANG_SHA: f4be06f6ba90da05d0a963fd4079a8056cee7300
         run: |
           mkdir -p "$HOME/.agents/skills"
           git init "$HOME/.agents/skills/cc-skills-golang"
@@ -60,7 +60,7 @@ jobs:
           git -C "$HOME/.agents/skills/cc-skills-golang" checkout --detach "$CC_SKILLS_GOLANG_SHA"
 
       - name: Run opencode
-        uses: xlionjuan/opencode-github-actions@6dfa909c0f55cfa631be5225840030c94f8aa19e # main
+        uses: xlionjuan/opencode-github-actions@6761907ac34484f8cc9934e0dacf324cafe29fe6 # main
         with:
           model: opencode-go/deepseek-v4-flash
         env:
