@@ -700,6 +700,167 @@ func TestReadFileContent_NonRegularNoAllowedPaths(t *testing.T) {
 	}
 }
 
+func TestResolveContent_BothContentAndFilePath(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	content := "hello"
+	filePath := "/tmp/test.txt"
+	args := &CreatePasteArgs{Content: &content, FilePath: &filePath}
+
+	_, _, err = h.resolveContent(args)
+	if !errors.Is(err, errBothContentAndFilePath) {
+		t.Errorf("expected errBothContentAndFilePath, got: %v", err)
+	}
+}
+
+func TestResolveContent_NeitherContentNorFilePath(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	_, _, err = h.resolveContent(&CreatePasteArgs{})
+	if !errors.Is(err, errNeitherContentNorFilePath) {
+		t.Errorf("expected errNeitherContentNorFilePath, got: %v", err)
+	}
+}
+
+func TestResolveContent_FileReadDisabled(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+	cfg.FileReadEnabled = false
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	filePath := "/tmp/test.txt"
+	args := &CreatePasteArgs{FilePath: &filePath}
+
+	_, _, err = h.resolveContent(args)
+	if !errors.Is(err, errFileReadDisabled) {
+		t.Errorf("expected errFileReadDisabled, got: %v", err)
+	}
+}
+
+func TestResolveContent_ContentEmpty(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	content := ""
+	args := &CreatePasteArgs{Content: &content}
+
+	_, _, err = h.resolveContent(args)
+	if !errors.Is(err, errContentEmpty) {
+		t.Errorf("expected errContentEmpty, got: %v", err)
+	}
+}
+
+func TestResolveContent_ContentModeSuccess(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://localhost:12345"
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	content := "hello world"
+	ext := "go"
+	args := &CreatePasteArgs{Content: &content, Extension: &ext}
+
+	gotContent, gotExt, err := h.resolveContent(args)
+	if err != nil {
+		t.Fatalf("resolveContent: %v", err)
+	}
+
+	if gotContent != content {
+		t.Errorf("expected content %q, got %q", content, gotContent)
+	}
+
+	if gotExt != ext {
+		t.Errorf("expected extension %q, got %q", ext, gotExt)
+	}
+}
+
+func TestShouldTranslateSandboxPath_NoMounts(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	requested := true
+
+	if shouldTranslateSandboxPath(cfg, &requested) {
+		t.Error("expected false with no sandbox mounts")
+	}
+}
+
+func TestShouldTranslateSandboxPath_Transparent(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.SandboxMounts = []SandboxMount{{HostPath: "/host", SandboxPath: "/container"}}
+	cfg.SandboxTransparent = true
+
+	if !shouldTranslateSandboxPath(cfg, nil) {
+		t.Error("expected true with SandboxTransparent")
+	}
+}
+
+func TestShouldTranslateSandboxPath_Requested(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.SandboxMounts = []SandboxMount{{HostPath: "/host", SandboxPath: "/container"}}
+
+	requested := true
+
+	if !shouldTranslateSandboxPath(cfg, &requested) {
+		t.Error("expected true when requested")
+	}
+}
+
+func TestShouldTranslateSandboxPath_Neither(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.SandboxMounts = []SandboxMount{{HostPath: "/host", SandboxPath: "/container"}}
+	cfg.SandboxTransparent = false
+
+	if shouldTranslateSandboxPath(cfg, nil) {
+		t.Error("expected false when neither transparent nor requested")
+	}
+
+	falseVal := false
+	if shouldTranslateSandboxPath(cfg, &falseVal) {
+		t.Error("expected false when explicitly false")
+	}
+}
+
 func TestReadFileContent_InvalidExtensionRejected(t *testing.T) {
 	t.Parallel()
 

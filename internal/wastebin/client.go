@@ -111,38 +111,7 @@ func NewWastebinClient(cfg *Config) (*WastebinClient, error) {
 		return nil, errURLMissingHost
 	}
 
-	httpClient := &http.Client{
-		Timeout: clientTimeout,
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   dialTimeout,
-				KeepAlive: keepAlive,
-			}).DialContext,
-			TLSHandshakeTimeout:   tlsHandshakeTimeout,
-			ResponseHeaderTimeout: responseHeaderTimeout,
-			IdleConnTimeout:       idleConnTimeout,
-			MaxIdleConns:          maxIdleConns,
-			MaxIdleConnsPerHost:   maxIdleConnsPerHost,
-		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= maxRedirects {
-				return errTooManyRedirects
-			}
-
-			if len(via) > 0 {
-				prev := via[len(via)-1]
-				if !strings.EqualFold(req.URL.Host, prev.URL.Host) {
-					return fmt.Errorf("%w: %s -> %s", errRedirectDifferentHost, prev.URL.Host, req.URL.Host)
-				}
-
-				if prev.URL.Scheme == "https" && req.URL.Scheme == "http" {
-					return fmt.Errorf("%w: %s (%s -> %s)", errRedirectSchemeDowngrade, req.URL.Host, prev.URL.Scheme, req.URL.Scheme)
-				}
-			}
-
-			return nil
-		},
-	}
+	httpClient := newHTTPClient()
 
 	// Store a defensive copy of the config to prevent external mutation.
 	cfgCopy := *cfg
