@@ -855,6 +855,150 @@ func TestHasComponentBlocked_MixedSlashes(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────
+// Stage function tests
+// ──────────────────────────────────────────────
+
+func TestStageRawComponentBlocked_CleanPath(t *testing.T) {
+	t.Parallel()
+
+	result, err := stageRawComponentBlocked("/home/user/documents/report.txt")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result != "/home/user/documents/report.txt" {
+		t.Errorf("expected path unchanged, got %q", result)
+	}
+}
+
+func TestStageResolvedComponentBlocked_CleanPath(t *testing.T) {
+	t.Parallel()
+
+	result, err := stageResolvedComponentBlocked("/home/user/documents/report.txt")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result != "/home/user/documents/report.txt" {
+		t.Errorf("expected path unchanged, got %q", result)
+	}
+}
+
+func TestStageResolvedComponentBlocked_BlockedPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := stageResolvedComponentBlocked("/home/user/.ssh/id_rsa")
+	if err == nil {
+		t.Fatal("expected error for .ssh component, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedComponent) {
+		t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+	}
+}
+
+func TestStageBuiltinBlocked_PrefixMatch(t *testing.T) {
+	t.Parallel()
+
+	_, err := stageBuiltinBlocked("/etc/passwd")
+	if err == nil {
+		t.Fatal("expected error for /etc prefix, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedPrefix) {
+		t.Errorf("expected errBuiltinBlockedPrefix, got: %v", err)
+	}
+}
+
+func TestStageBuiltinBlocked_ComponentOnlyMatch(t *testing.T) {
+	t.Parallel()
+
+	// /.ssh/authorized_keys is not under any blocked prefix
+	// (/etc, /proc, /sys, /dev), but .ssh is a blocked component.
+	_, err := stageBuiltinBlocked("/.ssh/authorized_keys")
+	if err == nil {
+		t.Fatal("expected error for .ssh component without prefix match, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedComponent) {
+		t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+	}
+}
+
+func TestStageBuiltinBlocked_CleanPath(t *testing.T) {
+	t.Parallel()
+
+	result, err := stageBuiltinBlocked("/home/user/documents/report.txt")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result != "/home/user/documents/report.txt" {
+		t.Errorf("expected path unchanged, got %q", result)
+	}
+}
+
+func TestStageRawComponentBlocked_BlockedPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := stageRawComponentBlocked("/home/user/.ssh/id_rsa")
+	if err == nil {
+		t.Fatal("expected error for .ssh component, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedComponent) {
+		t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+	}
+}
+
+func TestStageRawComponentBlocked_WindowsPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := stageRawComponentBlocked(`C:\Users\foo\.ssh\id_rsa`)
+	if err == nil {
+		t.Fatal("expected error for .ssh component in Windows path, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedComponent) {
+		t.Errorf("expected errBuiltinBlockedComponent, got: %v", err)
+	}
+}
+
+func TestNewBlocklistStages_Disabled(t *testing.T) {
+	t.Parallel()
+
+	blk := newBlocklistStages(true)
+	if blk.rawComponent != nil {
+		t.Error("expected rawComponent to be nil when disabled")
+	}
+
+	if blk.resolvedComponent != nil {
+		t.Error("expected resolvedComponent to be nil when disabled")
+	}
+
+	if blk.builtinFull != nil {
+		t.Error("expected builtinFull to be nil when disabled")
+	}
+}
+
+func TestNewBlocklistStages_Enabled(t *testing.T) {
+	t.Parallel()
+
+	blk := newBlocklistStages(false)
+	if blk.rawComponent == nil {
+		t.Error("expected rawComponent to be non-nil when enabled")
+	}
+
+	if blk.resolvedComponent == nil {
+		t.Error("expected resolvedComponent to be non-nil when enabled")
+	}
+
+	if blk.builtinFull == nil {
+		t.Error("expected builtinFull to be non-nil when enabled")
+	}
+}
+
+// ──────────────────────────────────────────────
 // Symlinked sensitive component tests
 // ──────────────────────────────────────────────
 

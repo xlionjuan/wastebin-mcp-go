@@ -136,29 +136,7 @@ func isUserBlocked(resolvedPath string, userBlockedPaths []string) (string, bool
 // ──────────────────────────────────────────────
 
 // Stage is a composable path validation or transformation step.
-// It receives the current path and returns the (possibly modified) path,
-// or an error if validation fails.
 type Stage func(path string) (string, error)
-
-// Pipeline runs a sequence of validation stages in order.
-// On the first error, execution stops immediately.
-type Pipeline struct {
-	stages []Stage
-}
-
-// Run executes all stages in order.
-func (p *Pipeline) Run(path string) (string, error) {
-	for _, stage := range p.stages {
-		var sErr error
-
-		path, sErr = stage(path)
-		if sErr != nil {
-			return "", sErr
-		}
-	}
-
-	return path, nil
-}
 
 // BlocklistStages holds the optional builtin blocklist validation stages.
 // When the builtin blocklist is disabled, all fields are nil and the

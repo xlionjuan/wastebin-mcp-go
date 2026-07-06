@@ -179,8 +179,9 @@ Key points:
   at the point of pipeline construction (`newBlocklistStages`) — the validation
   code itself never checks the flag.
 - `Stage func(path string) (string, error)` is a composable validation step.
-  `Pipeline` runs a sequence of stages. The types are reusable for future
-  validation transformations.
+  Stages are composed via `BlocklistStages` struct fields rather than a
+  `Pipeline` runner (the `Pipeline` type was dropped as dead code — stages
+  are always dispatched through their `BlocklistStages` accessor).
 - Component matching is consolidated into a single helper:
   `hasComponentBlockedIn(path string, components []string) (string, bool)`.
   The pre-resolution `hasComponentBlocked`, the resolved-path-only
