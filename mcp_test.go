@@ -350,7 +350,7 @@ func TestBuildPasteSchemaBasicFields(t *testing.T) {
 func TestCreatePasteToolAnnotations(t *testing.T) {
 	t.Parallel()
 
-	tool := newCreatePasteTool(json.RawMessage(`{}`))
+	tool := newCreatePasteTool(json.RawMessage(`{}`), "test description")
 
 	if tool.Annotations == nil {
 		t.Fatal("create_paste tool should have ToolAnnotations set")
@@ -376,7 +376,7 @@ func TestCreatePasteToolAnnotations(t *testing.T) {
 func TestCreatePasteToolName(t *testing.T) {
 	t.Parallel()
 
-	tool := newCreatePasteTool(json.RawMessage(`{}`))
+	tool := newCreatePasteTool(json.RawMessage(`{}`), "test description")
 
 	if tool.Name != "create_paste" {
 		t.Errorf("expected tool name 'create_paste', got %q", tool.Name)
@@ -386,7 +386,7 @@ func TestCreatePasteToolName(t *testing.T) {
 func TestBuildToolDescription(t *testing.T) {
 	t.Parallel()
 
-	desc := buildToolDescription()
+	desc := wastebin.NewSchemaBuilder(wastebin.DefaultConfig()).BuildToolDescription()
 
 	if !strings.Contains(desc, "content") {
 		t.Error("expected description to mention content")

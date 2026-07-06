@@ -25,34 +25,17 @@ func buildPasteSchema(cfg *wastebin.Config) (json.RawMessage, error) {
 	return wastebin.NewSchemaBuilder(cfg).BuildToolSchema()
 }
 
-// buildToolDescription returns the tool-level description for create_paste.
-func buildToolDescription() string {
-	return "Create a text paste on the configured Wastebin instance. " +
-		"Use 'content' for inline text or 'file_path' to upload a local " +
-		"file (when file mode is enabled). " +
-		"Content supports multiple lines naturally -- include newlines " +
-		"directly in the string value. " +
-		"The response includes 'hostname', " +
-		"'id', 'url', and 'raw' fields. Reconstruct full URLs as " +
-		"{hostname}{url} or {hostname}{raw}. " +
-		"When 'extension' is 'md' or 'markdown', a 'markdown_rendered' " +
-		"field appears with the rendered view URL. " +
-		"Password-protected pastes require the Wastebin-Password header " +
-		"for retrieval. " +
-		"File mode validates paths against an allowlist (when configured) and blocklist pipeline."
-}
-
 // newCreatePasteTool creates the create_paste tool definition with annotations
 // marking it as non-destructive and closed-world: it only creates new pastes
 // (additive), and targets a configured Wastebin instance with scoped file
 // access rather than an open external domain.
-func newCreatePasteTool(schema json.RawMessage) *mcp.Tool {
+func newCreatePasteTool(schema json.RawMessage, description string) *mcp.Tool {
 	destructiveHint := false
 	openWorldHint := false
 
 	return &mcp.Tool{
 		Name:        "create_paste",
-		Description: buildToolDescription(),
+		Description: description,
 		InputSchema: schema,
 		Annotations: &mcp.ToolAnnotations{
 			DestructiveHint: &destructiveHint,
@@ -125,12 +108,14 @@ func runMCPMode(cfg *wastebin.Config, stdin io.Reader) error {
 		return fmt.Errorf("failed to build paste schema: %w", err)
 	}
 
+	sb := wastebin.NewSchemaBuilder(cfg)
+
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "wastebin-mcp-go",
 		Version: version,
 	}, nil)
 
-	mcp.AddTool(server, newCreatePasteTool(schema), NewCreatePasteHandler(client))
+	mcp.AddTool(server, newCreatePasteTool(schema, sb.BuildToolDescription()), NewCreatePasteHandler(client))
 
 	slog.Info("starting Wastebin MCP server")
 
