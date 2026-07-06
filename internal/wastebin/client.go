@@ -1,17 +1,13 @@
 package wastebin
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -73,7 +69,6 @@ type WastebinClient struct {
 	httpClient *http.Client
 	config     *Config
 	postURL    string
-	blocklist  BlocklistStages
 }
 
 // wastebinRequest is the JSON body sent to the Wastebin API.
@@ -94,59 +89,12 @@ type wastebinResponse struct {
 
 // NewWastebinClient creates a new client from Config.
 func NewWastebinClient(cfg *Config) (*WastebinClient, error) {
-	if cfg == nil {
-		return nil, errConfigRequired
-	}
-
-	if cfg.ServerURL == "" {
-		return nil, errServerURLRequired
-	}
-
-	baseURL, err := url.Parse(cfg.ServerURL)
+	baseURL, err := validateServerURL(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("invalid server URL: %w", err)
+		return nil, err
 	}
 
-	if baseURL.Scheme != "http" && baseURL.Scheme != "https" {
-		return nil, errUnsupportedURLScheme
-	}
-
-	if baseURL.Host == "" {
-		return nil, errURLMissingHost
-	}
-
-	httpClient := &http.Client{
-		Timeout: clientTimeout,
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   dialTimeout,
-				KeepAlive: keepAlive,
-			}).DialContext,
-			TLSHandshakeTimeout:   tlsHandshakeTimeout,
-			ResponseHeaderTimeout: responseHeaderTimeout,
-			IdleConnTimeout:       idleConnTimeout,
-			MaxIdleConns:          maxIdleConns,
-			MaxIdleConnsPerHost:   maxIdleConnsPerHost,
-		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= maxRedirects {
-				return errTooManyRedirects
-			}
-
-			if len(via) > 0 {
-				prev := via[len(via)-1]
-				if !strings.EqualFold(req.URL.Host, prev.URL.Host) {
-					return fmt.Errorf("%w: %s -> %s", errRedirectDifferentHost, prev.URL.Host, req.URL.Host)
-				}
-
-				if prev.URL.Scheme == "https" && req.URL.Scheme == "http" {
-					return fmt.Errorf("%w: %s (%s -> %s)", errRedirectSchemeDowngrade, req.URL.Host, prev.URL.Scheme, req.URL.Scheme)
-				}
-			}
-
-			return nil
-		},
-	}
+	httpClient := newHTTPClient()
 
 	// Store a defensive copy of the config to prevent external mutation.
 	cfgCopy := *cfg
@@ -159,297 +107,52 @@ func NewWastebinClient(cfg *Config) (*WastebinClient, error) {
 		httpClient: httpClient,
 		config:     &cfgCopy,
 		postURL:    baseURL.JoinPath("/").String(),
-		blocklist:  newBlocklistStages(cfgCopy.DisableBuiltinBlocklist),
 	}, nil
 }
 
 // CreatePaste sends a paste to the Wastebin server.
-// It handles content mode (Content field set) or file mode (FilePath set),
-// including file reading, path validation, sandbox translation,
-// expiration parsing, and response construction.
 func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs) (*PasteResponse, error) {
-	// Mutual exclusivity check.
-	if args.Content != nil && args.FilePath != nil {
-		return nil, errBothContentAndFilePath
+	h := &Handler{
+		baseURL:    c.baseURL,
+		httpClient: c.httpClient,
+		config:     c.config,
+		postURL:    c.postURL,
 	}
 
-	if args.Content == nil && args.FilePath == nil {
-		return nil, errNeitherContentNorFilePath
+	return h.CreatePaste(ctx, args)
+}
+
+// checkContentSize verifies that the content does not exceed the maximum
+// allowed size.
+func checkContentSize(content string, maxSize int64) error {
+	if int64(len(content)) > maxSize {
+		return fmt.Errorf("%w: %d bytes exceeds limit of %d bytes",
+			errContentTooLarge, len(content), maxSize)
 	}
 
-	// Reject file path when file read is disabled.
-	if args.FilePath != nil && !c.config.FileReadEnabled {
-		return nil, errFileReadDisabled
-	}
+	return nil
+}
 
-	// Reject empty content in content mode.
-	if args.Content != nil && *args.Content == "" {
-		return nil, errContentEmpty
-	}
+// parseExpires parses and validates an optional expiration string, falling back
+// to the configured default.
+func parseExpires(expiresStr *string, defaultExpires int) (int, error) {
+	expires := defaultExpires
 
-	var (
-		content string
-		ext     string
-	)
-
-	if args.FilePath != nil {
-		var err error
-
-		content, ext, err = c.readFileContent(*args.FilePath, args.TranslateSandboxPath, args.Extension)
+	if expiresStr != nil && *expiresStr != "" {
+		parsed, err := ParseExpiration(*expiresStr, defaultExpires)
 		if err != nil {
-			return nil, err
-		}
-	} else {
-		var err error
-
-		content, ext, err = resolveContentMode(args)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// Content size pre-check.
-	if int64(len(content)) > c.config.MaxContentSize {
-		return nil, fmt.Errorf("%w: %d bytes exceeds limit of %d bytes",
-			errContentTooLarge, len(content), c.config.MaxContentSize)
-	}
-
-	// Parse expiration.
-	expires := c.config.DefaultExpires
-	if args.Expires != nil && *args.Expires != "" {
-		parsed, err := ParseExpiration(*args.Expires, c.config.DefaultExpires)
-		if err != nil {
-			return nil, fmt.Errorf("invalid expiration: %w", err)
+			return 0, fmt.Errorf("invalid expiration: %w", err)
 		}
 
 		expires = parsed
 	}
 
-	// Validate expiration bounds.
 	ve := ValidateExpiration(expires)
 	if ve != nil {
-		return nil, fmt.Errorf("invalid expiration: %w", ve)
+		return 0, fmt.Errorf("invalid expiration: %w", ve)
 	}
 
-	// Build request body.
-	reqBody := wastebinRequest{
-		Text:      content,
-		Extension: ext,
-		Expires:   expires,
-	}
-	if args.Title != nil {
-		reqBody.Title = *args.Title
-	}
-
-	if args.BurnAfterReading != nil {
-		reqBody.BurnAfterReading = *args.BurnAfterReading
-	}
-
-	if args.Password != nil {
-		reqBody.Password = *args.Password
-
-		if c.baseURL.Scheme == "http" {
-			if !isLoopbackHost(c.baseURL.Host) && !c.config.AllowInsecurePassword {
-				return nil, errPasswordOverHTTP
-			}
-
-			slog.Warn("password is being sent over an unencrypted HTTP connection")
-		}
-	}
-
-	bodyBytes, err := json.Marshal(reqBody) //nolint:gosec // JSON marshaling is safe; no user-controlled structure
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request body: %w", err)
-	}
-
-	// HTTP POST to Wastebin.
-	reqURL := c.postURL
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	slog.Debug("sending paste to Wastebin", "url", reqURL, "size", len(bodyBytes))
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		if isDNSError(err) {
-			return nil, fmt.Errorf("cannot resolve the server hostname: %w", err)
-		}
-
-		if isConnectionError(err) {
-			return nil, fmt.Errorf("cannot connect to Wastebin server; verify the server is running: %w", err)
-		}
-
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer closeResponseBody(resp)
-
-	// Handle error status codes.
-	if resp.StatusCode != http.StatusOK {
-		// Read bounded body for error diagnostics.
-		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyLength)) //nolint:errcheck // read for diagnostics
-
-		// Drain remaining for connection reuse.
-		_, _ = io.CopyN(io.Discard, resp.Body, drainLimit) //nolint:errcheck // Best-effort drain; bounded to prevent OOM
-
-		return nil, translateHTTPError(resp.StatusCode, string(bodyBytes))
-	}
-
-	// Parse response body.
-	var wastebinResp wastebinResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&wastebinResp)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse Wastebin response: %w", err)
-	}
-
-	// Validate the response path before building the paste response.
-	err = validateWastebinResponse(wastebinResp)
-	if err != nil {
-		return nil, err
-	}
-
-	// Drain response body to EOF for HTTP connection reuse.
-	_, _ = io.Copy(io.Discard, resp.Body) //nolint:errcheck // Best-effort drain of body for connection reuse
-
-	// Build PasteResponse.
-	return buildPasteResponse(c.baseURL, wastebinResp.Path, ext, args.Password != nil), nil
-}
-
-// shouldTranslateSandboxPath determines whether sandbox path translation should
-// be applied. Translation is enabled when:
-//   - the config has SandboxTransparent set (automatic translation), OR
-//   - the caller explicitly set TranslateSandboxPath to true (opt-in).
-//
-// If no sandbox mounts are configured, translation is never enabled.
-func shouldTranslateSandboxPath(cfg *Config, requested *bool) bool {
-	if len(cfg.SandboxMounts) == 0 {
-		return false
-	}
-
-	return cfg.SandboxTransparent || (requested != nil && *requested)
-}
-
-// readFileContent reads file content from the given path, handling sandbox
-// translation, path validation, text detection, and extension detection.
-func (c *WastebinClient) doSandboxTranslation(
-	resolvedPath, filePath string, translateSandboxPath *bool,
-) (string, error) {
-	if !shouldTranslateSandboxPath(c.config, translateSandboxPath) {
-		return resolvedPath, nil
-	}
-
-	if hasPathTraversal(resolvedPath) {
-		return "", errPathTraversal
-	}
-
-	if c.blocklist.rawComponent != nil {
-		_, err := c.blocklist.rawComponent(resolvedPath)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	translator := NewTranslator(c.config.SandboxMounts)
-
-	translated, ok := translator.Translate(resolvedPath)
-	if !ok {
-		return "", fmt.Errorf("%w: %s", errSandboxTranslationNoMatch, filePath)
-	}
-
-	if !isUnderMountHost(translated, c.config.SandboxMounts) {
-		return "", errPathTraversal
-	}
-
-	slog.Debug("translated sandbox path", "from", resolvedPath, "to", translated)
-
-	return translated, nil
-}
-
-//nolint:nonamedreturns // Both returns are string — named disambiguates.
-func (c *WastebinClient) readFileContent(
-	filePath string, translateSandboxPath *bool, extArg *string,
-) (content, ext string, err error) {
-	resolvedPath := filePath
-
-	// 1. Sandbox path translation (if applicable).
-	if translateSandboxPath != nil && *translateSandboxPath && len(c.config.SandboxMounts) == 0 {
-		return "", "", errSandboxTranslationNoMounts
-	}
-
-	resolvedPath, err = c.doSandboxTranslation(resolvedPath, filePath, translateSandboxPath)
-	if err != nil {
-		return "", "", err
-	}
-
-	// 2. Validate path through the five-stage pipeline.
-	resolvedPath, err = validateFilePath(resolvedPath, c.config)
-	if err != nil {
-		return "", "", err
-	}
-
-	// 3. Open via fd-based symlink-safe traversal, stat the fd, and read
-	//    through LimitReader.  When allowed paths are configured we walk
-	//    every component from a pinned root fd with openat+O_NOFOLLOW so
-	//    a post-validation symlink swap cannot cause a blocked-path read.
-	f, openErr := openFileResolved(resolvedPath, c.config.AllowedPaths)
-	if openErr != nil {
-		return "", "", fmt.Errorf("%w: %w", errFilePathCannotBeUsed, openErr)
-	}
-	defer f.Close() //nolint:errcheck // Read-only file; close error non-critical
-
-	fi, statErr := f.Stat()
-	if statErr != nil {
-		return "", "", fmt.Errorf("%w: %w", errFilePathCannotBeUsed, statErr)
-	}
-
-	// Reject non-regular files — ensures the opened object is a plain
-	// file and not a symlink (already prevented by O_NOFOLLOW above),
-	// directory, FIFO, device, or other special inode.
-	if !fi.Mode().IsRegular() {
-		return "", "", errFilePathCannotBeUsed
-	}
-
-	if fi.Size() > c.config.MaxContentSize {
-		return "", "", fmt.Errorf("%w: file size %d bytes exceeds limit of %d bytes",
-			errContentTooLarge, fi.Size(), c.config.MaxContentSize)
-	}
-
-	data, readErr := io.ReadAll(io.LimitReader(f, c.config.MaxContentSize+1))
-	if readErr != nil {
-		return "", "", fmt.Errorf("%w: %w", errFilePathCannotBeUsed, readErr)
-	}
-
-	// Post-read size check — catches the case where LimitReader truncated
-	// a file that exceeds MaxContentSize.
-	if int64(len(data)) > c.config.MaxContentSize {
-		return "", "", fmt.Errorf("%w: file size %d bytes exceeds limit of %d bytes",
-			errContentTooLarge, len(data), c.config.MaxContentSize)
-	}
-
-	// 5. IsLikelyText check on the read data (single read to avoid TOCTOU).
-	if !IsLikelyText(data) {
-		return "", "", errFileNotText
-	}
-
-	content = string(data)
-
-	// 6. Extension: extArg takes priority, otherwise detect from original file path.
-	if extArg != nil && *extArg != "" {
-		ext, err = normalizeExtension(*extArg)
-		if err != nil {
-			return "", "", err
-		}
-	} else {
-		ext = strings.TrimPrefix(filepath.Ext(filePath), ".")
-		ext = strings.ToLower(ext)
-	}
-
-	return content, ext, nil
+	return expires, nil
 }
 
 // resolveContentMode extracts content and normalizes the extension for content
@@ -611,6 +314,33 @@ func isLoopbackHost(hostPort string) bool {
 	}
 
 	return ip.IsLoopback()
+}
+
+// validateServerURL validates the configuration and parses the server URL,
+// returning the parsed URL or an appropriate sentinel error.
+func validateServerURL(cfg *Config) (*url.URL, error) {
+	if cfg == nil {
+		return nil, errConfigRequired
+	}
+
+	if cfg.ServerURL == "" {
+		return nil, errServerURLRequired
+	}
+
+	baseURL, err := url.Parse(cfg.ServerURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid server URL: %w", err)
+	}
+
+	if baseURL.Scheme != "http" && baseURL.Scheme != "https" {
+		return nil, errUnsupportedURLScheme
+	}
+
+	if baseURL.Host == "" {
+		return nil, errURLMissingHost
+	}
+
+	return baseURL, nil
 }
 
 // closeResponseBody closes the response body with debug logging on failure.
