@@ -64,7 +64,7 @@ jobs:
           git -C "$HOME/.agents/skills/cc-skills-golang" checkout --detach "$CC_SKILLS_GOLANG_SHA"
 
       - name: Run OpenCode documentation/code alignment review
-        uses: xlionjuan/opencode-github-actions@6761907ac34484f8cc9934e0dacf324cafe29fe6 # main
+        uses: xlionjuan/opencode-github-actions@4714c0e5d724b89a80f11ceccddc60f269f0cf5d # main
         with:
           model: opencode-go/deepseek-v4-flash
           prompt: |
