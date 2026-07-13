@@ -48,6 +48,11 @@ For more information, see: https://github.com/xlionjuan/wastebin-mcp-go
 // from the environment, creates a Wastebin client, builds CreatePasteArgs from
 // the provided CLI flags, calls CreatePaste, and prints the JSON response to
 // stdout.
+//
+// NOTE: JSON output is written directly to os.Stdout (not through a caller-
+// provided io.Writer), so runCLIMode cannot be cleanly unit-tested for output
+// capture. For automated schema/response verification see mcp_test.go and
+// schema_test.go.
 func runCLIMode(flags *CLIFlags) error {
 	cfg, err := wastebin.ConfigFromEnv()
 	if err != nil {

@@ -72,6 +72,10 @@ go vet ./...
 go test -tags=e2e ./...
 ```
 
+> **Goroutine leak detection:** `main_test.go` runs `goleak.Find()` after all package tests complete. A leak causes the test suite to exit with code -1. Use `go test -v ./...` to see leak output on stderr.
+>
+> **E2E test env vars:** `E2E_MCP_BINARY` (set to skip per-test rebuild of the MCP binary) and `E2E_RAW_RETRIEVAL_WARN` (set to `true` to downgrade expired-paste failures to warnings for local runs). Both are optional.
+
 ### Editing
 
 - Use patch-style edits for existing files (`patch` tool); avoid `sed -i`.
@@ -130,9 +134,14 @@ If `which go` fails, report and stop — do not install, download, or work aroun
 - Run `just verify` before opening or updating a PR, or reporting a
   code-changing task complete. This mirrors the CI pipeline
   (test.yml + lint.yml, excluding govulncheck).
-- After adding or changing MCP tool schemas, verify with a manual MCP test or
-  CLI mode test in addition to `just verify`.
+- After adding or changing MCP tool schemas, verify schema construction with
+  `mcp_test.go` and `schema_test.go` (automated tests covering dynamic schema)
+  in addition to `just verify`.
 - Pure documentation changes (`.md` files only) do not require `just verify`.
+- **CLI testability caveat:** `runCLIMode` writes JSON output directly to
+  `os.Stdout`, not through a caller-provided `io.Writer`, so it cannot be
+  cleanly unit-tested for output capture. Base schema/response coverage lives
+  in `mcp_test.go` and `schema_test.go`.
 
 ## GitHub and PR Work
 
