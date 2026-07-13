@@ -8,7 +8,20 @@ Wastebin pastebin instance via its REST API.
 ### Core Types
 
 **WastebinClient**: The HTTP client that holds the server base URL and an
-`*http.Client` and communicates with a Wastebin instance to create pastes.
+`*http.Client` and communicates with a Wastebin instance to create pastes. The
+underlying HTTP transport uses hardcoded defaults that are not currently
+configurable via environment variables:
+
+| Setting | Value |
+|---------|-------|
+| Request timeout | 30s |
+| TCP dial timeout | 10s |
+| TLS handshake timeout | 10s |
+| Response header timeout | 30s |
+| Idle connection timeout | 90s |
+| Max idle connections | 100 |
+| Max idle connections per host | 10 |
+| Max redirects | 10 |
 
 **Config**: The configuration parameters — server URL, default expiration, file
 read mode settings, sandbox mount mappings, and translation mode.
@@ -147,7 +160,10 @@ flags, executes a one-shot paste creation, and prints the result to stdout, then
 exits. Output format: JSON (same as MCP mode response).
 
 **Debug Mode**: Activated by `DEBUG=1` env var in MCP mode, or `--debug` flag on
-the `create` subcommand — logs HTTP request/response details to stderr.
+the `create` subcommand — enables sparse `slog.Debug` logging to stderr for
+selected operations (paste submission details, sandbox path translation, error
+responses, response-body close failures). This is not an HTTP wire dump;
+individual request and response bodies are not logged.
 
 ### Error Handling
 
@@ -249,6 +265,11 @@ User-supplied file_path
 
 Reads the first 8 KB of the file and applies a content-based heuristic:
 
+0. **Magic-byte signature detection** (`hasBinarySignature`) — rejects files
+   starting with known binary format signatures: PDF (`%PDF`), PNG (`\x89PNG`),
+   ZIP (`PK\x03\x04` / `PK\x05\x06` / `PK\x07\x08`), GZip (`\x1f\x8b`), and
+   ELF (`\x7fELF`). This runs first, before UTF-8 validation, to catch binary
+   formats that happen to pass the other checks.
 1. Must be valid UTF-8 (`utf8.Valid`).
 2. No null bytes (`b == 0`).
 3. Control character ratio (characters `0x00-0x1F` excluding `\n`, `\r`, `\t`)
@@ -297,10 +318,11 @@ In both modes, the translated path must still pass the allowlist + blocklist
 checks.
 
 **Startup validation**: If `WASTEBIN_MCP_SANDBOX_MOUNTS` is configured, the
-server validates at startup that each mount's `host_path` component is covered
-by at least one entry in `WASTEBIN_MCP_ALLOWED_PATHS`. If not, the server prints
-a clear error and exits. This prevents opaque "path not allowed" failures that
-an agent cannot debug.
+server validates at startup that each mount's `host_path` is covered by at least
+one entry in `WASTEBIN_MCP_ALLOWED_PATHS`. When `ALLOWED_PATHS` is empty (or not
+set), mounts self-authorize — no startup validation check is performed. When
+`ALLOWED_PATHS` is set and a mount's host path is not covered, the server logs
+a warning and skips that mount; startup continues normally.
 
 **Security**: Path traversal (`..`) is detected on the original sandbox path
 _before_ any translation occurs. After translation, the result is verified to

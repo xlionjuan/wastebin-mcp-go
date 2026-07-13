@@ -50,7 +50,7 @@ go build -ldflags="-X main.version=$(git describe --tags --always)" -o wastebin-
 | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | | `1048576` | Maximum paste content size in bytes (client-side guard) |
 | `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker-style mount mappings (`host_path:sandbox_path,...`) for sandbox path translation. Sandbox paths must be absolute POSIX paths and must not contain `..` components |
 | `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | | `false` | When set, sandbox path translation happens automatically |
-| `DEBUG` | | — | Set to `1` or `true` to enable debug logging (HTTP request/response details on stderr) |
+| `DEBUG` | | — | Set to `1` or `true` to enable debug logging (sparse `slog.Debug` entries on stderr — paste submission info, sandbox translation, error details; not an HTTP wire dump) |
 
 ### Invalid Environment Variable Values
 
