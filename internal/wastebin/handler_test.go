@@ -421,6 +421,32 @@ func TestNewHandler_RedirectSchemeDowngradeBlocked(t *testing.T) {
 	}
 }
 
+func TestNewHandler_TooManyRedirects(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/", http.StatusFound)
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	_, err = h.sendRequest(t.Context(), []byte(`{"text":"test"}`))
+	if err == nil {
+		t.Fatal("expected too many redirects error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "stopped after 10 redirects") {
+		t.Errorf("expected stopped after 10 redirects error, got: %v", err)
+	}
+}
+
 func TestSendRequest_Success(t *testing.T) {
 	t.Parallel()
 
