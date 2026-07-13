@@ -129,11 +129,11 @@ If `which go` fails, report and stop — do not install, download, or work aroun
 
 ### Verification
 
-- Code changes that add or alter behaviour must include corresponding tests,
-  unless the change is purely cosmetic or documentation-only.
-- Run `just verify` before opening or updating a PR, or reporting a
-  code-changing task complete. This mirrors the CI pipeline
-  (test.yml + lint.yml, excluding govulncheck).
+- **Before every commit that touches Go code, tests, dependencies, or Go-related
+  scripts/workflows, the committing agent must run `just verify` locally.**
+  Do not guess or compose a custom verification command — use `just verify`.
+- `just verify` covers build, vet, lint, test (with race driver), mod tidy, and
+  formatting. It mirrors the non-E2E CI pipeline.
 - After adding or changing MCP tool schemas, verify schema construction with
   `mcp_test.go` and `schema_test.go` (automated tests covering dynamic schema)
   in addition to `just verify`.
