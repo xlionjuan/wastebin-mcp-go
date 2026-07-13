@@ -127,17 +127,12 @@ If `which go` fails, report and stop — do not install, download, or work aroun
 
 - Code changes that add or alter behaviour must include corresponding tests,
   unless the change is purely cosmetic or documentation-only.
-- Code changes must be verified with the narrowest meaningful build/test
-  command before committing.
-- Before opening or updating a PR, or reporting a code-changing task complete,
-  all AI agents must select and run the verification gate described below for
-  the affected surface.
-- Build must pass before commit.
-- Run `go vet ./...` as a regular static check alongside the linter.
+- Run `just verify` before opening or updating a PR, or reporting a
+  code-changing task complete. This mirrors the CI pipeline
+  (test.yml + lint.yml, excluding govulncheck).
 - After adding or changing MCP tool schemas, verify with a manual MCP test or
-  CLI mode test.
-- Pure documentation changes (`.md` files only) do not require the build, test,
-  or lint gates above.
+  CLI mode test in addition to `just verify`.
+- Pure documentation changes (`.md` files only) do not require `just verify`.
 
 ## GitHub and PR Work
 

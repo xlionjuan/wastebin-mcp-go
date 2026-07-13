@@ -29,9 +29,13 @@ test-cover:
 test-verbose:
     go test -race -shuffle=on -v ./...
 
-# Format code
+# Format code (apply)
 fmt:
     golangci-lint fmt
+
+# Check formatting matches expected style (CI-equivalent)
+fmt-check:
+    golangci-lint fmt --diff
 
 # Run go vet
 vet:
@@ -50,6 +54,10 @@ mod-tidy:
 mod-verify:
     go mod verify
 
+# Full verify suite matching CI pipeline (excluding govulncheck).
+# Mirrors test.yml + lint.yml steps in fail-fast order.
+verify: mod-verify mod-tidy fmt-check vet build test-cover lint
+
 # View coverage in browser
 cover:
     go tool cover -html={{ coverfile }}
@@ -61,8 +69,8 @@ cover-text:
 # Full pre-PR gate: fmt → vet → lint → test-cover
 check: fmt vet lint test-cover
 
-# CI is an alias for check
-alias ci := check
+# CI-equivalent gate (fmt-check instead of fmt, plus mod-verify + mod-tidy + build)
+alias ci := verify
 
 # Quick check (no formatting, just vet + lint + test)
 quick: vet lint test
