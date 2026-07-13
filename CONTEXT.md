@@ -175,8 +175,8 @@ When a paste creation fails, the error message is constructed as follows:
 |-----------------|---------|
 | HTTP 403 | "Server rejected the request; content may contain disallowed data" |
 | HTTP 413 | "Content exceeds the server's maximum allowed size" |
-| Connection refused / timeout | "Cannot connect to Wastebin server; verify the server is running" |
-| DNS resolution failure | "Cannot resolve the server hostname" |
+| Connection refused / timeout | "Cannot connect to Wastebin server; verify the server is running: <wrapped err>" |
+| DNS resolution failure | "Cannot resolve the server hostname: <wrapped err>" |
 | Sandbox translation requested, no mounts | "sandbox path translation requested but no mounts configured" |
 | Sandbox path matches no mount | "sandbox path does not match any configured mount: <path>" |
 

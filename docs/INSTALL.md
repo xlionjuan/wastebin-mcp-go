@@ -147,7 +147,7 @@ wastebin-mcp-go create --content "test" --debug
 |---|---|
 | `--content TEXT` | Paste content (provide this or `--file-path`, not both) |
 | `--file-path PATH` | Read content from local file |
-| `--extension EXT` | Syntax highlighting extension (e.g. `md`, `go`, `py`) |
+| `--extension EXT` | Syntax highlighting extension (e.g. `md`, `go`, `py`). Normalization strips leading dots and lowercases; passing `.`, `...`, or empty input silently results in no extension |
 | `--expires DURATION` | Expiration: bare number = seconds, or with unit suffix (`s`, `m`, `h`, `d`, `w`, `M`, `y`) |
 | `--title TEXT` | Optional paste title |
 | `--burn-after-reading` | Delete paste after first read |
