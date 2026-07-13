@@ -2113,6 +2113,36 @@ func TestNewWastebinClient_RedirectSchemeDowngradeBlocked(t *testing.T) {
 	}
 }
 
+func TestNewWastebinClient_TooManyRedirects(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/", http.StatusFound)
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL
+
+	client, err := NewWastebinClient(cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	content := "test"
+
+	_, err = client.CreatePaste(context.Background(), &CreatePasteArgs{
+		Content: &content,
+	})
+	if err == nil {
+		t.Fatal("expected too many redirects error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "stopped after 10 redirects") {
+		t.Errorf("expected stopped after 10 redirects error, got: %v", err)
+	}
+}
+
 func TestShouldTranslateSandboxPath(t *testing.T) {
 	t.Parallel()
 
