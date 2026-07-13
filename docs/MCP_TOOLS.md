@@ -24,6 +24,20 @@ use to reconstruct full retrieval URLs.
   allowlist, built-in blocklist, and user blocklist.
   See [Security Notes](#security-notes) for details.
 
+### MCP Tool Annotations
+
+The `create_paste` tool advertises the following MCP protocol-level Tool
+Annotations, which affect how MCP hosts (client UIs, agent frameworks) present
+and permit the tool:
+
+| Annotation | Value | Meaning |
+|---|---|---|
+| `DestructiveHint` | `false` | The tool is additive (creation-only). It creates new pastes but never modifies or deletes existing data. |
+| `OpenWorldHint` | `false` | The tool targets a configured Wastebin instance with scoped file access, not an open external domain. Agents should not expect general Web access. |
+
+These annotations are set in `mcp.go` and are visible to MCP clients that
+inspect tool metadata at runtime.
+
 ### Parameters
 
 | Parameter | Type | Required | Description |
