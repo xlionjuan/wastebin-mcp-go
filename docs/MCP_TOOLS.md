@@ -294,7 +294,7 @@ These errors are returned from the `create_paste` handler and always follow the
 | Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE` | `"Create paste error: content exceeds the maximum allowed size: <N> bytes exceeds limit of <N> bytes"` |
 | Password over non-loopback HTTP without override | `"Create paste error: password-protected pastes are not allowed over non-loopback HTTP connections; use HTTPS or set WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD=true for local development"` |
 | Unknown HTTP error | `"Create paste error: unknown HTTP error: HTTP <CODE>"` |
-| Invalid expiration format | `"Create paste error: invalid expiration: <reason>"` (reason: `expiration cannot be negative`, `unknown expiration unit`, `invalid expiration format`, `expiration overflow`) |
+| Invalid expiration format | `"Create paste error: invalid expiration: <reason>"` (reason: `expiration cannot be negative`, `unknown expiration unit`, `invalid expiration format`, `expiration overflow`, `expiration exceeds maximum supported value`) |
 | Extension contains invalid path or query characters | `"Create paste error: extension contains invalid path or query characters: <ext>"` |
 | Server returns response with empty paste path | `"Create paste error: invalid Wastebin response: empty path"` |
 | Server returns response with non-relative paste path | `"Create paste error: invalid Wastebin response: path must be relative, got <path>"` |
@@ -429,9 +429,11 @@ out-of-the-box experience without requiring mandatory allowlist configuration.
 When `WASTEBIN_MCP_SANDBOX_MOUNTS` is configured, the server validates at
 startup that:
 
-1. Each mount's host path is covered by `WASTEBIN_MCP_ALLOWED_PATHS`. If not,
-   the server prints a clear error and exits — preventing opaque "path not
-   allowed" failures that agents cannot debug.
+1. Each mount's host path is validated against `WASTEBIN_MCP_ALLOWED_PATHS`.
+   When `ALLOWED_PATHS` is set and a mount's host path is not covered, the
+   server logs a warning and skips that mount; startup continues normally.
+   When `ALLOWED_PATHS` is empty (or not set), mounts self-authorize — no
+   startup validation check is performed.
 2. Each mount's sandbox path is an absolute POSIX path and does not contain
    `..` components before cleanup. Duplicate separators and trailing slashes
    are still normalized, but parent-directory traversal is rejected instead of

@@ -18,7 +18,7 @@ wastebin-mcp-go create --content "hello world" --extension md
 wastebin-mcp-go create --file-path /tmp/doc.md
 ```
 
-**Flags**: `--help` and `--version` are available as top-level flags. The `create` subcommand also accepts `--help`.
+**Arguments**: `--help` and `--version` are available as top-level arguments. The `create` subcommand also accepts `--help`.
 
 **Exit codes**: 0 = success, 1 = CLI error, 2 = MCP server error.
 
@@ -102,8 +102,8 @@ conditional fields that appear only in specific scenarios.
   `filepath.EvalSymlinks` for defense-in-depth blocklist matching.
 - Binary and non-UTF-8 files are rejected at read time.
 - Sandbox translation is opt-in and ENV-gated. Sandbox mount paths are
-  validated at startup; relative sandbox paths and `..` components are
-  rejected before path cleanup.
+  validated at startup; `..` components are rejected before path
+  cleanup, and the absolute-path check runs after path cleanup.
 - Content size is pre-checked against a configurable limit.
 - Password-protected pastes over `http://` are only allowed for loopback
   addresses (localhost, 127.0.0.1, ::1). Non-loopback HTTP is rejected unless

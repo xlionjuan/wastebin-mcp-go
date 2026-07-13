@@ -50,7 +50,7 @@ go build -ldflags="-X main.version=$(git describe --tags --always)" -o wastebin-
 | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | | `1048576` | Maximum paste content size in bytes (client-side guard) |
 | `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker-style mount mappings (`host_path:sandbox_path,...`) for sandbox path translation. Sandbox paths must be absolute POSIX paths and must not contain `..` components |
 | `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | | `false` | When set, sandbox path translation happens automatically |
-| `DEBUG` | | — | Set to `1` or `true` to enable debug logging (HTTP request/response details on stderr) |
+| `DEBUG` | | — | Set to `1` or `true` to enable debug logging (sparse `slog.Debug` entries on stderr — paste submission info, sandbox translation, error details; not an HTTP wire dump) |
 
 ### Invalid Environment Variable Values
 
@@ -147,7 +147,7 @@ wastebin-mcp-go create --content "test" --debug
 |---|---|
 | `--content TEXT` | Paste content (provide this or `--file-path`, not both) |
 | `--file-path PATH` | Read content from local file |
-| `--extension EXT` | Syntax highlighting extension (e.g. `md`, `go`, `py`) |
+| `--extension EXT` | Syntax highlighting extension (e.g. `md`, `go`, `py`). Normalization strips leading dots and lowercases; passing `.`, `...`, or empty input silently results in no extension |
 | `--expires DURATION` | Expiration: bare number = seconds, or with unit suffix (`s`, `m`, `h`, `d`, `w`, `M`, `y`) |
 | `--title TEXT` | Optional paste title |
 | `--burn-after-reading` | Delete paste after first read |
