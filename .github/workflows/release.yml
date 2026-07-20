@@ -32,30 +32,35 @@ jobs:
           go-version: "1.26.5"
           cache: true
 
-      - name: Verify dependencies
-        run: |
-          go mod download
-          go mod verify
-
-      - name: Check module files are tidy
-        run: |
-          go mod tidy
-          git diff --exit-code -- go.mod go.sum
-
-      - name: Pre-release build
-        run: go build -o /tmp/wastebin-mcp-go .
-
-      - name: Pre-release tests
-        run: go test -race -shuffle=on -coverprofile=coverage.out ./...
-
-      - name: Known vulnerability scan
-        run: go tool govulncheck ./...
-
-      - name: Pre-release lint
+      - name: Install golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.12.2
-          args: --timeout 5m
+          install-only: true
+
+      - name: Install just
+        uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2.83.2
+        with:
+          tool: just@1.51.0
+          fallback: none
+
+      - name: Verify dependencies
+        run: just deps
+
+      - name: Check module files are tidy
+        run: just mod-tidy
+
+      - name: Pre-release build
+        run: just build
+
+      - name: Pre-release tests
+        run: just test-cover
+
+      - name: Known vulnerability scan
+        run: just vulncheck
+
+      - name: Pre-release lint
+        run: just lint
 
       - name: Import GPG Key
         shell: bash

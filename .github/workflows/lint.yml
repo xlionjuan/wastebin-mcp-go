@@ -36,11 +36,17 @@ jobs:
           version: v2.12.2
           install-only: true
 
+      - name: Install just
+        uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2.83.2
+        with:
+          tool: just@1.51.0
+          fallback: none
+
       - name: go vet
-        run: go vet ./...
+        run: just vet
 
       - name: golangci-lint
-        run: golangci-lint run --timeout 5m
+        run: just lint
 
       - name: Check formatting (gofumpt / goimports / gci)
-        run: golangci-lint fmt --diff
+        run: just fmt-check

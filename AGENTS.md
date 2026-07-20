@@ -41,33 +41,31 @@ Single-context. See `docs/agents/domain.md`.
 
 ```bash
 # Verify and download dependencies
-go mod verify
-go mod download
+just deps
 
 # Check module files are tidy
-go mod tidy
-git diff --exit-code go.mod go.sum
+just mod-tidy
 
-# Build all packages
-go build ./...
+# Build the canonical wastebin-mcp-go binary
+just build
 
 # CI-style test run with race detector and coverage
-go test -race -shuffle=on -coverprofile=coverage.out ./...
+just test-cover
 
 # Known vulnerability scan
-go tool govulncheck ./...
+just vulncheck
 
 # Lint
-golangci-lint run ./...
+just lint
 
 # Check formatting (gofumpt / goimports / gci)
-golangci-lint fmt --diff
+just fmt-check
 
 # Static analysis fallback (when golangci-lint is unavailable)
-go vet ./...
+just vet
 
 # E2E tests (requires Wastebin server)
-go test -tags=e2e ./...
+just test-e2e
 ```
 
 > **Goroutine leak detection:** `main_test.go` runs `goleak.Find()` after all package tests complete. A leak causes the test suite to exit with code -1. Use `go test -v ./...` to see leak output on stderr.

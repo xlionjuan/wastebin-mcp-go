@@ -35,8 +35,14 @@ jobs:
           go-version: "1.26.5"
           cache: true
 
+      - name: Install just
+        uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2.83.2
+        with:
+          tool: just@1.51.0
+          fallback: none
+
       - name: Known vulnerability scan
-        run: go tool govulncheck ./...
+        run: just vulncheck
 
   codeql:
     name: CodeQL

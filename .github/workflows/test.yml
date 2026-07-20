@@ -31,21 +31,23 @@ jobs:
           go-version: "1.26.5"
           cache: true
 
+      - name: Install just
+        uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2.83.2
+        with:
+          tool: just@1.51.0
+          fallback: none
+
       - name: Verify dependencies
-        run: |
-          go mod verify
-          go mod download
+        run: just deps
 
       - name: Check go mod tidy
-        run: |
-          go mod tidy
-          git diff --exit-code go.mod go.sum
+        run: just mod-tidy
 
       - name: Build
-        run: go build -o wastebin-mcp-go .
+        run: just build
 
       - name: Run tests
-        run: go test -race -shuffle=on -coverprofile=coverage.out ./...
+        run: just test-cover
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
