@@ -26,4 +26,4 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 
       - name: Run shellcheck
-        run: shellcheck --severity=error *.sh
+        run: shellcheck --severity=error -- *.sh

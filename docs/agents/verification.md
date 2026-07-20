@@ -9,7 +9,7 @@
   dependencies, build, test, lint, or release behavior. For example, pure
   documentation changes should use narrow validation such as diff checks or
   YAML parsing.
-- If `golangci-lint` is unavailable, run `go vet ./...` as the fallback static
+- If `golangci-lint` is unavailable, run `just vet` as the fallback static
   check and state in the PR body that the linter itself could not be run.
 - If a subagent made code changes, the coordinating agent must review and verify
   those changes before committing.
@@ -22,14 +22,16 @@
 
 | Command | Scope |
 |---------|-------|
-| `go mod verify && go mod download` | Verify and download dependencies |
-| `go mod tidy && git diff --exit-code go.mod go.sum` | Check module files are tidy |
-| `go build ./...` | Build all packages |
-| `go test -race -shuffle=on -coverprofile=coverage.out ./...` | CI-style test run with race detector and coverage |
-| `go tool govulncheck ./...` | Known vulnerability scan |
-| `golangci-lint run ./...` | Lint; CI uses v2.12.2 |
-| `golangci-lint fmt --diff` | Check formatting (gofumpt / goimports / gci) |
-| `go vet ./...` | Static analysis fallback |
+| `just deps` | Verify and download dependencies |
+| `just mod-tidy` | Check module files are tidy |
+| `just build` | Build the canonical `wastebin-mcp-go` binary |
+| `just test-cover` | CI-style test run with race detector and coverage |
+| `just test-e2e` | E2E tests against a configured Wastebin server |
+| `just vulncheck` | Known vulnerability scan |
+| `just lint` | Lint; CI uses v2.12.2 |
+| `just fmt-check` | Check formatting (gofumpt / goimports / gci) |
+| `just vet` | Static analysis fallback |
+| `just verify` | Full non-E2E verification gate |
 
 ## Completion Gate for AI Agents
 
@@ -38,17 +40,12 @@ complete, it must run the gate that matches the touched surface.
 
 For Go code, Go tests, Go dependencies, Go-related scripts, or workflow changes
 that alter Go setup, Go commands, test/lint commands, or required environment
-for Go execution:
+for Go execution, run:
 
-- `go mod verify`
-- `go mod download`
-- `go mod tidy` + `git diff --exit-code go.mod go.sum`
-- `go build ./...`
-- `go test -race -shuffle=on -coverprofile=coverage.out ./...`
-- `go tool govulncheck ./...`
-- `golangci-lint run ./...`
-- `golangci-lint fmt --diff`
-- `go vet ./...`
+- `just verify`
+
+Run `just vulncheck` separately when the change affects the vulnerability scan
+or release security gate; it is intentionally not part of `just verify`.
 
 For MCP tool schema changes, also verify with a CLI mode test or manual MCP
 inspection after the build gate.

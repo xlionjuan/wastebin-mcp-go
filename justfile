@@ -4,6 +4,7 @@
 #   just           — run default (test)
 #   just build     — build binary
 #   just test      — run tests with race detector
+#   just deps      — download and verify dependencies
 #   just check     — full pre-PR gate (fmt → vet → lint → test-cover)
 #   just clean     — remove build artifacts
 
@@ -29,6 +30,11 @@ test-cover:
 test-verbose:
     go test -race -shuffle=on -v ./...
 
+# Run E2E tests against the configured Wastebin server.
+# Requires `WASTEBIN_SERVER_URL` and a reachable server.
+test-e2e:
+    go test -v -tags=e2e -race -count=1 -timeout=600s ./...
+
 # Format code (apply)
 fmt:
     golangci-lint fmt
@@ -45,10 +51,17 @@ vet:
 lint:
     golangci-lint run --timeout 5m
 
+# Download and verify module dependencies
+deps: mod-verify mod-download
+
 # Verify and tidy dependencies
 mod-tidy:
     go mod tidy
     git diff --exit-code go.mod go.sum
+
+# Download module dependencies
+mod-download:
+    go mod download
 
 # Verify module checksums
 mod-verify:
@@ -56,7 +69,7 @@ mod-verify:
 
 # Full verify suite matching CI pipeline (excluding govulncheck).
 # Mirrors test.yml + lint.yml steps in fail-fast order.
-verify: mod-verify mod-tidy fmt-check vet build test-cover lint
+verify: deps mod-tidy fmt-check vet build test-cover lint
 
 # View coverage in browser
 cover:
