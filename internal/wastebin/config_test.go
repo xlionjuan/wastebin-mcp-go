@@ -412,16 +412,51 @@ func TestConfigFromEnv_SandboxMountNotInAllowed(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(cfg.SandboxMounts) != 1 {
-		t.Fatalf("expected 1 SandboxMount, got %d", len(cfg.SandboxMounts))
+	if len(cfg.SandboxMounts) != 0 {
+		t.Fatalf("expected disallowed sandbox mount to be removed, got %v", cfg.SandboxMounts)
+	}
+}
+
+func TestConfigFromEnv_SandboxMountsFilterPreservesOrder(t *testing.T) {
+	tmpDir := t.TempDir()
+	allowedDir := filepath.Join(tmpDir, "allowed")
+	firstAllowedDir := filepath.Join(allowedDir, "first")
+	secondAllowedDir := filepath.Join(allowedDir, "second")
+	disallowedDir := filepath.Join(tmpDir, "disallowed")
+
+	for _, dir := range []string{firstAllowedDir, secondAllowedDir, disallowedDir} {
+		err := os.MkdirAll(dir, 0o750)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	if cfg.SandboxMounts[0].HostPath != filepath.Clean(otherDir) {
-		t.Errorf("got %q, want %q", cfg.SandboxMounts[0].HostPath, filepath.Clean(otherDir))
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_ALLOWED_PATHS", allowedDir)
+	t.Setenv(
+		"WASTEBIN_MCP_SANDBOX_MOUNTS",
+		firstAllowedDir+":/workspace/first,"+
+			disallowedDir+":/workspace/skipped,"+
+			secondAllowedDir+":/workspace/second",
+	)
+
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.SandboxMounts[0].SandboxPath != "/workspace" {
-		t.Errorf("got %q, want %q", cfg.SandboxMounts[0].SandboxPath, "/workspace")
+	if len(cfg.SandboxMounts) != 2 {
+		t.Fatalf("expected 2 authorized sandbox mounts, got %v", cfg.SandboxMounts)
+	}
+
+	want := []SandboxMount{
+		{HostPath: firstAllowedDir, SandboxPath: "/workspace/first"},
+		{HostPath: secondAllowedDir, SandboxPath: "/workspace/second"},
+	}
+	for i := range want {
+		if cfg.SandboxMounts[i] != want[i] {
+			t.Errorf("SandboxMounts[%d] = %#v, want %#v", i, cfg.SandboxMounts[i], want[i])
+		}
 	}
 }
 

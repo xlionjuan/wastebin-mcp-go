@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -132,6 +134,49 @@ func TestBuildPasteSchemaSandboxMounts(t *testing.T) {
 
 	if _, exists := props["translate_sandbox_path"]; !exists {
 		t.Error("expected 'translate_sandbox_path' when mounts configured and not transparent")
+	}
+}
+
+func TestBuildPasteSchemaFilteredSandboxMounts(t *testing.T) {
+	tmpDir := t.TempDir()
+	allowedDir := filepath.Join(tmpDir, "allowed")
+	disallowedDir := filepath.Join(tmpDir, "disallowed")
+
+	for _, dir := range []string{allowedDir, disallowedDir} {
+		err := os.Mkdir(dir, 0o750)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_ALLOWED_PATHS", allowedDir)
+	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", disallowedDir+":/workspace")
+
+	cfg, err := wastebin.ConfigFromEnv()
+	if err != nil {
+		t.Fatalf("ConfigFromEnv failed: %v", err)
+	}
+
+	schema, err := buildPasteSchema(cfg)
+	if err != nil {
+		t.Fatalf("buildPasteSchema failed: %v", err)
+	}
+
+	var parsed map[string]any
+
+	err = json.Unmarshal(schema, &parsed)
+	if err != nil {
+		t.Fatalf("failed to unmarshal schema: %v", err)
+	}
+
+	props, ok := parsed["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("expected 'properties' to be an object")
+	}
+
+	if _, exists := props["translate_sandbox_path"]; exists {
+		t.Error("expected no 'translate_sandbox_path' after all mounts are filtered out")
 	}
 }
 
