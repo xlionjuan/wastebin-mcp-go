@@ -68,7 +68,7 @@ just vet
 just test-e2e
 ```
 
-> **Goroutine leak detection:** `main_test.go` runs `goleak.Find()` after all package tests complete. A leak causes the test suite to exit with code -1. Use `go test -v ./...` to see leak output on stderr.
+> **Goroutine leak detection:** `main_test.go` and `internal/wastebin/main_test.go` run goleak in their respective test binaries. A leak in either package causes that package's test suite to exit with code -1. Use `go test -v ./...` to see leak output on stderr.
 >
 > **E2E test env vars:** `E2E_MCP_BINARY` (set to skip per-test rebuild of the MCP binary) and `E2E_RAW_RETRIEVAL_WARN` (set to `true` to downgrade expired-paste failures to warnings for local runs). Both are optional.
 
