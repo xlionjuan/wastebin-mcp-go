@@ -25,17 +25,17 @@ func (b *SchemaBuilder) BuildToolSchema() (json.RawMessage, error) {
 	var required []string
 
 	// content -- always included
-	contentDesc := "The text content of the paste. Provide this OR file_path (not both)."
 	if b.cfg.FileReadEnabled {
-		contentDesc += " When file_path is provided instead, this field is not needed."
-	}
+		props["content"] = map[string]any{
+			"type":        "string",
+			"description": "The text content of the paste. Provide this OR file_path (not both).",
+		}
+	} else {
+		props["content"] = map[string]any{
+			"type":        "string",
+			"description": "The text content of the paste.",
+		}
 
-	props["content"] = map[string]any{
-		"type":        "string",
-		"description": contentDesc,
-	}
-
-	if !b.cfg.FileReadEnabled {
 		required = append(required, "content")
 	}
 
@@ -50,13 +50,7 @@ func (b *SchemaBuilder) BuildToolSchema() (json.RawMessage, error) {
 				"translated to the corresponding host path."
 		}
 
-		if len(b.cfg.AllowedPaths) > 0 {
-			filePathDesc += " SECURITY: Only paths under ALLOWED_PATHS are accepted."
-		} else {
-			filePathDesc += " SECURITY: Paths pass through the built-in and user blocklist pipeline."
-		}
-
-		filePathDesc += " Blocked system paths (/etc, /proc, /sys, /dev by default) are rejected."
+		filePathDesc += b.describePathSecurity()
 
 		props["file_path"] = map[string]any{
 			"type":        "string",
@@ -65,11 +59,15 @@ func (b *SchemaBuilder) BuildToolSchema() (json.RawMessage, error) {
 	}
 
 	// extension -- optional
+	extDesc := "File extension for syntax highlighting (e.g. 'go', 'py', 'js', 'md')."
+	if b.cfg.FileReadEnabled {
+		extDesc += " When using file_path, the extension is detected from the " +
+			"file name if not provided."
+	}
+
 	props["extension"] = map[string]any{
-		"type": "string",
-		"description": "File extension for syntax highlighting (e.g. 'go', 'py', 'js', " +
-			"'md'). When using file_path, the extension is detected from the " +
-			"file name if not provided.",
+		"type":        "string",
+		"description": extDesc,
 	}
 
 	// expires -- optional
@@ -186,9 +184,7 @@ func DescribeDefaultExpires(seconds int) string {
 
 // BuildToolDescription returns the tool-level description for create_paste.
 func (b *SchemaBuilder) BuildToolDescription() string {
-	return "Create a text paste on the configured Wastebin instance. " +
-		"Use 'content' for inline text or 'file_path' to upload a local " +
-		"file (when file mode is enabled). " +
+	desc := "Create a text paste on the configured Wastebin instance. " +
 		"Content supports multiple lines naturally -- include newlines " +
 		"directly in the string value. " +
 		"The response includes 'hostname', " +
@@ -197,6 +193,45 @@ func (b *SchemaBuilder) BuildToolDescription() string {
 		"When 'extension' is 'md' or 'markdown', a 'markdown_rendered' " +
 		"field appears with the rendered view URL. " +
 		"Password-protected pastes require the Wastebin-Password header " +
-		"for retrieval. " +
-		"File mode validates paths against an allowlist (when configured) and blocklist pipeline."
+		"for retrieval."
+
+	if b.cfg.FileReadEnabled {
+		desc += " Use 'content' for inline text or 'file_path' to upload a local file." +
+			" File paths are validated against the configured path policy."
+	} else {
+		desc += " Use 'content' for inline text."
+	}
+
+	return desc
+}
+
+// describePathSecurity returns the security section of the file_path
+// description based on the configured path policy.
+func (b *SchemaBuilder) describePathSecurity() string {
+	if len(b.cfg.AllowedPaths) > 0 {
+		s := " SECURITY: Only paths under ALLOWED_PATHS are accepted."
+
+		if !b.cfg.DisableBuiltinBlocklist {
+			s += " Sensitive components remain blocked."
+		}
+
+		return s
+	}
+
+	if !b.cfg.DisableBuiltinBlocklist {
+		s := " SECURITY: The built-in blocklist rejects system paths (/etc, /proc, /sys, /dev) " +
+			"and sensitive components (.ssh, .gnupg, .aws, .kube, .docker, .git)."
+
+		if len(b.cfg.BlockedPaths) > 0 {
+			s += " User-defined BLOCKED_PATHS also apply."
+		}
+
+		return s
+	}
+
+	if len(b.cfg.BlockedPaths) > 0 {
+		return " SECURITY: Paths are validated against user-defined BLOCKED_PATHS."
+	}
+
+	return " SECURITY: No additional path restrictions are configured."
 }

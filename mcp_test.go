@@ -277,8 +277,12 @@ func TestBuildPasteSchemaFilePathDescription_AllowedPathsConfigured(t *testing.T
 		t.Error("expected file_path description to mention ALLOWED_PATHS when configured")
 	}
 
-	if !strings.Contains(desc, "Blocked system paths") {
-		t.Error("expected file_path description to mention blocked system paths")
+	if !strings.Contains(desc, "Sensitive components remain blocked") {
+		t.Error("expected file_path description to mention sensitive components remain blocked")
+	}
+
+	if strings.Contains(desc, "Blocked system paths") {
+		t.Error("file_path description should not mention blocked system paths when ALLOWED_PATHS configured")
 	}
 }
 
@@ -321,12 +325,20 @@ func TestBuildPasteSchemaFilePathDescription_NoAllowedPaths(t *testing.T) {
 		t.Fatalf("expected file_path description to be a string, got %T", filePathMap["description"])
 	}
 
-	if !strings.Contains(desc, "blocklist pipeline") {
-		t.Error("expected file_path description to mention blocklist pipeline when no ALLOWED_PATHS")
+	if !strings.Contains(desc, "built-in blocklist") {
+		t.Error("expected file_path description to mention built-in blocklist when no ALLOWED_PATHS")
 	}
 
-	if !strings.Contains(desc, "Blocked system paths") {
+	if !strings.Contains(desc, "system paths (/etc, /proc, /sys, /dev)") {
 		t.Error("expected file_path description to mention blocked system paths")
+	}
+
+	if !strings.Contains(desc, "sensitive components") {
+		t.Error("expected file_path description to mention sensitive components")
+	}
+
+	if !strings.Contains(desc, "BLOCKED_PATHS also apply") {
+		t.Error("expected file_path description to mention BLOCKED_PATHS also apply (default config has blocked paths)")
 	}
 }
 

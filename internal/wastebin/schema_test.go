@@ -222,8 +222,12 @@ func TestSchemaBuilder_FilePathDescription_AllowedPathsConfigured(t *testing.T) 
 		t.Error("expected file_path description to mention ALLOWED_PATHS when configured")
 	}
 
-	if !strings.Contains(desc, "Blocked system paths") {
-		t.Error("expected file_path description to mention blocked system paths")
+	if !strings.Contains(desc, "Sensitive components remain blocked") {
+		t.Error("expected file_path description to mention sensitive components remain blocked")
+	}
+
+	if strings.Contains(desc, "Blocked system paths") {
+		t.Error("file_path description should not mention blocked system paths when ALLOWED_PATHS configured")
 	}
 }
 
@@ -266,12 +270,20 @@ func TestSchemaBuilder_FilePathDescription_NoAllowedPaths(t *testing.T) {
 		t.Fatalf("expected file_path description to be a string, got %T", filePathMap["description"])
 	}
 
-	if !strings.Contains(desc, "blocklist pipeline") {
-		t.Error("expected file_path description to mention blocklist pipeline when no ALLOWED_PATHS")
+	if !strings.Contains(desc, "built-in blocklist") {
+		t.Error("expected file_path description to mention built-in blocklist when no ALLOWED_PATHS")
 	}
 
-	if !strings.Contains(desc, "Blocked system paths") {
+	if !strings.Contains(desc, "system paths (/etc, /proc, /sys, /dev)") {
 		t.Error("expected file_path description to mention blocked system paths")
+	}
+
+	if !strings.Contains(desc, "sensitive components") {
+		t.Error("expected file_path description to mention sensitive components")
+	}
+
+	if !strings.Contains(desc, "BLOCKED_PATHS also apply") {
+		t.Error("expected file_path description to mention BLOCKED_PATHS also apply (default config has blocked paths)")
 	}
 }
 
@@ -579,17 +591,214 @@ func TestSchemaBuilder_FilePathDescription_SandboxTranslationMentioned(t *testin
 	}
 }
 
-func TestSchemaBuilder_BuildToolDescription_Static(t *testing.T) {
+func TestSchemaBuilder_BuildToolDescription_FileReadDisabled(t *testing.T) {
 	t.Parallel()
-
-	// BuildToolDescription should return the same result regardless of config.
-	desc1 := NewSchemaBuilder(DefaultConfig()).BuildToolDescription()
 
 	cfg := DefaultConfig()
 	cfg.FileReadEnabled = false
-	desc2 := NewSchemaBuilder(cfg).BuildToolDescription()
+	desc := NewSchemaBuilder(cfg).BuildToolDescription()
 
-	if desc1 != desc2 {
-		t.Error("BuildToolDescription should be static and not depend on config")
+	if !strings.Contains(desc, "content") {
+		t.Error("expected description to mention content")
+	}
+
+	if strings.Contains(desc, "file_path") {
+		t.Error("expected description to NOT mention file_path when FileReadEnabled=false")
+	}
+
+	if !strings.Contains(desc, "hostname") {
+		t.Error("expected description to mention hostname")
+	}
+}
+
+func TestSchemaBuilder_ExtensionDescription(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		fileReadOn   bool
+		wantFilePath bool
+	}{
+		{
+			name:         "file read enabled mentions file_path detection",
+			fileReadOn:   true,
+			wantFilePath: true,
+		},
+		{
+			name:         "file read disabled omits file_path detection",
+			fileReadOn:   false,
+			wantFilePath: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := DefaultConfig()
+			cfg.FileReadEnabled = tt.fileReadOn
+
+			schema, err := NewSchemaBuilder(cfg).BuildToolSchema()
+			if err != nil {
+				t.Fatalf("BuildToolSchema failed: %v", err)
+			}
+
+			var parsed map[string]any
+
+			err = json.Unmarshal(schema, &parsed)
+			if err != nil {
+				t.Fatalf("failed to unmarshal schema: %v", err)
+			}
+
+			props, ok := parsed["properties"].(map[string]any)
+			if !ok {
+				t.Fatal("expected 'properties' to be an object")
+			}
+
+			ext, ok := props["extension"].(map[string]any)
+			if !ok {
+				t.Fatal("expected 'extension' property")
+			}
+
+			desc, ok := ext["description"].(string)
+			if !ok {
+				t.Fatal("expected extension description to be a string")
+			}
+
+			if tt.wantFilePath && !strings.Contains(desc, "file_path") {
+				t.Error("expected extension description to mention file_path when file read enabled")
+			}
+
+			if !tt.wantFilePath && strings.Contains(desc, "file_path") {
+				t.Error("expected extension description to NOT mention file_path when file read disabled")
+			}
+		})
+	}
+}
+
+func TestSchemaBuilder_FilePathSecurityDescription(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		allowedPaths    []string
+		disableBuiltin  bool
+		blockedPaths    []string
+		wantAllowlist   bool
+		wantBuiltin     bool
+		wantUserBlocked bool
+		wantNoRestrict  bool
+	}{
+		{
+			name:           "allowlist + builtin enabled",
+			allowedPaths:   []string{"/home/allowed"},
+			disableBuiltin: false,
+			wantAllowlist:  true,
+			wantBuiltin:    true,
+		},
+		{
+			name:           "allowlist + builtin disabled",
+			allowedPaths:   []string{"/home/allowed"},
+			disableBuiltin: true,
+			wantAllowlist:  true,
+			wantBuiltin:    false,
+		},
+		{
+			name:            "no allowlist + builtin enabled + user blocked paths",
+			allowedPaths:    nil,
+			disableBuiltin:  false,
+			blockedPaths:    []string{"/etc", "/proc"},
+			wantAllowlist:   false,
+			wantBuiltin:     true,
+			wantUserBlocked: true,
+		},
+		{
+			name:            "no allowlist + builtin disabled + user blocked paths",
+			allowedPaths:    nil,
+			disableBuiltin:  true,
+			blockedPaths:    []string{"/etc"},
+			wantUserBlocked: true,
+		},
+		{
+			name:           "no allowlist + builtin disabled + no user blocked paths",
+			allowedPaths:   nil,
+			disableBuiltin: true,
+			blockedPaths:   nil,
+			wantNoRestrict: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := DefaultConfig()
+			cfg.FileReadEnabled = true
+			cfg.AllowedPaths = tt.allowedPaths
+
+			cfg.DisableBuiltinBlocklist = tt.disableBuiltin
+			if tt.blockedPaths == nil {
+				cfg.BlockedPaths = nil
+			} else {
+				cfg.BlockedPaths = append([]string{}, tt.blockedPaths...)
+			}
+
+			schema, err := NewSchemaBuilder(cfg).BuildToolSchema()
+			if err != nil {
+				t.Fatalf("BuildToolSchema failed: %v", err)
+			}
+
+			var parsed map[string]any
+
+			err = json.Unmarshal(schema, &parsed)
+			if err != nil {
+				t.Fatalf("failed to unmarshal schema: %v", err)
+			}
+
+			props, ok := parsed["properties"].(map[string]any)
+			if !ok {
+				t.Fatal("expected 'properties' to be an object")
+			}
+
+			filePath, exists := props["file_path"]
+			if !exists {
+				t.Fatal("expected 'file_path' property")
+			}
+
+			filePathMap, ok := filePath.(map[string]any)
+			if !ok {
+				t.Fatalf("expected file_path to be a map, got %T", filePath)
+			}
+
+			desc, ok := filePathMap["description"].(string)
+			if !ok {
+				t.Fatalf("expected file_path description to be a string, got %T", filePathMap["description"])
+			}
+
+			if tt.wantAllowlist && !strings.Contains(desc, "ALLOWED_PATHS") {
+				t.Error("expected description to mention ALLOWED_PATHS")
+			}
+
+			if tt.wantBuiltin && !strings.Contains(desc, "built-in blocklist") &&
+				!strings.Contains(desc, "Sensitive components remain blocked") {
+				t.Error("expected description to mention built-in blocklist or sensitive components")
+			}
+
+			if !tt.wantBuiltin && tt.wantAllowlist && strings.Contains(desc, "built-in blocklist") {
+				t.Error("expected description to NOT mention built-in blocklist when disabled with allowlist")
+			}
+
+			if tt.wantUserBlocked && !strings.Contains(desc, "BLOCKED_PATHS") {
+				t.Error("expected description to mention BLOCKED_PATHS")
+			}
+
+			if tt.wantNoRestrict && !strings.Contains(desc, "No additional path restrictions") {
+				t.Error("expected description to mention no additional restrictions")
+			}
+
+			if tt.wantAllowlist && strings.Contains(desc, "Blocked system paths") {
+				t.Error("expected description to NOT mention blocked system paths when ALLOWED_PATHS configured")
+			}
+		})
 	}
 }
