@@ -545,6 +545,75 @@ func TestSendRequest_JSONDecodeError(t *testing.T) {
 	}
 }
 
+func TestSendRequest_OversizedResponse(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Generate a path that exceeds maxResponseBodyLength.
+		longPath := "/" + strings.Repeat("A", maxResponseBodyLength)
+
+		w.WriteHeader(http.StatusOK)
+
+		err := json.NewEncoder(w).Encode(map[string]string{"path": longPath})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	_, err = h.sendRequest(t.Context(), []byte(`{"text":"test"}`))
+	if err == nil {
+		t.Fatal("expected error for oversized response")
+	}
+
+	if !errors.Is(err, errResponseTooLarge) {
+		t.Errorf("expected errResponseTooLarge, got: %v", err)
+	}
+}
+
+func TestSendRequest_TrailingData(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		// Valid JSON object followed by non-whitespace data.
+		_, err := w.Write([]byte(`{"path":"/ABC123"}extra`))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	_, err = h.sendRequest(t.Context(), []byte(`{"text":"test"}`))
+	if err == nil {
+		t.Fatal("expected error for trailing data")
+	}
+
+	if !strings.Contains(err.Error(), "unexpected content after JSON response") {
+		t.Errorf("expected trailing data error, got: %v", err)
+	}
+}
+
 func TestSendRequest_EmptyPathResponse(t *testing.T) {
 	t.Parallel()
 

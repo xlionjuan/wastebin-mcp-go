@@ -20,6 +20,7 @@ var (
 	errRedirectDifferentHost   = errors.New("redirect to different host blocked")
 	errRedirectSchemeDowngrade = errors.New("redirect scheme downgrade from https to http blocked")
 	errInvalidWastebinResponse = errors.New("invalid Wastebin response")
+	errResponseTooLarge        = errors.New("wastebin response exceeds maximum allowed size")
 	errPasswordOverHTTP        = errors.New(
 		"password-protected pastes are not allowed over non-loopback HTTP " +
 			"connections; use HTTPS or set " +
