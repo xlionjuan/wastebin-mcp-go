@@ -59,6 +59,9 @@ var (
 	errConfigRequired       = errors.New("config is required")
 	errUnsupportedURLScheme = errors.New("server URL must use http or https scheme")
 	errURLMissingHost       = errors.New("server URL must include a host")
+	errURLUserInfo          = errors.New("server URL must not include user information")
+	errURLQuery             = errors.New("server URL must not include a query string")
+	errURLFragment          = errors.New("server URL must not include a fragment")
 )
 
 // Expiration errors.

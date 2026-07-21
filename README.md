@@ -36,7 +36,7 @@ wastebin-mcp-go create --file-path /tmp/doc.md
 
 | Environment Variable | Required | Default | Description |
 |----------------------|----------|---------|-------------|
-| `WASTEBIN_SERVER_URL` | ✅ | — | Wastebin server URL (e.g. `https://bin-staging.xlion.tw`) |
+| `WASTEBIN_SERVER_URL` | ✅ | — | HTTP(S) Wastebin server URL, optionally with a base path (e.g. `https://bin-staging.xlion.tw/wastebin`). Credentials, query strings, and fragments are rejected |
 | `WASTEBIN_MCP_DEFAULT_EXPIRES` | | 31536000 | Default expiration in seconds |
 | `WASTEBIN_MCP_FILE_READ_ENABLED` | | true | Enable file reading mode |
 | `WASTEBIN_MCP_ALLOWED_PATHS` | | — | Comma-separated absolute directory paths |
