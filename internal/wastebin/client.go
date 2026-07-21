@@ -313,6 +313,18 @@ func validateServerURL(cfg *Config) (*url.URL, error) {
 		return nil, errURLMissingHost
 	}
 
+	if baseURL.User != nil {
+		return nil, errURLUserInfo
+	}
+
+	if baseURL.RawQuery != "" || baseURL.ForceQuery {
+		return nil, errURLQuery
+	}
+
+	if baseURL.Fragment != "" || baseURL.RawFragment != "" {
+		return nil, errURLFragment
+	}
+
 	return baseURL, nil
 }
 

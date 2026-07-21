@@ -1801,6 +1801,87 @@ func TestNewWastebinClient_NoHost(t *testing.T) {
 	}
 }
 
+func TestValidateServerURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		serverURL string
+		wantErr   error
+	}{
+		{
+			name:      "HTTP URL",
+			serverURL: "http://bin.example.com",
+		},
+		{
+			name:      "HTTPS URL",
+			serverURL: "https://bin.example.com",
+		},
+		{
+			name:      "base path",
+			serverURL: "https://bin.example.com/wastebin/base/",
+		},
+		{
+			name:      "username",
+			serverURL: "https://user@bin.example.com",
+			wantErr:   errURLUserInfo,
+		},
+		//nolint:gosec // This case intentionally verifies rejection of embedded credentials.
+		{
+			name:      "username and password",
+			serverURL: "https://user:secret@bin.example.com/base",
+			wantErr:   errURLUserInfo,
+		},
+		{
+			name:      "query string",
+			serverURL: "https://bin.example.com/base?tenant=a",
+			wantErr:   errURLQuery,
+		},
+		{
+			name:      "empty query",
+			serverURL: "https://bin.example.com/base?",
+			wantErr:   errURLQuery,
+		},
+		{
+			name:      "fragment",
+			serverURL: "https://bin.example.com/base#section",
+			wantErr:   errURLFragment,
+		},
+		{
+			name:      "escaped fragment",
+			serverURL: "https://bin.example.com/base#section%2Fdetail",
+			wantErr:   errURLFragment,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			baseURL, err := validateServerURL(&Config{ServerURL: tt.serverURL})
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("validateServerURL() error = %v, want %v", err, tt.wantErr)
+				}
+
+				if baseURL != nil {
+					t.Errorf("validateServerURL() URL = %v, want nil", baseURL)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("validateServerURL() unexpected error: %v", err)
+			}
+
+			if got := baseURL.String(); got != tt.serverURL {
+				t.Errorf("validateServerURL() URL = %q, want %q", got, tt.serverURL)
+			}
+		})
+	}
+}
+
 // TestBuildPasteResponse tests the response builder directly.
 
 func TestBuildPasteResponse_WithExt(t *testing.T) {
