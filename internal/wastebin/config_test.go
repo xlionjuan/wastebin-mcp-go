@@ -732,8 +732,8 @@ func TestEnvExampleSyncWithConfigFromEnv(t *testing.T) {
 		},
 		{
 			name:              "WASTEBIN_MCP_BLOCKED_PATHS",
-			documentedDefault: "/etc,/proc,/sys,/dev",
-			documentedExample: "/etc,/proc,/sys,/dev",
+			documentedDefault: "(empty — built-in blocklist handles system paths)",
+			documentedExample: "/home/user/secret",
 		},
 		{
 			name:              "WASTEBIN_MCP_MAX_CONTENT_SIZE",
@@ -790,6 +790,21 @@ func TestEnvExampleSyncWithConfigFromEnv(t *testing.T) {
 			t.Errorf(
 				"%q example value: got %q, want %q",
 				w.name, got.exampleVal, w.documentedExample,
+			)
+		}
+	}
+
+	wantByKey := make(map[string]wantEntry, len(want))
+	for _, w := range want {
+		wantByKey[w.name] = w
+	}
+
+	for name := range doc {
+		if _, ok := wantByKey[name]; !ok {
+			t.Errorf(
+				"env var %q is documented in .env.example but missing from the want "+
+					"table — add an entry if it should be tested, or remove it from .env.example",
+				name,
 			)
 		}
 	}
