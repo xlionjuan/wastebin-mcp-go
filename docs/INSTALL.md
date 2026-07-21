@@ -203,7 +203,7 @@ The system uses a **two-tier blocklist**:
 1. **Built-in blocklist** (hardcoded defaults, disabled via
    `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true`):
    - *System directory prefixes*: `/etc`, `/proc`, `/sys`, `/dev`
-   - *Sensitive path components*: `.ssh`, `.gnupg`, etc.
+   - *Sensitive path components*: `.ssh`, `.gnupg`, `.aws`, `.kube`, `.docker`, `.git`
 2. **User-defined blocklist** (`WASTEBIN_MCP_BLOCKED_PATHS`, comma-separated
    absolute directory paths). Relative entries are rejected at startup. Each
    entry is resolved via `filepath.EvalSymlinks` (matching the file-path
