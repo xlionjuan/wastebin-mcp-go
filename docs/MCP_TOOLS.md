@@ -392,7 +392,7 @@ pipeline** (Stages 1a–4):
    to Stage 1b. The prefix check is bypassed by ALLOWED_PATHS; the component
    check is not. Can be disabled entirely via
    `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true`.
-8. **Stage 4 — User blocklist** — configurable via `WASTEBIN_MCP_BLOCKED_PATHS`.
+8. **Stage 4 — User blocklist** — configurable via `WASTEBIN_MCP_BLOCKED_PATHS`. Empty by default — the built-in blocklist handles system directories separately.
 
 Without `WASTEBIN_MCP_ALLOWED_PATHS`, file reads **are not automatically
 refused** — they fall through to the built-in blocklist, which blocks system

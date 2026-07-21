@@ -29,8 +29,8 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("expected nil AllowedPaths, got %v", cfg.AllowedPaths)
 	}
 
-	if len(cfg.BlockedPaths) != 4 {
-		t.Errorf("expected 4 BlockedPaths, got %d: %v", len(cfg.BlockedPaths), cfg.BlockedPaths)
+	if cfg.BlockedPaths != nil {
+		t.Errorf("expected nil BlockedPaths, got %v", cfg.BlockedPaths)
 	}
 
 	if cfg.MaxContentSize != 1048576 {
@@ -74,8 +74,8 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 		t.Errorf("AllowedPaths should be empty, got %v", cfg.AllowedPaths)
 	}
 
-	if len(cfg.BlockedPaths) != 4 {
-		t.Errorf("expected 4 BlockedPaths, got %d", len(cfg.BlockedPaths))
+	if len(cfg.BlockedPaths) != 0 {
+		t.Errorf("expected 0 BlockedPaths, got %d: %v", len(cfg.BlockedPaths), cfg.BlockedPaths)
 	}
 
 	if cfg.MaxContentSize != 1048576 {
