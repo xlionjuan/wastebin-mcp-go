@@ -300,6 +300,8 @@ These errors are returned from the `create_paste` handler and always follow the
 | Server returns response with non-relative paste path | `"Create paste error: invalid Wastebin response: path must be relative, got <path>"` |
 | Server returns response without paste ID | `"Create paste error: invalid Wastebin response: path is missing paste ID"` |
 | Server returns malformed JSON | `"Create paste error: failed to parse Wastebin response: <details>"` |
+| Wastebin response exceeds maximum allowed size | `"Create paste error: wastebin response exceeds maximum allowed size"` |
+| Server returns response with trailing non-whitespace content | `"Create paste error: invalid Wastebin response: unexpected content after JSON response"` |
 | HTTP 422 from server (with body) | `"Create paste error: server rejected the request due to a validation error: <details>"` |
 | HTTP 422 from server (empty body) | `"Create paste error: server rejected the request due to a validation error"` |
 | Cross-host redirect blocked | `"Create paste error: HTTP request failed: Get {path}: redirect to different host blocked: <from> -> <to>"` |
