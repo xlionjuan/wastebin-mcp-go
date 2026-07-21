@@ -367,7 +367,7 @@ func TestBuildPasteSchemaBasicFields(t *testing.T) {
 		}
 	}
 
-	// Password description must not recommend query-string secret transport.
+	// Password must have minLength: 1.
 	passwordProp, ok := props["password"]
 	if !ok {
 		t.Fatal("expected 'password' property to exist")
@@ -376,6 +376,15 @@ func TestBuildPasteSchemaBasicFields(t *testing.T) {
 	passwordMap, ok := passwordProp.(map[string]any)
 	if !ok {
 		t.Fatalf("expected password to be a map, got %T", passwordProp)
+	}
+
+	minLength, ok := passwordMap["minLength"]
+	if !ok {
+		t.Fatal("expected password to have minLength")
+	}
+
+	if minLength != float64(1) {
+		t.Errorf("expected password minLength=1, got %v", minLength)
 	}
 
 	passwordDesc, ok := passwordMap["description"].(string)

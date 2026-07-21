@@ -97,9 +97,10 @@ func (b *SchemaBuilder) BuildToolSchema() (json.RawMessage, error) {
 			"burn-after-reading paste and then reading it back will delete it.",
 	}
 
-	// password -- optional
+	// password -- optional, must be non-empty when provided
 	props["password"] = map[string]any{
-		"type": "string",
+		"type":      "string",
+		"minLength": 1,
 		"description": "Optional password to protect the paste. " +
 			"Password-protected pastes require the Wastebin-Password header for retrieval.",
 	}
