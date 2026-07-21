@@ -44,6 +44,7 @@ type CLIFlags struct {
 	Title            string
 	BurnAfterReading bool
 	Password         string
+	PasswordSet      bool
 	Debug            bool
 	Help             bool
 }
@@ -141,14 +142,17 @@ func parseCreateFlags(args []string) (*CLIFlags, error) {
 		return nil, fmt.Errorf("%w: %v", errUnexpectedArgs, fs.Args())
 	}
 
-	// Detect if --content was explicitly set to empty string.
+	// Detect if --content or --password were explicitly set.
 	// Go's flag package cannot distinguish "not set" from "set to zero value"
 	// via the value alone, but fs.Visit() only visits flags that were parsed.
 	contentExplicitlySet := false
 
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "content" {
+		switch f.Name {
+		case "content":
 			contentExplicitlySet = true
+		case "password":
+			flags.PasswordSet = true
 		}
 	})
 

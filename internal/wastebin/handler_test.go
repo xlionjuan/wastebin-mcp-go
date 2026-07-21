@@ -643,6 +643,59 @@ func TestBuildRequest_WithBurnAfterReading(t *testing.T) {
 	}
 }
 
+func TestBuildRequest_EmptyPasswordRejected(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "https://bin.example.com"
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	emptyPass := ""
+	args := &CreatePasteArgs{Password: &emptyPass}
+
+	_, err = h.buildRequest(args, "secret", "go", 0)
+	if err == nil {
+		t.Fatal("expected error for empty password, got nil")
+	}
+
+	if !errors.Is(err, errPasswordEmpty) {
+		t.Errorf("expected errPasswordEmpty, got: %v", err)
+	}
+}
+
+func TestBuildRequest_EmptyPasswordLoopbackRejected(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		// Not reached — testing buildRequest only.
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	emptyPass := ""
+	args := &CreatePasteArgs{Password: &emptyPass}
+
+	_, err = h.buildRequest(args, "secret", "go", 0)
+	if err == nil {
+		t.Fatal("expected error for empty password (loopback), got nil")
+	}
+
+	if !errors.Is(err, errPasswordEmpty) {
+		t.Errorf("expected errPasswordEmpty, got: %v", err)
+	}
+}
+
 func TestBuildRequest_PasswordLoopback(t *testing.T) {
 	t.Parallel()
 
