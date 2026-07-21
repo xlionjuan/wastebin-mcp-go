@@ -137,9 +137,7 @@ func ConfigFromEnv() (*Config, error) {
 			return nil, fmt.Errorf("invalid WASTEBIN_MCP_SANDBOX_MOUNTS: %w", err)
 		}
 
-		cfg.SandboxMounts = mounts
-
-		err = resolveAndValidateMounts(cfg.SandboxMounts, cfg.AllowedPaths)
+		cfg.SandboxMounts, err = resolveAndValidateMounts(mounts, cfg.AllowedPaths)
 		if err != nil {
 			return nil, err
 		}
@@ -207,11 +205,14 @@ func resolveConfiguredPath(envName, p string, allowMissing bool) (string, error)
 
 // resolveAndValidateMounts resolves mount host paths with EvalSymlinks and
 // validates them against allowed paths.
-func resolveAndValidateMounts(mounts []SandboxMount, allowedPaths []string) error {
+func resolveAndValidateMounts(
+	mounts []SandboxMount,
+	allowedPaths []string,
+) ([]SandboxMount, error) {
 	for i := range mounts {
 		resolved, err := filepath.EvalSymlinks(mounts[i].HostPath)
 		if err != nil {
-			return fmt.Errorf(
+			return nil, fmt.Errorf(
 				"failed to resolve sandbox mount host path %q: %w",
 				mounts[i].HostPath, err,
 			)
@@ -220,6 +221,7 @@ func resolveAndValidateMounts(mounts []SandboxMount, allowedPaths []string) erro
 		mounts[i].HostPath = filepath.Clean(resolved)
 	}
 
+	validated := make([]SandboxMount, 0, len(mounts))
 	for _, m := range mounts {
 		if len(allowedPaths) > 0 && !isAllowedPath(m.HostPath, allowedPaths) {
 			slog.Warn("sandbox mount host_path not under any allowed path; skipping mount",
@@ -229,7 +231,9 @@ func resolveAndValidateMounts(mounts []SandboxMount, allowedPaths []string) erro
 
 			continue
 		}
+
+		validated = append(validated, m)
 	}
 
-	return nil
+	return validated, nil
 }
