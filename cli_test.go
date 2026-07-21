@@ -105,9 +105,21 @@ func TestBuildCreatePasteArgs(t *testing.T) {
 		},
 		{
 			name:         "password",
-			flags:        CLIFlags{Content: "encrypted", Password: "hunter2"},
+			flags:        CLIFlags{Content: "encrypted", Password: "hunter2", PasswordSet: true},
 			wantContent:  new("encrypted"),
 			wantPassword: new("hunter2"),
+		},
+		{
+			name:         "explicitly empty password preserved as pointer",
+			flags:        CLIFlags{Content: "secret", Password: "", PasswordSet: true},
+			wantContent:  new("secret"),
+			wantPassword: new(""),
+		},
+		{
+			name:         "password not set remains nil",
+			flags:        CLIFlags{Content: "unprotected"},
+			wantContent:  new("unprotected"),
+			wantPassword: nil,
 		},
 		{
 			name:        "translate_sandbox_path — no field in CLIFlags, always nil",
@@ -125,6 +137,7 @@ func TestBuildCreatePasteArgs(t *testing.T) {
 				Title:            "Full Test",
 				BurnAfterReading: true,
 				Password:         "secret123",
+				PasswordSet:      true,
 			},
 			wantContent:          new("full paste"),
 			wantFilePath:         new("/path/to/file"),
@@ -149,9 +162,10 @@ func TestBuildCreatePasteArgs(t *testing.T) {
 		{
 			name: "various combinations — file_path + title + password",
 			flags: CLIFlags{
-				FilePath: "/data/report.txt",
-				Title:    "Report",
-				Password: "1234",
+				FilePath:    "/data/report.txt",
+				Title:       "Report",
+				Password:    "1234",
+				PasswordSet: true,
 			},
 			wantFilePath: new("/data/report.txt"),
 			wantTitle:    new("Report"),
@@ -239,6 +253,35 @@ func TestBuildCreatePasteArgsWithParseCreateFlagsContent(t *testing.T) {
 	// Fields not passed should remain nil
 	assertStringPtr(t, "FilePath", args.FilePath, nil)
 	assertBoolPtr(t, "TranslateSandboxPath", args.TranslateSandboxPath, nil)
+}
+
+func TestBuildCreatePasteArgs_EmptyPasswordPreserved(t *testing.T) {
+	t.Parallel()
+
+	flags, err := parseCreateFlags([]string{
+		"--content", "secret",
+		"--password", "",
+	})
+	if err != nil {
+		t.Fatalf("parseCreateFlags failed: %v", err)
+	}
+
+	if !flags.PasswordSet {
+		t.Fatal("expected PasswordSet=true for explicitly provided --password")
+	}
+
+	args := buildCreatePasteArgs(flags)
+
+	// Verify the empty password is preserved as a pointer (not nil), so the
+	// handler's buildRequest can reject it with errPasswordEmpty.
+	argPass := args.Password
+	if argPass == nil {
+		t.Fatal("expected non-nil Password pointer for explicitly empty --password")
+	}
+
+	if *argPass != "" {
+		t.Errorf("expected empty password string, got %q", *argPass)
+	}
 }
 
 func TestBuildCreatePasteArgsWithParseCreateFlagsFilePath(t *testing.T) {

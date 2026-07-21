@@ -90,7 +90,8 @@ func runCLIMode(flags *CLIFlags) error {
 }
 
 // buildCreatePasteArgs converts CLIFlags into a CreatePasteArgs, setting only
-// the fields that were explicitly provided.
+// the fields that were explicitly provided. An explicitly-provided empty
+// password is preserved so that the handler can reject it with errPasswordEmpty.
 func buildCreatePasteArgs(flags *CLIFlags) *wastebin.CreatePasteArgs {
 	args := &wastebin.CreatePasteArgs{}
 
@@ -118,7 +119,7 @@ func buildCreatePasteArgs(flags *CLIFlags) *wastebin.CreatePasteArgs {
 		args.BurnAfterReading = &flags.BurnAfterReading
 	}
 
-	if flags.Password != "" {
+	if flags.PasswordSet {
 		args.Password = &flags.Password
 	}
 
