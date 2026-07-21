@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -20,11 +19,16 @@ const (
 // DefaultConfig returns Config with safe defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		ServerURL:             "",
-		DefaultExpires:        defaultExpirySeconds, // 1 year
-		FileReadEnabled:       true,
-		AllowedPaths:          nil,
-		BlockedPaths:          slices.Clone([]string{"/etc", "/proc", "/sys", "/dev"}),
+		ServerURL:       "",
+		DefaultExpires:  defaultExpirySeconds, // 1 year
+		FileReadEnabled: true,
+		AllowedPaths:    nil,
+		BlockedPaths: []blockedPathEntry{
+			{Lexical: "/etc", Resolved: "/etc"},
+			{Lexical: "/proc", Resolved: "/proc"},
+			{Lexical: "/sys", Resolved: "/sys"},
+			{Lexical: "/dev", Resolved: "/dev"},
+		},
 		MaxContentSize:        defaultMaxContentSize, // 1 MB
 		SandboxMounts:         nil,
 		SandboxTransparent:    false,
@@ -87,6 +91,10 @@ func ConfigFromEnv() (*Config, error) {
 	}
 
 	// Blocked paths (comma-separated absolute paths; defaults to /etc,/proc,/sys,/dev).
+	// Each entry stores both the operator's original lexical form and the
+	// resolved (symlink-canonical) form.  The lexical form enables
+	// pre-resolution matching against late-created symlinks; the resolved
+	// form matches what EvalSymlinks produces at request time.
 	if v := os.Getenv("WASTEBIN_MCP_BLOCKED_PATHS"); v != "" {
 		cfg.BlockedPaths = nil
 
@@ -97,24 +105,25 @@ func ConfigFromEnv() (*Config, error) {
 				continue
 			}
 
-			cfg.BlockedPaths = append(cfg.BlockedPaths, p)
+			lexical := filepath.Clean(p)
+			if !filepath.IsAbs(lexical) {
+				return nil, fmt.Errorf("%w: WASTEBIN_MCP_BLOCKED_PATHS entry %q", errConfiguredPathNotAbsolute, p)
+			}
+
+			resolved, err := filepath.EvalSymlinks(lexical)
+			if err != nil {
+				cfg.BlockedPaths = append(cfg.BlockedPaths, blockedPathEntry{
+					Lexical:  lexical,
+					Resolved: lexical,
+				})
+			} else {
+				cfg.BlockedPaths = append(cfg.BlockedPaths, blockedPathEntry{
+					Lexical:  lexical,
+					Resolved: filepath.Clean(resolved),
+				})
+			}
 		}
 	}
-	// Resolve all blocked paths — first try EvalSymlinks (matching
-	// validateFilePath's resolution), then fall back to Clean for
-	// non-existent absolute paths that may exist later.
-	var resolvedBlocked []string
-
-	for _, p := range cfg.BlockedPaths {
-		resolved, err := resolveConfiguredPath("WASTEBIN_MCP_BLOCKED_PATHS", p, true)
-		if err != nil {
-			return nil, err
-		}
-
-		resolvedBlocked = append(resolvedBlocked, resolved)
-	}
-
-	cfg.BlockedPaths = resolvedBlocked
 
 	// Max content size.
 	if v := os.Getenv("WASTEBIN_MCP_MAX_CONTENT_SIZE"); v != "" {

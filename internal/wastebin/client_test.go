@@ -1117,7 +1117,7 @@ func TestCreatePaste_FileMode_SandboxTranslationBlockedPath(t *testing.T) {
 
 	cfg := DefaultConfig()
 	cfg.ServerURL = server.URL
-	cfg.BlockedPaths = []string{blockedDir}
+	cfg.BlockedPaths = []blockedPathEntry{blockedEntry(blockedDir)}
 	cfg.SandboxMounts = []SandboxMount{
 		{HostPath: blockedDir, SandboxPath: "/workspace"},
 	}
@@ -3212,7 +3212,7 @@ func TestCreatePaste_SymlinkSwapRace_NoAllowedPaths(t *testing.T) {
 
 	cfg := DefaultConfig()
 	cfg.ServerURL = server.URL
-	cfg.BlockedPaths = []string{blockedDir}
+	cfg.BlockedPaths = []blockedPathEntry{blockedEntry(blockedDir)}
 	// AllowedPaths is deliberately empty — exercises the no-ALLOWED_PATHS
 	// branch of openFileResolved which walks from / with openat+O_NOFOLLOW.
 
