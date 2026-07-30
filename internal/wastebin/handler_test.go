@@ -3,6 +3,7 @@ package wastebin //nolint:testpackage // white-box tests need access to unexport
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -611,6 +612,127 @@ func TestSendRequest_TrailingData(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "unexpected content after JSON response") {
 		t.Errorf("expected trailing data error, got: %v", err)
+	}
+}
+
+// countingBody wraps an io.ReadCloser and counts bytes read through it.
+type countingBody struct {
+	io.ReadCloser
+
+	n *int64
+}
+
+func (b *countingBody) Read(p []byte) (int, error) {
+	m, err := b.ReadCloser.Read(p)
+	*b.n += int64(m)
+
+	return m, err
+}
+
+// readCountingTransport wraps an http.RoundTripper and wraps response bodies
+// with a countingBody to track total bytes read from the wire.
+type readCountingTransport struct {
+	inner     http.RoundTripper
+	readBytes *int64
+}
+
+func (t *readCountingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.inner.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+
+	resp.Body = &countingBody{ReadCloser: resp.Body, n: t.readBytes}
+
+	return resp, nil
+}
+
+func TestSendRequest_OversizedResponse_HugePath(t *testing.T) {
+	t.Parallel()
+
+	var readBytes int64
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		longPath := "/" + strings.Repeat("A", 10000)
+
+		err := json.NewEncoder(w).Encode(map[string]string{"path": longPath})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	h.httpClient.Transport = &readCountingTransport{
+		inner:     http.DefaultTransport,
+		readBytes: &readBytes,
+	}
+
+	_, err = h.sendRequest(t.Context(), []byte(`{"text":"test"}`))
+	if err == nil {
+		t.Fatal("expected error for oversized response")
+	}
+
+	if !errors.Is(err, errResponseTooLarge) {
+		t.Errorf("expected errResponseTooLarge, got: %v", err)
+	}
+
+	if readBytes > maxResponseBodyLength+1 {
+		t.Errorf("read %d bytes from wire; expected at most %d (maxResponseBodyLength+1)", readBytes, maxResponseBodyLength+1)
+	}
+}
+
+func TestSendRequest_TrailingData_HugeTrailing(t *testing.T) {
+	t.Parallel()
+
+	var readBytes int64
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		// Small valid JSON object followed by huge non-whitespace trailing data.
+		_, err := w.Write([]byte(`{"path":"/ABC123"}` + strings.Repeat("X", 100000)))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = ts.URL
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	h.httpClient.Transport = &readCountingTransport{
+		inner:     http.DefaultTransport,
+		readBytes: &readBytes,
+	}
+
+	_, err = h.sendRequest(t.Context(), []byte(`{"text":"test"}`))
+	if err == nil {
+		t.Fatal("expected error for oversized trailing data")
+	}
+
+	if !errors.Is(err, errResponseTooLarge) {
+		t.Errorf("expected errResponseTooLarge, got: %v", err)
+	}
+
+	if readBytes > maxResponseBodyLength+1 {
+		t.Errorf("read %d bytes from wire; expected at most %d (maxResponseBodyLength+1)", readBytes, maxResponseBodyLength+1)
 	}
 }
 
