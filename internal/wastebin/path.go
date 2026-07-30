@@ -332,7 +332,7 @@ func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err err
 		}
 	}
 
-	// Stage 4: USER BLOCKLIST.
+	// Stage 4b: USER BLOCKLIST (resolved, post-resolution).
 	if _, blocked := isUserBlocked(resolvedPath, cfg.BlockedPaths); blocked {
 		return "", errUserBlockedPath
 	}

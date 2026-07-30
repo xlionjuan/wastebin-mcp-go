@@ -208,9 +208,10 @@ The system uses a **two-tier blocklist**:
    absolute directory paths). Relative entries are rejected at startup.
    Each entry stores both the **lexical form** (as configured, `filepath.Clean`)
    and the **resolved form** (after `filepath.EvalSymlinks`, or falls back to
-   `filepath.Clean` for non-existent paths). Applied after the built-in
-   blocklist. Empty by default — the built-in blocklist handles system
-   directories separately.
+   `filepath.Clean` for non-existent paths). The lexical check (Stage 4a) runs
+   **before** `EvalSymlinks` and the built-in blocklist; the resolved check
+   (Stage 4b) runs **after** both. Empty by default — the built-in blocklist
+   handles system directories separately.
    - **Lexical check (pre-resolution):** Before symlink resolution, the raw
      request path is converted to absolute via `filepath.Abs` and compared
      against the lexical entries. This catches access through a user-blocked

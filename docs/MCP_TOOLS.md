@@ -356,8 +356,8 @@ When file mode is enabled, the `file_path` parameter allows reading local files.
 This is a powerful feature that must be configured carefully.
 
 When a sandbox path is supplied with translation enabled, the server runs
-**sandbox pre-validation steps** before the **five-stage `validateFilePath`
-pipeline** (Stages 1a–4):
+**sandbox pre-validation steps** before the **six-stage `validateFilePath`
+pipeline** (Stages 1a, 1b, 4a, 2, 3, 4b):
 
 **Sandbox pre-validation (before translation):**
 

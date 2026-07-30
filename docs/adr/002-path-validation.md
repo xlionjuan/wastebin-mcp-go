@@ -245,7 +245,7 @@ Key points:
 Previously, ALLOWED_PATHS bypassed all blocklist stages entirely. After B2,
 the sensitive component blocklist (Stage 3b) is checked even when a path
 falls under an allowed directory. Only the system directory prefix blocklist
-(Stage 3a) and the user blocklist (Stage 4) remain bypassed.
+ (Stage 3a) and the user blocklist (Stage 4b) remain bypassed.
 
 ### Rationale
 
