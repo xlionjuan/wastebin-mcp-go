@@ -215,12 +215,16 @@ entries are rejected at startup.
   a sensitive pattern.
 
 **User Blocklist** (`WASTEBIN_MCP_BLOCKED_PATHS`): A comma-separated list of
-absolute directory paths that are denied by default. Default value:
-`/etc,/proc,/sys,/dev`. Blocked-path entries are resolved with
-`filepath.EvalSymlinks` at startup (matching the file-path resolution) to
-prevent symlink aliases from bypassing the blocklist. Non-existent entries
-fall back to `filepath.Clean`. Relative entries are rejected at startup. The
-allowlist takes precedence over the user blocklist.
+absolute directory paths to block. Empty by default — the built-in blocklist
+handles system directories (`/etc`, `/proc`, `/sys`, `/dev`) separately. Each
+entry stores both the **lexical form** (as configured, `filepath.Clean`) and
+the **resolved form** (after `filepath.EvalSymlinks`; falls back to
+`filepath.Clean` for non-existent paths). The lexical form enables a
+pre-resolution check (Stage 4a) that catches late-created or retargeted
+symlinks, including relative `file_path` values in CLI mode. The resolved form
+(Stage 4b) matches what `EvalSymlinks` produces at request time. Relative
+entries are rejected at startup. The allowlist takes precedence over the user
+blocklist.
 
 **Path resolution**: Sensitive path components (`.ssh`, `.gnupg`, `.aws`,
 `.kube`, `.docker`, `.git`) are checked on the raw input **before** symlink
@@ -244,7 +248,8 @@ User-supplied file_path
   → Mount host root verification (after translation)
   → Stage 1a — Path traversal detection (raw input)
   → Stage 1b — Sensitive component detection (raw input, before symlink resolution)
-  → Resolve (EvalSymlinks + Clean)
+  → Stage 4a — User blocklist lexical (pre-resolution, before EvalSymlinks)
+  → Resolve (EvalSymlinks + Clean + Abs)
      → Stage 2 — ALLOWED_PATHS check
       ├─ ALLOWED_PATHS configured
       │  ├─ Path under allowed path → Stage 3b (sensitive component check)
@@ -256,7 +261,7 @@ User-supplied file_path
          │  ├─ Blocked → ❌  denied
          │  └─ OK → Stage 3b — Built-in component blocklist
          │          ├─ Blocked → ❌  denied
-         │          └─ OK → Stage 4 — User blocklist
+         │          └─ OK → Stage 4b — User blocklist resolved (post-resolution)
          │                  ├─ Blocked → ❌  denied
          │                  └─ OK → ✅  IsLikelyText
 ```
@@ -335,7 +340,7 @@ using `filepath.Join` normalization to bypass the traversal check.
 |---------|-----|---------|
 | File read mode | `WASTEBIN_MCP_FILE_READ_ENABLED` | true |
 | Path allowlist | `WASTEBIN_MCP_ALLOWED_PATHS` | — (optional — when empty, falls through to blocklist pipeline) |
-| Path blocklist | `WASTEBIN_MCP_BLOCKED_PATHS` | `/etc,/proc,/sys,/dev` |
+| Path blocklist | `WASTEBIN_MCP_BLOCKED_PATHS` | — (empty; built-in blocklist handles `/etc,/proc,/sys,/dev`) |
 | Max content size | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | 1 MB |
 | Sandbox mounts | `WASTEBIN_MCP_SANDBOX_MOUNTS` | — |
 | Transparent mode | `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | false |

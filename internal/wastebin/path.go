@@ -210,15 +210,21 @@ func stageBuiltinBlocked(path string) (string, error) {
 // validateFilePath
 // ──────────────────────────────────────────────
 
-// validateFilePath runs the five-stage path validation pipeline:
+// validateFilePath runs the six-stage path validation pipeline:
 //
 //	Stage 1a: Path traversal detection on the raw input (before resolution).
 //	Stage 1b: Sensitive component detection on the raw input (before resolution).
+//	Stage 4a: USER BLOCKLIST (lexical) — pre-resolution check against the
+//	          operator's original configured paths (before EvalSymlinks).
+//	          Converts relative paths to absolute via filepath.Abs.
+//	          Skipped when ALLOWED_PATHS is configured (Stage 2 takes precedence).
+//	          EvalSymlinks resolves the path.
 //	Stage 2: ALLOWED_PATHS check — if configured and path is under one,
 //	         the prefix blocklist and user blocklist are bypassed, but the
 //	         sensitive component blocklist (Stage 3b) is still enforced.
 //	Stage 3: BUILT-IN BLOCKLIST check (prefix + component).
-//	Stage 4: USER BLOCKLIST check (WASTEBIN_MCP_BLOCKED_PATHS).
+//	Stage 4b: USER BLOCKLIST (resolved) — post-resolution check against the
+//	          canonical resolved form of each entry.
 //
 // Stages 1a and 1b run on the path as received. For sandbox paths, the caller
 // (readFileContent) applies traversal and component checks on the original
@@ -262,10 +268,12 @@ func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err err
 	// existing bypass behavior in Stage 2.
 	if len(cfg.BlockedPaths) > 0 && len(cfg.AllowedPaths) == 0 {
 		absRaw, absErr := filepath.Abs(normalized)
-		if absErr == nil {
-			if _, blocked := isUserBlockedLexical(filepath.Clean(absRaw), cfg.BlockedPaths); blocked {
-				return "", errUserBlockedPath
-			}
+		if absErr != nil {
+			return "", errFilePathCannotBeUsed
+		}
+
+		if _, blocked := isUserBlockedLexical(filepath.Clean(absRaw), cfg.BlockedPaths); blocked {
+			return "", errUserBlockedPath
 		}
 	}
 

@@ -20,8 +20,9 @@ use to reconstruct full retrieval URLs.
   tool — agents must use `curl` directly.
 - File mode applies sandbox pre-validation checks (traversal detection,
   sensitive component detection) before optional sandbox path translation,
-  followed by the five-stage `validateFilePath` pipeline: traversal, component,
-  allowlist, built-in blocklist, and user blocklist.
+  followed by the six-stage `validateFilePath` pipeline: traversal, component,
+  user blocklist lexical (pre-resolution), allowlist, built-in blocklist, and
+  user blocklist resolved (post-resolution).
   See [Security Notes](#security-notes) for details.
 
 ### MCP Tool Annotations
@@ -374,7 +375,7 @@ pipeline** (Stages 1a–4):
    corresponding host path. After translation, the result is verified to still
    be under the matched mount's host root.
 
-**Five-stage `validateFilePath` pipeline (Stages 1a, 1b, 2, 3, 4):**
+**Six-stage `validateFilePath` pipeline (Stages 1a, 1b, 4a, 2, 3, 4b):**
 
 4. **Stage 1a — Path traversal detection** — runs on the (post-translation)
    path before any symlink resolution.
@@ -382,11 +383,18 @@ pipeline** (Stages 1a–4):
    (post-translation) path for blocked components before symlink resolution.
    The same check is repeated on the resolved path in Stage 3b for defense
    in depth.
-6. **Stage 2 — ALLOWED_PATHS (user allowlist)** — if configured, only paths
+6. **Stage 4a — User blocklist lexical (pre-resolution)** — compares the
+   absolute form of the raw request path against the operator's original
+   configured paths before `EvalSymlinks`. Catches access through a
+   user-blocked directory that was created or retargeted as a symlink after
+   startup. Converts relative paths to absolute via `filepath.Abs` (no
+   symlink resolution) so CLI-mode relative paths are checked identically
+   to MCP-mode absolute paths. Bypassed by ALLOWED_PATHS.
+7. **Stage 2 — ALLOWED_PATHS (user allowlist)** — if configured, only paths
    under allowed directories are accepted. ALLOWED_PATHS bypasses the system
    directory prefix blocklist and the user blocklist, but **not** the
    sensitive component blocklist (Stage 3b).
-7. **Stage 3 — Built-in blocklist** — two independent checks:
+8. **Stage 3 — Built-in blocklist** — two independent checks:
    - *System directory prefix* (Stage 3a): `/etc`, `/proc`, `/sys`, `/dev`
    - *Sensitive path component* (Stage 3b): `.ssh`, `.gnupg`, `.aws`, `.kube`,
      `.docker`, `.git`
@@ -394,7 +402,10 @@ pipeline** (Stages 1a–4):
    to Stage 1b. The prefix check is bypassed by ALLOWED_PATHS; the component
    check is not. Can be disabled entirely via
    `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true`.
-8. **Stage 4 — User blocklist** — configurable via `WASTEBIN_MCP_BLOCKED_PATHS`. Empty by default — the built-in blocklist handles system directories separately.
+9. **Stage 4b — User blocklist resolved (post-resolution)** — compares the
+   resolved canonical path against the resolved form of each entry.
+   Configurable via `WASTEBIN_MCP_BLOCKED_PATHS`. Empty by default — the
+   built-in blocklist handles system directories separately.
 
 Without `WASTEBIN_MCP_ALLOWED_PATHS`, file reads **are not automatically
 refused** — they fall through to the built-in blocklist, which blocks system

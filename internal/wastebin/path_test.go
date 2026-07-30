@@ -1865,24 +1865,11 @@ func TestValidateFilePath_NormalNonSymlinkDescendant(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // uses t.Chdir which is incompatible with t.Parallel
 func TestValidateFilePath_UserBlockedRelativePath(t *testing.T) {
-	t.Parallel()
-
 	tmpDir := t.TempDir()
 
-	wd, wdErr := os.Getwd()
-	if wdErr != nil {
-		t.Fatal(wdErr)
-	}
-
-	t.Cleanup(func() {
-		_ = os.Chdir(wd) //nolint:usetesting,errcheck // safe; t.Chdir is incompatible with t.Parallel
-	})
-
-	chdirErr := os.Chdir(tmpDir) //nolint:usetesting // t.Chdir is incompatible with t.Parallel
-	if chdirErr != nil {
-		t.Fatal(chdirErr)
-	}
+	t.Chdir(tmpDir)
 
 	targetDir := filepath.Join(tmpDir, "target")
 
