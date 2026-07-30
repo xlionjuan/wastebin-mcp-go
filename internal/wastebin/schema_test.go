@@ -820,8 +820,9 @@ func TestSchemaBuilder_FilePathSecurityDescription(t *testing.T) {
 				t.Error("expected description to mention built-in blocklist or sensitive components")
 			}
 
-			if !tt.wantBuiltin && tt.wantAllowlist && strings.Contains(desc, "built-in blocklist") {
-				t.Error("expected description to NOT mention built-in blocklist when disabled with allowlist")
+			if !tt.wantBuiltin && (strings.Contains(desc, "built-in blocklist") ||
+				strings.Contains(desc, "Sensitive components remain blocked")) {
+				t.Error("expected description to NOT mention built-in protections when built-in blocklist is disabled")
 			}
 
 			if tt.wantUserBlocked && !strings.Contains(desc, "BLOCKED_PATHS") {
