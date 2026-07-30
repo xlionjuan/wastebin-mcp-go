@@ -337,8 +337,8 @@ func TestBuildPasteSchemaFilePathDescription_NoAllowedPaths(t *testing.T) {
 		t.Error("expected file_path description to mention sensitive components")
 	}
 
-	if !strings.Contains(desc, "BLOCKED_PATHS also apply") {
-		t.Error("expected file_path description to mention BLOCKED_PATHS also apply (default config has blocked paths)")
+	if strings.Contains(desc, "BLOCKED_PATHS") {
+		t.Error("file_path description should not mention BLOCKED_PATHS (no user-defined blocked paths in default config)")
 	}
 }
 
