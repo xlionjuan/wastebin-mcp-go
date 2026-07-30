@@ -39,9 +39,9 @@ type Config struct {
 	ServerURL               string
 	DefaultExpires          int // seconds
 	FileReadEnabled         bool
-	AllowedPaths            []string // resolved absolute dirs
-	BlockedPaths            []blockedPathEntry
-	MaxContentSize          int64 // bytes, default 1MB
+	AllowedPaths            []string           // resolved absolute dirs
+	BlockedPaths            []blockedPathEntry // (default: empty; built-in blocklist handles system dirs)
+	MaxContentSize          int64              // bytes, default 1MB
 	SandboxMounts           []SandboxMount
 	SandboxTransparent      bool
 	DisableBuiltinBlocklist bool
