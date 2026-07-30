@@ -234,5 +234,6 @@ func (b *SchemaBuilder) describePathSecurity() string {
 		return " SECURITY: Paths are validated against user-defined BLOCKED_PATHS."
 	}
 
-	return " SECURITY: No additional path restrictions are configured."
+	return " SECURITY: No additional path restrictions are configured." +
+		" Path traversal (`..`) is still unconditionally blocked."
 }

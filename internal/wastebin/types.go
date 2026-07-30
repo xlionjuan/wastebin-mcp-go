@@ -31,7 +31,7 @@ type Config struct {
 	DefaultExpires          int // seconds
 	FileReadEnabled         bool
 	AllowedPaths            []string // resolved absolute dirs
-	BlockedPaths            []string // resolved absolute dirs (default: /etc,/proc,/sys,/dev)
+	BlockedPaths            []string // resolved absolute dirs (default: empty; built-in blocklist handles system dirs)
 	MaxContentSize          int64    // bytes, default 1MB
 	SandboxMounts           []SandboxMount
 	SandboxTransparent      bool

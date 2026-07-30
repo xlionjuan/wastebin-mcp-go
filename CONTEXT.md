@@ -215,8 +215,9 @@ entries are rejected at startup.
   a sensitive pattern.
 
 **User Blocklist** (`WASTEBIN_MCP_BLOCKED_PATHS`): A comma-separated list of
-absolute directory paths that are denied by default. Default value:
-`/etc,/proc,/sys,/dev`. Blocked-path entries are resolved with
+absolute directory paths that are denied by default. Default value: empty — the
+built-in blocklist handles system directories (`/etc`, `/proc`, `/sys`, `/dev`)
+and sensitive components separately. Blocked-path entries are resolved with
 `filepath.EvalSymlinks` at startup (matching the file-path resolution) to
 prevent symlink aliases from bypassing the blocklist. Non-existent entries
 fall back to `filepath.Clean`. Relative entries are rejected at startup. The
@@ -335,7 +336,7 @@ using `filepath.Join` normalization to bypass the traversal check.
 |---------|-----|---------|
 | File read mode | `WASTEBIN_MCP_FILE_READ_ENABLED` | true |
 | Path allowlist | `WASTEBIN_MCP_ALLOWED_PATHS` | — (optional — when empty, falls through to blocklist pipeline) |
-| Path blocklist | `WASTEBIN_MCP_BLOCKED_PATHS` | `/etc,/proc,/sys,/dev` |
+| Path blocklist | `WASTEBIN_MCP_BLOCKED_PATHS` | — (built-in blocklist handles system paths) |
 | Max content size | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | 1 MB |
 | Sandbox mounts | `WASTEBIN_MCP_SANDBOX_MOUNTS` | — |
 | Transparent mode | `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | false |

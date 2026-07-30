@@ -553,8 +553,8 @@ func TestSchemaBuilder_ContentDescriptionWithoutFileMode(t *testing.T) {
 		t.Fatal("expected content description to be a string")
 	}
 
-	if strings.Contains(desc, "When file_path is provided instead") {
-		t.Error("expected content description to NOT mention file_path alternative when file mode is disabled")
+	if strings.Contains(desc, "file_path") {
+		t.Error("expected content description to NOT mention file_path when file read is disabled")
 	}
 }
 
@@ -713,6 +713,24 @@ func TestSchemaBuilder_FilePathSecurityDescription(t *testing.T) {
 			wantBuiltin:    false,
 		},
 		{
+			name:            "allowlist + builtin enabled + user blocked paths",
+			allowedPaths:    []string{"/home/allowed"},
+			disableBuiltin:  false,
+			blockedPaths:    []string{"/etc"},
+			wantAllowlist:   true,
+			wantBuiltin:     true,
+			wantUserBlocked: false,
+		},
+		{
+			name:            "allowlist + builtin disabled + user blocked paths",
+			allowedPaths:    []string{"/home/allowed"},
+			disableBuiltin:  true,
+			blockedPaths:    []string{"/etc"},
+			wantAllowlist:   true,
+			wantBuiltin:     false,
+			wantUserBlocked: false,
+		},
+		{
 			name:            "no allowlist + builtin enabled + user blocked paths",
 			allowedPaths:    nil,
 			disableBuiltin:  false,
@@ -720,6 +738,15 @@ func TestSchemaBuilder_FilePathSecurityDescription(t *testing.T) {
 			wantAllowlist:   false,
 			wantBuiltin:     true,
 			wantUserBlocked: true,
+		},
+		{
+			name:            "no allowlist + builtin enabled + no user blocked paths",
+			allowedPaths:    nil,
+			disableBuiltin:  false,
+			blockedPaths:    nil,
+			wantAllowlist:   false,
+			wantBuiltin:     true,
+			wantUserBlocked: false,
 		},
 		{
 			name:            "no allowlist + builtin disabled + user blocked paths",
@@ -801,12 +828,31 @@ func TestSchemaBuilder_FilePathSecurityDescription(t *testing.T) {
 				t.Error("expected description to mention BLOCKED_PATHS")
 			}
 
-			if tt.wantNoRestrict && !strings.Contains(desc, "No additional path restrictions") {
-				t.Error("expected description to mention no additional restrictions")
+			if tt.wantNoRestrict {
+				if !strings.Contains(desc, "No additional path restrictions") {
+					t.Error("expected description to mention no additional restrictions")
+				}
+
+				if !strings.Contains(desc, "traversal") {
+					t.Error("expected description to mention traversal protection remains active")
+				}
+			}
+
+			if !tt.wantNoRestrict && strings.Contains(desc, "No additional path restrictions") {
+				t.Error("expected description to NOT say no additional restrictions when other restrictions are active")
 			}
 
 			if tt.wantAllowlist && strings.Contains(desc, "Blocked system paths") {
 				t.Error("expected description to NOT mention blocked system paths when ALLOWED_PATHS configured")
+			}
+
+			if tt.wantAllowlist && strings.Contains(desc, "BLOCKED_PATHS") {
+				t.Error("expected description to NOT mention BLOCKED_PATHS " +
+					"when ALLOWED_PATHS is configured (allowlist bypasses blocklist)")
+			}
+
+			if !tt.wantUserBlocked && !tt.wantAllowlist && strings.Contains(desc, "BLOCKED_PATHS") {
+				t.Error("expected description to NOT mention BLOCKED_PATHS when no user-defined blocked paths exist")
 			}
 		})
 	}
