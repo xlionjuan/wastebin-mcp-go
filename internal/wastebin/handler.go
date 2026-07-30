@@ -66,7 +66,9 @@ func (h *Handler) CreatePaste(ctx context.Context, args *CreatePasteArgs) (*Past
 		return nil, err
 	}
 
-	return buildPasteResponse(h.baseURL, wastebinResp.Path, ext, args.Password != nil), nil
+	passwordSet := args.Password != nil && *args.Password != ""
+
+	return buildPasteResponse(h.baseURL, wastebinResp.Path, ext, passwordSet), nil
 }
 
 // resolveContent validates args and resolves paste content from either content
@@ -114,6 +116,10 @@ func (h *Handler) buildRequest(args *CreatePasteArgs, content, ext string, expir
 	}
 
 	if args.Password != nil {
+		if *args.Password == "" {
+			return nil, errPasswordEmpty
+		}
+
 		reqBody.Password = *args.Password
 
 		if h.baseURL.Scheme == "http" {

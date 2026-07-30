@@ -54,8 +54,8 @@ jobs:
 
       - name: Install Go skills for OpenCode
         env:
-          # renovate: datasource=git-refs packageName=https://github.com/samber/cc-skills-golang currentValue=main
-          CC_SKILLS_GOLANG_SHA: 709b18186985c2ae7b6b5eb9cded2c635aa74be5
+          # renovate: datasource=git-refs depName=samber/cc-skills-golang packageName=https://github.com/samber/cc-skills-golang currentValue=main
+          CC_SKILLS_GOLANG_SHA: e27d59ca42b5d16204a0af1e99e77b9546754ad3
         run: |
           mkdir -p "$HOME/.agents/skills"
           git init "$HOME/.agents/skills/cc-skills-golang"
@@ -64,7 +64,7 @@ jobs:
           git -C "$HOME/.agents/skills/cc-skills-golang" checkout --detach "$CC_SKILLS_GOLANG_SHA"
 
       - name: Run OpenCode documentation/code alignment review
-        uses: xlionjuan/opencode-github-actions@3e2eb8825706467215e386703815ceb59c055f22 # main
+        uses: xlionjuan/opencode-github-actions@d0609fd0e5553b08ad721c696c77683602b12ebf # main
         with:
           model: opencode-go/deepseek-v4-flash
           prompt: |

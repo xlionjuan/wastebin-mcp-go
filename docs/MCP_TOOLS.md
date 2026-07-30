@@ -48,7 +48,7 @@ inspect tool metadata at runtime.
 | `expires` | string | no | Expiration time: bare number (seconds) or number plus unit suffix (s, m, h, d, w, M=30d, y=365d). Examples: `3600`, `1h`, `7d`, `30M`. Defaults to the configured default. Configured via `WASTEBIN_MCP_DEFAULT_EXPIRES`. |
 | `title` | string | no | Optional title for the paste. |
 | `burn_after_reading` | boolean | no | If `true`, the paste is deleted automatically after being retrieved via any access method (raw, web, API) for the first time. The agent's own reads also count — creating a burn-after-reading paste and then reading it back will delete it. |
-| `password` | string | no | Encrypt the paste with a password. See [Password-Protected Pastes](#password-protected-pastes) for retrieval instructions. |
+| `password` | string | no | Encrypt the paste with a password. Must be at least 1 character when provided. See [Password-Protected Pastes](#password-protected-pastes) for retrieval instructions. |
 | `translate_sandbox_path` | boolean | no | Only present when sandbox mounts are configured and transparent mode is off. Set to `true` to translate a sandbox-internal `file_path` to the corresponding host path. |
 
 ### Schema Behavior
@@ -268,6 +268,7 @@ the MCP SDK rejects it. These errors are **not** prefixed with
 | Unknown/unexpected property (e.g. `file_path` when file mode is disabled) | Property excluded from schema | `"Unknown error: additional properties not allowed: ..."` |
 | Both `content` and `file_path` provided (file mode disabled) | `file_path` excluded from schema | `"Unknown error: additional properties not allowed: file_path"` |
 | Neither `content` nor `file_path` provided (file mode disabled) | `content` is required in schema | `"Unknown error: required property 'content' not provided"` |
+| `password` is empty string (`""`) | Always (`minLength: 1`) | `"Unknown error: ... minLength ..."` |
 | Type mismatch (e.g. string for boolean field) | Always | `"Unknown error: ... expected ... got ..."` |
 
 > **Note:** When file mode is **enabled**, `content` and `file_path` are both
@@ -293,6 +294,7 @@ These errors are returned from the `create_paste` handler and always follow the
 | DNS resolution failure | `"Create paste error: cannot resolve the server hostname: <details>"` |
 | Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE` | `"Create paste error: content exceeds the maximum allowed size: <N> bytes exceeds limit of <N> bytes"` |
 | Password over non-loopback HTTP without override | `"Create paste error: password-protected pastes are not allowed over non-loopback HTTP connections; use HTTPS or set WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD=true for local development"` |
+| `password` is empty string (defensive fallback, `minLength` should catch at schema first) | `"Create paste error: password must be non-empty when provided; set a non-empty password or omit the field entirely"` |
 | Unknown HTTP error | `"Create paste error: unknown HTTP error: HTTP <CODE>"` |
 | Invalid expiration format | `"Create paste error: invalid expiration: <reason>"` (reason: `expiration cannot be negative`, `unknown expiration unit`, `invalid expiration format`, `expiration overflow`, `expiration exceeds maximum supported value`) |
 | Extension contains invalid path or query characters | `"Create paste error: extension contains invalid path or query characters: <ext>"` |
@@ -394,7 +396,7 @@ pipeline** (Stages 1a–4):
    to Stage 1b. The prefix check is bypassed by ALLOWED_PATHS; the component
    check is not. Can be disabled entirely via
    `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true`.
-8. **Stage 4 — User blocklist** — configurable via `WASTEBIN_MCP_BLOCKED_PATHS`.
+8. **Stage 4 — User blocklist** — configurable via `WASTEBIN_MCP_BLOCKED_PATHS`. Empty by default — the built-in blocklist handles system directories separately.
 
 Without `WASTEBIN_MCP_ALLOWED_PATHS`, file reads **are not automatically
 refused** — they fall through to the built-in blocklist, which blocks system

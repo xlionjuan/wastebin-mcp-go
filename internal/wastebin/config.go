@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -24,7 +23,7 @@ func DefaultConfig() *Config {
 		DefaultExpires:        defaultExpirySeconds, // 1 year
 		FileReadEnabled:       true,
 		AllowedPaths:          nil,
-		BlockedPaths:          slices.Clone([]string{"/etc", "/proc", "/sys", "/dev"}),
+		BlockedPaths:          nil,
 		MaxContentSize:        defaultMaxContentSize, // 1 MB
 		SandboxMounts:         nil,
 		SandboxTransparent:    false,
@@ -86,7 +85,8 @@ func ConfigFromEnv() (*Config, error) {
 		}
 	}
 
-	// Blocked paths (comma-separated absolute paths; defaults to /etc,/proc,/sys,/dev).
+	// Blocked paths (comma-separated absolute paths; empty by default — the
+	// built-in blocklist handles system directories separately).
 	if v := os.Getenv("WASTEBIN_MCP_BLOCKED_PATHS"); v != "" {
 		cfg.BlockedPaths = nil
 

@@ -506,6 +506,97 @@ func TestValidateFilePath_DisableBuiltinBlocklist(t *testing.T) {
 	}
 }
 
+func TestValidateFilePath_DisableBuiltinBlocklistViaConfigFromEnv(t *testing.T) {
+	// Acceptance test: ConfigFromEnv with DISABLE_BUILTIN_BLOCKLIST=true
+	// should allow /etc/passwd through validation when no user blocklist
+	// is configured (regression test for the bug where BlockedPaths
+	// held the built-in defaults even with the disable flag).
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST", "true")
+
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatalf("ConfigFromEnv: %v", err)
+	}
+
+	if !cfg.DisableBuiltinBlocklist {
+		t.Error("expected DisableBuiltinBlocklist to be true")
+	}
+
+	if len(cfg.BlockedPaths) != 0 {
+		t.Errorf("expected 0 BlockedPaths (defaults removed), got %d: %v",
+			len(cfg.BlockedPaths), cfg.BlockedPaths)
+	}
+
+	result, err := validateFilePath("/etc/passwd", cfg)
+	if err != nil {
+		t.Fatalf("expected /etc/passwd to be allowed when builtin blocklist disabled, got: %v", err)
+	}
+
+	if result != "/etc/passwd" {
+		t.Errorf("expected resolved path %q, got %q", "/etc/passwd", result)
+	}
+}
+
+func TestValidateFilePath_BuiltinBlocklistActiveViaConfigFromEnv(t *testing.T) {
+	// Verifies that without the disable flag, ConfigFromEnv still
+	// blocks /etc/passwd via the built-in blocklist.
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatalf("ConfigFromEnv: %v", err)
+	}
+
+	if cfg.DisableBuiltinBlocklist {
+		t.Error("expected DisableBuiltinBlocklist to be false")
+	}
+
+	if len(cfg.BlockedPaths) != 0 {
+		t.Errorf("expected 0 BlockedPaths (defaults removed from user blocklist), got %d: %v",
+			len(cfg.BlockedPaths), cfg.BlockedPaths)
+	}
+
+	_, err = validateFilePath("/etc/passwd", cfg)
+	if err == nil {
+		t.Fatal("expected /etc/passwd to be blocked by built-in blocklist, got nil")
+	}
+
+	if !errors.Is(err, errBuiltinBlockedPrefix) {
+		t.Errorf("expected errBuiltinBlockedPrefix, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_ExplicitUserBlocklistStillBlocks(t *testing.T) {
+	// Even with DisableBuiltinBlocklist=true, explicitly configuring
+	// WASTEBIN_MCP_BLOCKED_PATHS should still block those paths.
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST", "true")
+	t.Setenv("WASTEBIN_MCP_BLOCKED_PATHS", "/etc")
+
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatalf("ConfigFromEnv: %v", err)
+	}
+
+	if !cfg.DisableBuiltinBlocklist {
+		t.Error("expected DisableBuiltinBlocklist to be true")
+	}
+
+	if len(cfg.BlockedPaths) != 1 {
+		t.Fatalf("expected 1 BlockedPath, got %d: %v", len(cfg.BlockedPaths), cfg.BlockedPaths)
+	}
+
+	_, err = validateFilePath("/etc/passwd", cfg)
+	if err == nil {
+		t.Fatal("expected /etc/passwd to be blocked by explicit user blocklist, got nil")
+	}
+
+	if !errors.Is(err, errUserBlockedPath) {
+		t.Errorf("expected errUserBlockedPath, got: %v", err)
+	}
+}
+
 func TestValidateFilePath_AllowedWithAllowedPath(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()

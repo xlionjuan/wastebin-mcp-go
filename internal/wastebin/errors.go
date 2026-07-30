@@ -21,7 +21,11 @@ var (
 	errRedirectSchemeDowngrade = errors.New("redirect scheme downgrade from https to http blocked")
 	errInvalidWastebinResponse = errors.New("invalid Wastebin response")
 	errResponseTooLarge        = errors.New("wastebin response exceeds maximum allowed size")
-	errPasswordOverHTTP        = errors.New(
+	errPasswordEmpty           = errors.New(
+		"password must be non-empty when provided; set a non-empty password " +
+			"or omit the field entirely",
+	)
+	errPasswordOverHTTP = errors.New(
 		"password-protected pastes are not allowed over non-loopback HTTP " +
 			"connections; use HTTPS or set " +
 			"WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD=true for local development",
