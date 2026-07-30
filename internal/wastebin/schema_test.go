@@ -692,7 +692,7 @@ func TestSchemaBuilder_FilePathSecurityDescription(t *testing.T) {
 		name            string
 		allowedPaths    []string
 		disableBuiltin  bool
-		blockedPaths    []string
+		blockedPaths    []blockedPathEntry
 		wantAllowlist   bool
 		wantBuiltin     bool
 		wantUserBlocked bool
@@ -716,7 +716,7 @@ func TestSchemaBuilder_FilePathSecurityDescription(t *testing.T) {
 			name:            "allowlist + builtin enabled + user blocked paths",
 			allowedPaths:    []string{"/home/allowed"},
 			disableBuiltin:  false,
-			blockedPaths:    []string{"/etc"},
+			blockedPaths:    []blockedPathEntry{blockedEntry("/etc")},
 			wantAllowlist:   true,
 			wantBuiltin:     true,
 			wantUserBlocked: false,
@@ -725,7 +725,7 @@ func TestSchemaBuilder_FilePathSecurityDescription(t *testing.T) {
 			name:            "allowlist + builtin disabled + user blocked paths",
 			allowedPaths:    []string{"/home/allowed"},
 			disableBuiltin:  true,
-			blockedPaths:    []string{"/etc"},
+			blockedPaths:    []blockedPathEntry{blockedEntry("/etc")},
 			wantAllowlist:   true,
 			wantBuiltin:     false,
 			wantUserBlocked: false,
@@ -734,7 +734,7 @@ func TestSchemaBuilder_FilePathSecurityDescription(t *testing.T) {
 			name:            "no allowlist + builtin enabled + user blocked paths",
 			allowedPaths:    nil,
 			disableBuiltin:  false,
-			blockedPaths:    []string{"/etc", "/proc"},
+			blockedPaths:    []blockedPathEntry{blockedEntry("/etc"), blockedEntry("/proc")},
 			wantAllowlist:   false,
 			wantBuiltin:     true,
 			wantUserBlocked: true,
@@ -752,7 +752,7 @@ func TestSchemaBuilder_FilePathSecurityDescription(t *testing.T) {
 			name:            "no allowlist + builtin disabled + user blocked paths",
 			allowedPaths:    nil,
 			disableBuiltin:  true,
-			blockedPaths:    []string{"/etc"},
+			blockedPaths:    []blockedPathEntry{blockedEntry("/etc")},
 			wantUserBlocked: true,
 		},
 		{
@@ -773,11 +773,7 @@ func TestSchemaBuilder_FilePathSecurityDescription(t *testing.T) {
 			cfg.AllowedPaths = tt.allowedPaths
 
 			cfg.DisableBuiltinBlocklist = tt.disableBuiltin
-			if tt.blockedPaths == nil {
-				cfg.BlockedPaths = nil
-			} else {
-				cfg.BlockedPaths = append([]string{}, tt.blockedPaths...)
-			}
+			cfg.BlockedPaths = tt.blockedPaths
 
 			schema, err := NewSchemaBuilder(cfg).BuildToolSchema()
 			if err != nil {

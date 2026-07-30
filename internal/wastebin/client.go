@@ -28,10 +28,15 @@ const (
 	maxRedirects          = 10
 	maxErrorBodyLength    = 200
 
-	// drainLimit is the maximum number of bytes read from error response
-	// bodies. Reading more than this is unnecessary since the body is not
-	// used for diagnostics, and a large body could cause OOM.
+	// drainLimit is the maximum number of bytes read from response bodies
+	// for connection reuse. Reading more than this is unnecessary since
+	// the body is not used, and a large body could cause OOM.
 	drainLimit = 4096
+
+	// maxResponseBodyLength is the maximum number of bytes expected in a
+	// successful Wastebin JSON response. The expected payload is a small
+	// object containing one paste path, e.g. {"path":"/ABC123"}.
+	maxResponseBodyLength = 1024
 )
 
 // WastebinClient handles HTTP communication with the Wastebin server.

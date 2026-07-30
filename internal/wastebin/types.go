@@ -25,14 +25,23 @@ type PasteResponse struct {
 	PasswordHint     string `json:"password_hint,omitempty"`
 }
 
+// blockedPathEntry stores both the lexical (as-configured by the operator)
+// and the resolved (canonical after EvalSymlinks) form of a user-defined
+// blocked path.  Keeping both identities prevents a late-created symlink
+// from bypassing a lexical blocklist entry.
+type blockedPathEntry struct {
+	Lexical  string // absolute, cleaned form exactly as the operator configured
+	Resolved string // canonical form after EvalSymlinks (same as Lexical if missing at startup)
+}
+
 // Config holds all configuration from environment variables.
 type Config struct {
 	ServerURL               string
 	DefaultExpires          int // seconds
 	FileReadEnabled         bool
-	AllowedPaths            []string // resolved absolute dirs
-	BlockedPaths            []string // resolved absolute dirs (default: empty; built-in blocklist handles system dirs)
-	MaxContentSize          int64    // bytes, default 1MB
+	AllowedPaths            []string           // resolved absolute dirs
+	BlockedPaths            []blockedPathEntry // (default: empty; built-in blocklist handles system dirs)
+	MaxContentSize          int64              // bytes, default 1MB
 	SandboxMounts           []SandboxMount
 	SandboxTransparent      bool
 	DisableBuiltinBlocklist bool

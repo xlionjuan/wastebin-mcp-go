@@ -101,19 +101,38 @@ func isBuiltinBlocked(resolvedPath string) (string, bool) {
 	return hasComponentBlockedIn(cleaned, builtinBlockedComponents)
 }
 
+// isUserBlockedLexical checks the absolute, cleaned request path against
+// the operator's original lexical entries before symlink resolution.
+// This catches a path that is under a user-blocked directory that was
+// created as a symlink AFTER process startup.
+func isUserBlockedLexical(absRawPath string, userBlockedPaths []blockedPathEntry) (string, bool) {
+	if len(userBlockedPaths) == 0 {
+		return "", false
+	}
+
+	cleaned := filepath.Clean(absRawPath)
+	for _, entry := range userBlockedPaths {
+		if isContainedPath(entry.Lexical, cleaned) {
+			return entry.Lexical, true
+		}
+	}
+
+	return "", false
+}
+
 // isUserBlocked checks the resolved path against the user-defined blocklist
-// (WASTEBIN_MCP_BLOCKED_PATHS). Returns (matchedPath, true) if blocked,
-// ("", false) if not blocked.
-func isUserBlocked(resolvedPath string, userBlockedPaths []string) (string, bool) {
+// (WASTEBIN_MCP_BLOCKED_PATHS). It compares against the resolved (canonical)
+// form of each entry, which matches what EvalSymlinks produces at request time.
+// Returns (matchedPath, true) if blocked, ("", false) if not blocked.
+func isUserBlocked(resolvedPath string, userBlockedPaths []blockedPathEntry) (string, bool) {
 	if len(userBlockedPaths) == 0 {
 		return "", false
 	}
 
 	cleaned := filepath.Clean(resolvedPath)
-	for _, blocked := range userBlockedPaths {
-		blocked = filepath.Clean(blocked)
-		if isContainedPath(blocked, cleaned) {
-			return blocked, true
+	for _, entry := range userBlockedPaths {
+		if isContainedPath(entry.Resolved, cleaned) {
+			return entry.Resolved, true
 		}
 	}
 
@@ -191,15 +210,21 @@ func stageBuiltinBlocked(path string) (string, error) {
 // validateFilePath
 // ──────────────────────────────────────────────
 
-// validateFilePath runs the five-stage path validation pipeline:
+// validateFilePath runs the six-stage path validation pipeline:
 //
 //	Stage 1a: Path traversal detection on the raw input (before resolution).
 //	Stage 1b: Sensitive component detection on the raw input (before resolution).
+//	Stage 4a: USER BLOCKLIST (lexical) — pre-resolution check against the
+//	          operator's original configured paths (before EvalSymlinks).
+//	          Converts relative paths to absolute via filepath.Abs.
+//	          Skipped when ALLOWED_PATHS is configured (Stage 2 takes precedence).
+//	          EvalSymlinks resolves the path.
 //	Stage 2: ALLOWED_PATHS check — if configured and path is under one,
 //	         the prefix blocklist and user blocklist are bypassed, but the
 //	         sensitive component blocklist (Stage 3b) is still enforced.
 //	Stage 3: BUILT-IN BLOCKLIST check (prefix + component).
-//	Stage 4: USER BLOCKLIST check (WASTEBIN_MCP_BLOCKED_PATHS).
+//	Stage 4b: USER BLOCKLIST (resolved) — post-resolution check against the
+//	          canonical resolved form of each entry.
 //
 // Stages 1a and 1b run on the path as received. For sandbox paths, the caller
 // (readFileContent) applies traversal and component checks on the original
@@ -227,9 +252,32 @@ func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err err
 		}
 	}
 
-	// Resolve the path via EvalSymlinks.
+	// Normalize the path for resolution.
 	normalized := normalizePath(rawPath)
 
+	// Stage 4a: USER BLOCKLIST (lexical) — pre-resolution check.
+	// This catches paths that are in a user-blocked directory that was
+	// created as a symlink AFTER process startup, so that EvalSymlinks
+	// would resolve through the symlink and lose the blocked prefix.
+	// The normalized path is converted to absolute here (without resolving
+	// symlinks) so that relative file_path values in CLI mode are checked
+	// against the lexical blocklist before EvalSymlinks can remove the
+	// blocked alias.
+	// When ALLOWED_PATHS is configured, it takes precedence over the
+	// user blocklist (both lexical and resolved forms), matching the
+	// existing bypass behavior in Stage 2.
+	if len(cfg.BlockedPaths) > 0 && len(cfg.AllowedPaths) == 0 {
+		absRaw, absErr := filepath.Abs(normalized)
+		if absErr != nil {
+			return "", errFilePathCannotBeUsed
+		}
+
+		if _, blocked := isUserBlockedLexical(filepath.Clean(absRaw), cfg.BlockedPaths); blocked {
+			return "", errUserBlockedPath
+		}
+	}
+
+	// Resolve the path via EvalSymlinks.
 	resolved, err := filepath.EvalSymlinks(normalized)
 	if err != nil {
 		// When ALLOWED_PATHS is configured, don't leak whether a
@@ -284,7 +332,7 @@ func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err err
 		}
 	}
 
-	// Stage 4: USER BLOCKLIST.
+	// Stage 4b: USER BLOCKLIST (resolved, post-resolution).
 	if _, blocked := isUserBlocked(resolvedPath, cfg.BlockedPaths); blocked {
 		return "", errUserBlockedPath
 	}
