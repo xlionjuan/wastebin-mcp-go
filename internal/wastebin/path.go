@@ -253,12 +253,19 @@ func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err err
 	// This catches paths that are in a user-blocked directory that was
 	// created as a symlink AFTER process startup, so that EvalSymlinks
 	// would resolve through the symlink and lose the blocked prefix.
+	// The normalized path is converted to absolute here (without resolving
+	// symlinks) so that relative file_path values in CLI mode are checked
+	// against the lexical blocklist before EvalSymlinks can remove the
+	// blocked alias.
 	// When ALLOWED_PATHS is configured, it takes precedence over the
 	// user blocklist (both lexical and resolved forms), matching the
 	// existing bypass behavior in Stage 2.
-	if len(cfg.BlockedPaths) > 0 && len(cfg.AllowedPaths) == 0 && filepath.IsAbs(normalized) {
-		if _, blocked := isUserBlockedLexical(filepath.Clean(normalized), cfg.BlockedPaths); blocked {
-			return "", errUserBlockedPath
+	if len(cfg.BlockedPaths) > 0 && len(cfg.AllowedPaths) == 0 {
+		absRaw, absErr := filepath.Abs(normalized)
+		if absErr == nil {
+			if _, blocked := isUserBlockedLexical(filepath.Clean(absRaw), cfg.BlockedPaths); blocked {
+				return "", errUserBlockedPath
+			}
 		}
 	}
 

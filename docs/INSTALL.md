@@ -44,7 +44,7 @@ go build -ldflags="-X main.version=$(git describe --tags --always)" -o wastebin-
 | `WASTEBIN_MCP_FILE_READ_ENABLED` | | `true` | Enable file-reading mode; set to `false` to restrict to inline content only |
 | `WASTEBIN_MCP_DEFAULT_EXPIRES` | | `31536000` | Default paste expiration in seconds when no `expires` parameter is given |
 | `WASTEBIN_MCP_ALLOWED_PATHS` | | — | Comma-separated absolute directory paths allowed for file reads. Relative entries are rejected at startup. When set, only paths under these directories are accepted. When empty, skips allowlist and falls through to blocklist checks |
-| `WASTEBIN_MCP_BLOCKED_PATHS` | | — | Comma-separated absolute directory paths to block for file reads (e.g. `/home/user/secret`). Relative entries are rejected at startup. Resolved via `EvalSymlinks` (matching file-path resolution) with fallback to `Clean` for non-existent absolute paths. Applied after the built-in blocklist. Empty by default — the built-in blocklist handles system directories (`/etc`, `/proc`, `/sys`, `/dev`) separately |
+| `WASTEBIN_MCP_BLOCKED_PATHS` | | — | Comma-separated absolute directory paths to block for file reads (e.g. `/home/user/secret`). Relative entries are rejected at startup. Each entry stores both a lexical form (as configured) and a resolved form (after `EvalSymlinks`, with fallback to `Clean` for non-existent paths). A pre-resolution lexical check on the absolute request path catches late-created or retargeted symlinks, including relative `file_path` values in CLI mode. A post-resolution resolved check catches access through the canonical target. Empty by default — the built-in blocklist handles system directories (`/etc`, `/proc`, `/sys`, `/dev`) separately |
 | `WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD` | | `false` | Allow password-protected pastes over non-loopback HTTP connections. By default, password-protected pastes are rejected when using `http://` with a non-loopback host. Loopback addresses (localhost, 127.0.0.1, ::1) are always allowed with a warning |
 | `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST` | | `false` | Set to `true` to disable the built-in blocklist (system directory prefixes + sensitive path components). When enabled, only the user-configured blocklist (`WASTEBIN_MCP_BLOCKED_PATHS`) and allowlist (`WASTEBIN_MCP_ALLOWED_PATHS`) apply. Since `WASTEBIN_MCP_BLOCKED_PATHS` is empty by default, this flag alone (without explicit blocklist or allowlist) allows all paths. Use with caution |
 | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | | `1048576` | Maximum paste content size in bytes (client-side guard) |
@@ -205,12 +205,21 @@ The system uses a **two-tier blocklist**:
    - *System directory prefixes*: `/etc`, `/proc`, `/sys`, `/dev`
    - *Sensitive path components*: `.ssh`, `.gnupg`, `.aws`, `.kube`, `.docker`, `.git`
 2. **User-defined blocklist** (`WASTEBIN_MCP_BLOCKED_PATHS`, comma-separated
-   absolute directory paths). Relative entries are rejected at startup. Each
-   entry is resolved via `filepath.EvalSymlinks` (matching the file-path
-   resolution in validateFilePath) to prevent symlink aliases from bypassing the
-   blocklist. Non-existent absolute paths fall back to `filepath.Clean`. Applied
-   after the built-in blocklist. Empty by default — the built-in blocklist
-   handles system directories separately.
+   absolute directory paths). Relative entries are rejected at startup.
+   Each entry stores both the **lexical form** (as configured, `filepath.Clean`)
+   and the **resolved form** (after `filepath.EvalSymlinks`, or falls back to
+   `filepath.Clean` for non-existent paths). Applied after the built-in
+   blocklist. Empty by default — the built-in blocklist handles system
+   directories separately.
+   - **Lexical check (pre-resolution):** Before symlink resolution, the raw
+     request path is converted to absolute via `filepath.Abs` and compared
+     against the lexical entries. This catches access through a user-blocked
+     directory that is created or retargeted as a symlink after process startup,
+     including relative `file_path` values in CLI mode.
+   - **Resolved check (post-resolution):** After `EvalSymlinks`, the canonical
+     resolved path is compared against the resolved entries. This catches access
+     through the symlink's target even when the symlink alias itself was not
+     the configured path.
 
 Each tier produces a distinct error message so the user knows exactly which
 rule rejected their path.

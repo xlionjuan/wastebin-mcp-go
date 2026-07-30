@@ -1864,3 +1864,201 @@ func TestValidateFilePath_NormalNonSymlinkDescendant(t *testing.T) {
 		t.Errorf("expected errUserBlockedPath, got: %v", err)
 	}
 }
+
+func TestValidateFilePath_UserBlockedRelativePath(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	wd, wdErr := os.Getwd()
+	if wdErr != nil {
+		t.Fatal(wdErr)
+	}
+
+	t.Cleanup(func() {
+		_ = os.Chdir(wd) //nolint:usetesting,errcheck // safe; t.Chdir is incompatible with t.Parallel
+	})
+
+	chdirErr := os.Chdir(tmpDir) //nolint:usetesting // t.Chdir is incompatible with t.Parallel
+	if chdirErr != nil {
+		t.Fatal(chdirErr)
+	}
+
+	targetDir := filepath.Join(tmpDir, "target")
+
+	err := os.Mkdir(targetDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	targetFile := filepath.Join(targetDir, "fake.txt")
+
+	err = os.WriteFile(targetFile, []byte("leaked"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	blockedDir := filepath.Join(tmpDir, "blocked")
+
+	cfg := &Config{
+		BlockedPaths: []blockedPathEntry{
+			{Lexical: blockedDir, Resolved: blockedDir},
+		},
+	}
+
+	// Late-create symlink (non-existent at "startup").
+	err = os.Symlink(targetDir, blockedDir)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	// Use a relative path — should be caught by the lexical pre-resolution check.
+	_, err = validateFilePath("blocked/fake.txt", cfg)
+	if err == nil {
+		t.Fatal("expected error for relative path to user-blocked directory, got nil")
+	}
+
+	if !errors.Is(err, errUserBlockedPath) {
+		t.Errorf("expected errUserBlockedPath, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_UserBlockedSymlinkRetargeted(t *testing.T) {
+	t.Parallel()
+	// Issue #203: when a startup-existing symlink is later retargeted
+	// to a different directory, the lexical entry (the symlink name)
+	// must still block access through it.
+	tmpDir := t.TempDir()
+
+	originalTarget := filepath.Join(tmpDir, "original")
+
+	err := os.Mkdir(originalTarget, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	symlinkPath := filepath.Join(tmpDir, "blocked")
+
+	// Create the symlink at startup.
+	err = os.Symlink(originalTarget, symlinkPath)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	// Simulate ConfigFromEnv: operator configured the symlink path.
+	// At startup the symlink exists, so resolved = originalTarget.
+	cfg := &Config{
+		BlockedPaths: []blockedPathEntry{
+			{
+				Lexical:  filepath.Clean(symlinkPath),
+				Resolved: filepath.Clean(originalTarget),
+			},
+		},
+	}
+
+	// Retarget the symlink to a different directory (simulating a
+	// post-startup attack).
+	newTarget := filepath.Join(tmpDir, "newtarget")
+
+	err = os.Mkdir(newTarget, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newFile := filepath.Join(newTarget, "leaked.txt")
+
+	err = os.WriteFile(newFile, []byte("retargeted"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Remove old symlink and create a new one pointing to newTarget.
+	err = os.Remove(symlinkPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Symlink(newTarget, symlinkPath)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	// Access through the retargeted symlink — the lexical check must
+	// catch it (the request path starts with the blocked lexical entry).
+	requestPath := filepath.Join(symlinkPath, "leaked.txt")
+
+	_, err = validateFilePath(requestPath, cfg)
+	if err == nil {
+		t.Fatal("expected error for retargeted symlink, got nil")
+	}
+
+	if !errors.Is(err, errUserBlockedPath) {
+		t.Errorf("expected errUserBlockedPath, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_UserBlockedSymlinkRetargetedDirectTargetAccess(t *testing.T) {
+	t.Parallel()
+	// After retargeting, direct access to the new target (not through
+	// the symlink) should NOT be blocked — the operator only blocked
+	// the symlink path, not the new target.
+	tmpDir := t.TempDir()
+
+	originalTarget := filepath.Join(tmpDir, "original")
+
+	err := os.Mkdir(originalTarget, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	symlinkPath := filepath.Join(tmpDir, "blocked")
+
+	err = os.Symlink(originalTarget, symlinkPath)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	cfg := &Config{
+		BlockedPaths: []blockedPathEntry{
+			{
+				Lexical:  filepath.Clean(symlinkPath),
+				Resolved: filepath.Clean(originalTarget),
+			},
+		},
+	}
+
+	newTarget := filepath.Join(tmpDir, "newtarget")
+
+	err = os.Mkdir(newTarget, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newFile := filepath.Join(newTarget, "leaked.txt")
+
+	err = os.WriteFile(newFile, []byte("retargeted"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Retarget the symlink.
+	err = os.Remove(symlinkPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Symlink(newTarget, symlinkPath)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	// Direct access to the new target — should NOT be blocked.
+	result, err := validateFilePath(newFile, cfg)
+	if err != nil {
+		t.Fatalf("expected direct access to retarget destination to be allowed, got: %v", err)
+	}
+
+	if result != filepath.Clean(newFile) {
+		t.Errorf("expected %q, got %q", filepath.Clean(newFile), result)
+	}
+}

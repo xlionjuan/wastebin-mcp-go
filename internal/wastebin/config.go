@@ -85,7 +85,8 @@ func ConfigFromEnv() (*Config, error) {
 		}
 	}
 
-	// Blocked paths (comma-separated absolute paths; defaults to /etc,/proc,/sys,/dev).
+	// Blocked paths (comma-separated absolute paths; empty by default — the
+	// built-in blocklist handles system directories /etc,/proc,/sys,/dev).
 	// Each entry stores both the operator's original lexical form and the
 	// resolved (symlink-canonical) form.  The lexical form enables
 	// pre-resolution matching against late-created symlinks; the resolved

@@ -1,7 +1,7 @@
 # ADR 002: Path Validation Architecture
 
 **Status:** Active  
-**Last updated:** 2026-06-30
+**Last updated:** 2026-07-30
 **Supersedes:** Earlier draft with single-layer blocklist
 
 ## Context
@@ -71,16 +71,28 @@ file_path (raw user input)
     │       Disabled by setting WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true
     │       Both sub-checks share the same disable flag.
     │
-    ├── (4) USER BLOCKLIST (WASTEBIN_MCP_BLOCKED_PATHS env var)
-    │       User-defined list of absolute path prefixes.
-    │       Relative entries are rejected at startup.
-    │       Resolved via filepath.EvalSymlinks (matching Stage 2
-    │       resolution) with fallback to Clean for non-existent
-    │       absolute paths that may exist later.
-    │       Error: "file path is in a user-blocked directory (...)"
-    │       Bypassed by ALLOWED_PATHS.
-    │
-    └── All passed → file is allowed
+	├── (4a) USER BLOCKLIST — LEXICAL (pre-resolution)
+	│       User-defined absolute path prefixes, compared against the
+	│       absolute form of the raw request path before EvalSymlinks.
+	│       Converts relative paths to absolute via filepath.Abs
+	│       (no symlink resolution) so that CLI-mode relative paths
+	│       and MCP-mode absolute paths are treated identically.
+	│       Catches access through a user-blocked directory that was
+	│       created or retargeted as a symlink after startup.
+	│       Error: "file path is in a user-blocked directory (...)"
+	│       Bypassed by ALLOWED_PATHS.
+	│
+	├── (4b) USER BLOCKLIST — RESOLVED (post-resolution)
+	│       User-defined list of absolute path prefixes, compared
+	│       against the resolved canonical path after EvalSymlinks.
+	│       Relative entries are rejected at startup.
+	│       Resolved via filepath.EvalSymlinks (matching Stage 2
+	│       resolution) with fallback to Clean for non-existent
+	│       absolute paths that may exist later.
+	│       Error: "file path is in a user-blocked directory (...)"
+	│       Bypassed by ALLOWED_PATHS.
+	│
+	└── All passed → file is allowed
 ```
 
 ### Path types by mode
@@ -90,11 +102,14 @@ file_path (raw user input)
 | **MCP mode** | Absolute path (e.g. `/home/user/doc.txt`) | N/A — paths are always absolute |
 | **CLI mode** | Absolute or relative path | Relative paths are resolved against `$PWD` at invocation time; absolute paths are used as-is |
 
-Both modes apply the **same five-stage validation pipeline**. Stages 1a
-(traversal detection) and 1b (sensitive component detection) run on the raw
-input **before** `EvalSymlinks` resolves symlinks. After resolution, Stages 2–4
-check allowlists and blocklists against the resolved absolute path. CLI mode is
-not exempt from path validation.
+Both modes apply the **same six-stage validation pipeline** (Stages 1a, 1b, 2,
+3, 4a, 4b). Stages 1a (traversal detection), 1b (sensitive component detection),
+and 4a (user blocklist lexical) run on the raw input **before** `EvalSymlinks`
+resolves symlinks. Stage 4a converts relative paths to absolute via
+`filepath.Abs` (which does not resolve symlinks) so that both CLI-mode relative
+paths and MCP-mode absolute paths are checked identically. After resolution,
+Stages 2–4b check allowlists and blocklists against the resolved absolute path.
+CLI mode is not exempt from path validation.
 
 ### Key design principles
 
@@ -171,9 +186,19 @@ Key points:
 
 ## Implementation notes
 
-- There are five stages (1a, 1b, 2, 3, 4). Stage 1b checks the raw,
+- There are six stages (1a, 1b, 2, 3, 4a, 4b). Stage 1b checks the raw,
   un-resolved path for blocked components, while Stage 3b repeats the same
   check on the resolved path for defense in depth.
+- Stage 4a (user blocklist lexical) runs **before** `EvalSymlinks` on the
+  absolute form of the raw request path. It uses `blockedPathEntry.Lexical`
+  (the operator's original configured path) to match against. Stage 4b (user
+  blocklist resolved) runs **after** `EvalSymlinks` and uses
+  `blockedPathEntry.Resolved` (the canonical target).
+- The `blockedPathEntry` type stores both identities — `Lexical` (as
+  configured, `filepath.Clean`) and `Resolved` (after `EvalSymlinks`, or
+  equal to `Lexical` if the path did not exist at startup). This dual
+  identity prevents late-created or retargeted symlinks from bypassing the
+  user blocklist.
 - Builtin blocklist stages are composed via the `BlocklistStages` type, which
   holds optional `Stage` closures. `DisableBuiltinBlocklist` is consumed exactly
   at the point of pipeline construction (`newBlocklistStages`) — the validation
@@ -238,8 +263,9 @@ ALLOWED_PATHS must either:
 | Stage | Bypassed by ALLOWED_PATHS? |
 |-------|---------------------------|
 | 3a — Prefix blocklist | ✅ Yes (unchanged) |
-| 3b — Component blocklist | ❌ No (changed) |
-| 4 — User blocklist | ✅ Yes (unchanged) |
+| 3b — Component blocklist | ❌ No (unchanged) |
+| 4a — User blocklist (lexical) | ✅ Yes (unchanged) |
+| 4b — User blocklist (resolved) | ✅ Yes (unchanged) |
 
 ## Post-validation TOCTOU protection (openat+O_NOFOLLOW)
 
@@ -266,14 +292,17 @@ in `internal/wastebin/open.go`:
 
 ### Security model
 
-- **Pre-resolution checks (raw input)**: Stages 1a and 1b run on the raw path
-  **before** `EvalSymlinks`: path traversal detection catches `..` components
-  that would be normalized away, and the sensitive component blocklist catches
-  blocked names (`.ssh`, `.gnupg`, etc.) before a symlink target could hide
-  them.
+- **Pre-resolution checks (raw input)**: Stages 1a, 1b, and 4a run on the raw
+  path **before** `EvalSymlinks`: path traversal detection catches `..`
+  components that would be normalized away; the sensitive component blocklist
+  catches blocked names (`.ssh`, `.gnupg`, etc.) before a symlink target could
+  hide them; and the user blocklist lexical check catches paths under a
+  user-blocked alias (including late-created or retargeted symlinks). Stage 4a
+  converts relative paths to absolute via `filepath.Abs` to ensure CLI-mode
+  paths are checked identically to MCP-mode paths.
 - **Resolved-path validation (EvalSymlinks)**: After pre-resolution checks,
   `filepath.EvalSymlinks` resolves all symlinks. The resolved path is then
-  validated against the allowlist and blocklists (Stages 2–4), preventing
+  validated against the allowlist and blocklists (Stages 2–4b), preventing
   symlink-based evasion of directory-level restrictions.
 - **Post-validation (openat+O_NOFOLLOW)**: Eliminates TOCTOU symlink-swap
   attacks where an attacker replaces a validated directory component with a
