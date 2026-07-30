@@ -2,6 +2,7 @@ package wastebin //nolint:testpackage // white-box tests need access to unexport
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,8 +30,8 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("expected nil AllowedPaths, got %v", cfg.AllowedPaths)
 	}
 
-	if len(cfg.BlockedPaths) != 4 {
-		t.Errorf("expected 4 BlockedPaths, got %d: %v", len(cfg.BlockedPaths), cfg.BlockedPaths)
+	if cfg.BlockedPaths != nil {
+		t.Errorf("expected nil BlockedPaths, got %v", cfg.BlockedPaths)
 	}
 
 	if cfg.MaxContentSize != 1048576 {
@@ -74,8 +75,8 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 		t.Errorf("AllowedPaths should be empty, got %v", cfg.AllowedPaths)
 	}
 
-	if len(cfg.BlockedPaths) != 4 {
-		t.Errorf("expected 4 BlockedPaths, got %d", len(cfg.BlockedPaths))
+	if len(cfg.BlockedPaths) != 0 {
+		t.Errorf("expected 0 BlockedPaths, got %d: %v", len(cfg.BlockedPaths), cfg.BlockedPaths)
 	}
 
 	if cfg.MaxContentSize != 1048576 {
@@ -615,6 +616,199 @@ func TestConfigFromEnv_AllowedPathsNonExistent(t *testing.T) {
 }
 
 // The isAllowedPath function is tested in path_test.go.
+
+func envExamplePath(t *testing.T) string {
+	t.Helper()
+	// .env.example sits at the repository root. go test changes the working
+	// directory to the package directory (internal/wastebin/), so we need
+	// to go up two levels.
+	return filepath.Join("..", "..", ".env.example")
+}
+
+type envExampleEntry struct {
+	defaultDesc string // text of the "# Default:" line
+	exampleVal  string // value after VAR= (uncommented or commented-out)
+}
+
+func parseEnvExample(content string) map[string]envExampleEntry {
+	doc := make(map[string]envExampleEntry)
+
+	var lastDefault string
+
+	for line := range strings.SplitSeq(content, "\n") {
+		const defaultPrefix = "# Default: "
+		if after, ok := strings.CutPrefix(line, defaultPrefix); ok {
+			lastDefault = after
+
+			continue
+		}
+
+		eqIdx := strings.Index(line, "=")
+		if eqIdx <= 0 {
+			continue
+		}
+
+		name := strings.TrimSpace(line[:eqIdx])
+		name = strings.TrimPrefix(name, "# ")
+
+		val := line[eqIdx+1:]
+
+		if !isUpperSnake(name) {
+			continue
+		}
+
+		doc[name] = envExampleEntry{
+			defaultDesc: lastDefault,
+			exampleVal:  val,
+		}
+
+		lastDefault = ""
+	}
+
+	return doc
+}
+
+func isUpperSnake(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	for _, r := range s {
+		switch {
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_':
+		default:
+			return false
+		}
+	}
+
+	return true
+}
+
+// TestEnvExampleSyncWithConfigFromEnv cross-checks .env.example documentation
+// against ConfigFromEnv's actual env vars and DefaultConfig's defaults.
+// This is a maintenance checklist — adding a new env var to ConfigFromEnv
+// requires an entry in both .env.example and this test's want table.
+func TestEnvExampleSyncWithConfigFromEnv(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile(envExamplePath(t))
+	if err != nil {
+		t.Fatalf("reading .env.example: %v", err)
+	}
+
+	doc := parseEnvExample(string(data))
+
+	type wantEntry struct {
+		name              string
+		documentedDefault string // expected text of "# Default:"
+		documentedExample string // expected value after VAR=
+		required          bool   // WASTEBIN_SERVER_URL has no default
+	}
+
+	cfg := DefaultConfig()
+
+	want := []wantEntry{
+		{
+			name:              "WASTEBIN_SERVER_URL",
+			documentedExample: "https://bin-staging.xlion.tw",
+			required:          true,
+		},
+		{
+			name:              "WASTEBIN_MCP_DEFAULT_EXPIRES",
+			documentedDefault: fmt.Sprintf("%d (1 year)", cfg.DefaultExpires),
+			documentedExample: "31536000",
+		},
+		{
+			name:              "WASTEBIN_MCP_FILE_READ_ENABLED",
+			documentedDefault: "true",
+			documentedExample: "true",
+		},
+		{
+			name:              "WASTEBIN_MCP_ALLOWED_PATHS",
+			documentedDefault: "(empty — only built-in and user blocklists apply)",
+			documentedExample: "/home/user/documents,/tmp",
+		},
+		{
+			name:              "WASTEBIN_MCP_BLOCKED_PATHS",
+			documentedDefault: "(empty — built-in blocklist handles system paths)",
+			documentedExample: "/home/user/secret",
+		},
+		{
+			name:              "WASTEBIN_MCP_MAX_CONTENT_SIZE",
+			documentedDefault: fmt.Sprintf("%d (1 MB)", cfg.MaxContentSize),
+			documentedExample: "1048576",
+		},
+		{
+			name:              "WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST",
+			documentedDefault: "false",
+			documentedExample: "true",
+		},
+		{
+			name:              "WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD",
+			documentedDefault: "false",
+			documentedExample: "false",
+		},
+		{
+			name:              "WASTEBIN_MCP_SANDBOX_MOUNTS",
+			documentedDefault: "(empty — sandbox translation disabled)",
+			documentedExample: "",
+		},
+		{
+			name:              "WASTEBIN_MCP_SANDBOX_TRANSPARENT",
+			documentedDefault: "false",
+			documentedExample: "false",
+		},
+		{
+			name:              "DEBUG",
+			documentedDefault: "(not set — debug logging disabled)",
+			documentedExample: "1",
+		},
+	}
+
+	for _, w := range want {
+		got, ok := doc[w.name]
+		if !ok {
+			t.Errorf(
+				"env var %q is missing from .env.example (it must be documented "+
+					"with a commented-out line and # Default: comment)",
+				w.name,
+			)
+
+			continue
+		}
+
+		if !w.required && got.defaultDesc != w.documentedDefault {
+			t.Errorf(
+				"%q documented default: got %q, want %q",
+				w.name, got.defaultDesc, w.documentedDefault,
+			)
+		}
+
+		if got.exampleVal != w.documentedExample {
+			t.Errorf(
+				"%q example value: got %q, want %q",
+				w.name, got.exampleVal, w.documentedExample,
+			)
+		}
+	}
+
+	wantByKey := make(map[string]wantEntry, len(want))
+	for _, w := range want {
+		wantByKey[w.name] = w
+	}
+
+	for name := range doc {
+		if _, ok := wantByKey[name]; !ok {
+			t.Errorf(
+				"env var %q is documented in .env.example but missing from the want "+
+					"table — add an entry if it should be tested, or remove it from .env.example",
+				name,
+			)
+		}
+	}
+}
 
 func TestConfigFromEnv_BlockedPathsSymlink(t *testing.T) {
 	tmpDir := t.TempDir()
