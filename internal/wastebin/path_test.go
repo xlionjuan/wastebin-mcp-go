@@ -7,6 +7,19 @@ import (
 	"testing"
 )
 
+// blockedEntry is a test helper that creates a blockedPathEntry from a single
+// path string, resolving symlinks if the path exists at test time.
+func blockedEntry(path string) blockedPathEntry {
+	lexical := filepath.Clean(path)
+
+	resolved, err := filepath.EvalSymlinks(lexical)
+	if err != nil {
+		return blockedPathEntry{Lexical: lexical, Resolved: lexical}
+	}
+
+	return blockedPathEntry{Lexical: lexical, Resolved: filepath.Clean(resolved)}
+}
+
 // ──────────────────────────────────────────────
 // normalizePath tests
 // ──────────────────────────────────────────────
@@ -167,49 +180,85 @@ func TestIsBuiltinBlocked(t *testing.T) {
 func TestIsUserBlocked(t *testing.T) {
 	t.Parallel()
 
+	// blockedEntries converts a list of path strings to blockedPathEntry
+	// where lexical == resolved (path exists and is not a symlink, or
+	// does not exist).
+	blockedEntries := func(paths ...string) []blockedPathEntry {
+		entries := make([]blockedPathEntry, 0, len(paths))
+
+		for _, p := range paths {
+			entries = append(entries, blockedPathEntry{
+				Lexical:  filepath.Clean(p),
+				Resolved: filepath.Clean(p),
+			})
+		}
+
+		return entries
+	}
+
 	tests := []struct {
 		name        string
 		path        string
-		blocked     []string
+		blocked     []blockedPathEntry
 		wantBlocked bool
 		wantMatch   string
 	}{
 		{
 			name:        "exact match",
 			path:        "/home/user/secret",
-			blocked:     []string{"/home/user/secret"},
+			blocked:     blockedEntries("/home/user/secret"),
 			wantBlocked: true,
 			wantMatch:   "/home/user/secret",
 		},
 		{
 			name:        "subdirectory",
 			path:        "/home/user/secret/file.txt",
-			blocked:     []string{"/home/user/secret"},
+			blocked:     blockedEntries("/home/user/secret"),
 			wantBlocked: true,
 			wantMatch:   "/home/user/secret",
 		},
-		{name: "not blocked", path: "/home/user/other", blocked: []string{"/home/user/secret"}, wantBlocked: false},
-		{name: "no blocked paths", path: "/home/user/secret", blocked: nil, wantBlocked: false},
-		{name: "empty blocked paths", path: "/home/user/secret", blocked: []string{}, wantBlocked: false},
-		{name: "prefix not partial", path: "/home/user/secret2", blocked: []string{"/home/user/secret"}, wantBlocked: false},
+		{
+			name:        "not blocked",
+			path:        "/home/user/other",
+			blocked:     blockedEntries("/home/user/secret"),
+			wantBlocked: false,
+		},
+		{
+			name:        "no blocked paths",
+			path:        "/home/user/secret",
+			blocked:     nil,
+			wantBlocked: false,
+		},
+		{
+			name:        "empty blocked paths",
+			path:        "/home/user/secret",
+			blocked:     []blockedPathEntry{},
+			wantBlocked: false,
+		},
+		{
+			name:        "prefix not partial",
+			path:        "/home/user/secret2",
+			blocked:     blockedEntries("/home/user/secret"),
+			wantBlocked: false,
+		},
 		{
 			name:        "multiple blocked paths",
 			path:        "/opt/restricted/data",
-			blocked:     []string{"/tmp", "/opt/restricted"},
+			blocked:     blockedEntries("/tmp", "/opt/restricted"),
 			wantBlocked: true,
 			wantMatch:   "/opt/restricted",
 		},
 		{
 			name:        "..vault descendant",
 			path:        "/tmp/blocked/..vault/file.txt",
-			blocked:     []string{"/tmp/blocked"},
+			blocked:     blockedEntries("/tmp/blocked"),
 			wantBlocked: true,
 			wantMatch:   "/tmp/blocked",
 		},
 		{
 			name:        "..vault not traversal",
 			path:        "/home/user/..vault/project",
-			blocked:     []string{"/tmp/blocked"},
+			blocked:     blockedEntries("/tmp/blocked"),
 			wantBlocked: false,
 		},
 	}
@@ -346,7 +395,7 @@ func TestValidateFilePath_UserBlockedPath(t *testing.T) {
 	}
 
 	cfg := &Config{
-		BlockedPaths: []string{secretDir},
+		BlockedPaths: []blockedPathEntry{blockedEntry(secretDir)},
 	}
 
 	_, err = validateFilePath(secretFile, cfg)
@@ -392,7 +441,7 @@ func TestValidateFilePath_UserBlockedSymlink(t *testing.T) {
 	}
 
 	cfg := &Config{
-		BlockedPaths: []string{filepath.Clean(resolvedBlocked)},
+		BlockedPaths: []blockedPathEntry{blockedEntry(resolvedBlocked)},
 	}
 
 	_, err = validateFilePath(secretFile, cfg)
@@ -433,7 +482,7 @@ func TestValidateFilePath_UserBlockedViaSymlinkAlias(t *testing.T) {
 
 	// Block the real dir (the resolved target).
 	cfg := &Config{
-		BlockedPaths: []string{filepath.Clean(realDir)},
+		BlockedPaths: []blockedPathEntry{blockedEntry(realDir)},
 	}
 
 	// Request the file via the symlink path.
@@ -684,7 +733,7 @@ func TestValidateFilePath_AllowedPathBlockedByUserBlocklist(t *testing.T) {
 
 	cfg := &Config{
 		AllowedPaths: []string{dir},
-		BlockedPaths: []string{dir}, // same path in blocklist
+		BlockedPaths: []blockedPathEntry{blockedEntry(dir)}, // same path in blocklist
 	}
 
 	result, err := validateFilePath(file, cfg)
@@ -1517,5 +1566,486 @@ func TestValidateFilePath_PermissionDenied(t *testing.T) {
 
 	if !errors.Is(err, errPathPermissionDenied) {
 		t.Errorf("expected errPathPermissionDenied, got: %v", err)
+	}
+}
+
+// ──────────────────────────────────────────────
+// isUserBlockedLexical tests
+// ──────────────────────────────────────────────
+
+func TestIsUserBlockedLexical_EmptyBlocklist(t *testing.T) {
+	t.Parallel()
+
+	_, blocked := isUserBlockedLexical("/tmp/foo", nil)
+	if blocked {
+		t.Error("expected not blocked with empty blocklist")
+	}
+}
+
+func TestIsUserBlockedLexical_ExactMatch(t *testing.T) {
+	t.Parallel()
+
+	entries := []blockedPathEntry{
+		{Lexical: "/blocked", Resolved: "/blocked"},
+	}
+
+	matched, blocked := isUserBlockedLexical("/blocked", entries)
+	if !blocked {
+		t.Fatal("expected exact lexical match")
+	}
+
+	if matched != "/blocked" {
+		t.Errorf("expected matched %q, got %q", "/blocked", matched)
+	}
+}
+
+func TestIsUserBlockedLexical_Descendant(t *testing.T) {
+	t.Parallel()
+
+	entries := []blockedPathEntry{
+		{Lexical: "/blocked", Resolved: "/canonical"},
+	}
+
+	matched, blocked := isUserBlockedLexical("/blocked/some/file.txt", entries)
+	if !blocked {
+		t.Fatal("expected descendant lexical match")
+	}
+
+	if matched != "/blocked" {
+		t.Errorf("expected matched %q, got %q", "/blocked", matched)
+	}
+}
+
+func TestIsUserBlockedLexical_NoMatch(t *testing.T) {
+	t.Parallel()
+
+	entries := []blockedPathEntry{
+		{Lexical: "/blocked", Resolved: "/canonical"},
+	}
+
+	_, blocked := isUserBlockedLexical("/other/path", entries)
+	if blocked {
+		t.Error("expected no match for unrelated path")
+	}
+}
+
+// ──────────────────────────────────────────────
+// Late-created symlink bypass prevention tests
+// ──────────────────────────────────────────────
+
+func TestValidateFilePath_UserBlockedLateSymlink(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	// The blocked path does NOT exist at "startup" — simulates a
+	// non-existent WASTEBIN_MCP_BLOCKED_PATHS entry.
+	missingBlocked := filepath.Join(tmpDir, "blocked")
+
+	// Create the blocklist with only the lexical form (same as ConfigFromEnv
+	// when the path doesn't exist).
+	cfg := &Config{
+		BlockedPaths: []blockedPathEntry{
+			{Lexical: missingBlocked, Resolved: missingBlocked},
+		},
+	}
+
+	// After startup, create a real target directory and a symlink at
+	// the previously-missing blocked path, pointing to the target.
+	targetDir := filepath.Join(tmpDir, "target")
+
+	err := os.Mkdir(targetDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	targetFile := filepath.Join(targetDir, "fake.txt")
+
+	err = os.WriteFile(targetFile, []byte("leaked"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create the symlink at the blocked path (simulating late creation).
+	err = os.Symlink(targetDir, missingBlocked)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	// Request a file through the symlink. The pre-resolution lexical check
+	// should catch it and block the request.
+	requestPath := filepath.Join(missingBlocked, "fake.txt")
+
+	_, err = validateFilePath(requestPath, cfg)
+	if err == nil {
+		t.Fatal("expected error for late-created symlink bypassing blocklist, got nil")
+	}
+
+	if !errors.Is(err, errUserBlockedPath) {
+		t.Errorf("expected errUserBlockedPath, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_UserBlockedLateSymlinkNotExist(t *testing.T) {
+	t.Parallel()
+	// If the requested file doesn't exist and there is no symlink yet,
+	// the lexical check should still catch it because it runs before
+	// EvalSymlinks. The EvalSymlinks failure is handled separately.
+	tmpDir := t.TempDir()
+
+	missingBlocked := filepath.Join(tmpDir, "blocked")
+
+	cfg := &Config{
+		BlockedPaths: []blockedPathEntry{
+			{Lexical: missingBlocked, Resolved: missingBlocked},
+		},
+	}
+
+	// Request a non-existent path inside the blocked directory (no
+	// symlink has been created yet).
+	requestPath := filepath.Join(missingBlocked, "nope.txt")
+
+	_, err := validateFilePath(requestPath, cfg)
+	if err == nil {
+		t.Fatal("expected error for path in late-blocked directory, got nil")
+	}
+
+	if !errors.Is(err, errUserBlockedPath) {
+		t.Errorf("expected errUserBlockedPath, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_UserBlockedLateSymlinkDirectTargetAccess(t *testing.T) {
+	t.Parallel()
+	// Accessing the target directory directly (not through the symlink)
+	// should NOT be blocked — the operator only blocked the symlink path,
+	// not the real target.
+	tmpDir := t.TempDir()
+
+	targetDir := filepath.Join(tmpDir, "target")
+
+	err := os.Mkdir(targetDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	targetFile := filepath.Join(targetDir, "fake.txt")
+
+	err = os.WriteFile(targetFile, []byte("leaked"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	missingBlocked := filepath.Join(tmpDir, "blocked")
+
+	// Late-create the symlink (so ConfigFromEnv stored only the lexical form).
+	err = os.Symlink(targetDir, missingBlocked)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	cfg := &Config{
+		BlockedPaths: []blockedPathEntry{
+			{Lexical: missingBlocked, Resolved: missingBlocked},
+		},
+	}
+
+	// Access the target directory directly — should NOT be blocked.
+	result, err := validateFilePath(targetFile, cfg)
+	if err != nil {
+		t.Fatalf("expected direct target access to be allowed, got: %v", err)
+	}
+
+	if result != filepath.Clean(targetFile) {
+		t.Errorf("expected %q, got %q", filepath.Clean(targetFile), result)
+	}
+}
+
+func TestValidateFilePath_UserBlockedSymlinkAlias(t *testing.T) {
+	t.Parallel()
+	// When a symlink exists at startup and the operator adds it to the
+	// blocklist, the resolved form is the target. Both lexical and resolved
+	// checks should catch access through both paths.
+	tmpDir := t.TempDir()
+
+	realDir := filepath.Join(tmpDir, "real")
+
+	err := os.Mkdir(realDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	linkDir := filepath.Join(tmpDir, "link")
+
+	err = os.Symlink(realDir, linkDir)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	secretFileViaLink := filepath.Join(linkDir, "data.txt")
+
+	err = os.WriteFile(secretFileViaLink, []byte("s3kr1t"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate ConfigFromEnv: the operator blocked the symlink alias.
+	// At startup, EvalSymlinks resolves linkDir -> realDir.
+	cfg := &Config{
+		BlockedPaths: []blockedPathEntry{
+			{
+				Lexical:  filepath.Clean(linkDir),
+				Resolved: filepath.Clean(realDir),
+			},
+		},
+	}
+
+	// Access through the symlink alias — blocked by lexical check.
+	t.Run("via symlink alias", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := validateFilePath(secretFileViaLink, cfg)
+		if err == nil {
+			t.Fatal("expected error for symlink alias access, got nil")
+		}
+
+		if !errors.Is(err, errUserBlockedPath) {
+			t.Errorf("expected errUserBlockedPath, got: %v", err)
+		}
+	})
+
+	// Access through the resolved target — blocked by resolved check.
+	t.Run("via resolved target", func(t *testing.T) {
+		t.Parallel()
+
+		secretFileDirect := filepath.Join(realDir, "data.txt")
+
+		_, err := validateFilePath(secretFileDirect, cfg)
+		if err == nil {
+			t.Fatal("expected error for direct resolved access, got nil")
+		}
+
+		if !errors.Is(err, errUserBlockedPath) {
+			t.Errorf("expected errUserBlockedPath, got: %v", err)
+		}
+	})
+}
+
+func TestValidateFilePath_NormalNonSymlinkDescendant(t *testing.T) {
+	t.Parallel()
+	// Normal non-symlink descendant should still be blocked by the
+	// post-resolution check.
+	tmpDir := t.TempDir()
+
+	secretDir := filepath.Join(tmpDir, "secret")
+
+	err := os.Mkdir(secretDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	secretFile := filepath.Join(secretDir, "data.txt")
+
+	err = os.WriteFile(secretFile, []byte("s3kr1t"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{
+		BlockedPaths: []blockedPathEntry{blockedEntry(secretDir)},
+	}
+
+	_, err = validateFilePath(secretFile, cfg)
+	if err == nil {
+		t.Fatal("expected error for normal non-symlink descendant, got nil")
+	}
+
+	if !errors.Is(err, errUserBlockedPath) {
+		t.Errorf("expected errUserBlockedPath, got: %v", err)
+	}
+}
+
+//nolint:paralleltest // uses t.Chdir which is incompatible with t.Parallel
+func TestValidateFilePath_UserBlockedRelativePath(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	t.Chdir(tmpDir)
+
+	targetDir := filepath.Join(tmpDir, "target")
+
+	err := os.Mkdir(targetDir, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	targetFile := filepath.Join(targetDir, "fake.txt")
+
+	err = os.WriteFile(targetFile, []byte("leaked"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	blockedDir := filepath.Join(tmpDir, "blocked")
+
+	cfg := &Config{
+		BlockedPaths: []blockedPathEntry{
+			{Lexical: blockedDir, Resolved: blockedDir},
+		},
+	}
+
+	// Late-create symlink (non-existent at "startup").
+	err = os.Symlink(targetDir, blockedDir)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	// Use a relative path — should be caught by the lexical pre-resolution check.
+	_, err = validateFilePath("blocked/fake.txt", cfg)
+	if err == nil {
+		t.Fatal("expected error for relative path to user-blocked directory, got nil")
+	}
+
+	if !errors.Is(err, errUserBlockedPath) {
+		t.Errorf("expected errUserBlockedPath, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_UserBlockedSymlinkRetargeted(t *testing.T) {
+	t.Parallel()
+	// Issue #203: when a startup-existing symlink is later retargeted
+	// to a different directory, the lexical entry (the symlink name)
+	// must still block access through it.
+	tmpDir := t.TempDir()
+
+	originalTarget := filepath.Join(tmpDir, "original")
+
+	err := os.Mkdir(originalTarget, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	symlinkPath := filepath.Join(tmpDir, "blocked")
+
+	// Create the symlink at startup.
+	err = os.Symlink(originalTarget, symlinkPath)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	// Simulate ConfigFromEnv: operator configured the symlink path.
+	// At startup the symlink exists, so resolved = originalTarget.
+	cfg := &Config{
+		BlockedPaths: []blockedPathEntry{
+			{
+				Lexical:  filepath.Clean(symlinkPath),
+				Resolved: filepath.Clean(originalTarget),
+			},
+		},
+	}
+
+	// Retarget the symlink to a different directory (simulating a
+	// post-startup attack).
+	newTarget := filepath.Join(tmpDir, "newtarget")
+
+	err = os.Mkdir(newTarget, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newFile := filepath.Join(newTarget, "leaked.txt")
+
+	err = os.WriteFile(newFile, []byte("retargeted"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Remove old symlink and create a new one pointing to newTarget.
+	err = os.Remove(symlinkPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Symlink(newTarget, symlinkPath)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	// Access through the retargeted symlink — the lexical check must
+	// catch it (the request path starts with the blocked lexical entry).
+	requestPath := filepath.Join(symlinkPath, "leaked.txt")
+
+	_, err = validateFilePath(requestPath, cfg)
+	if err == nil {
+		t.Fatal("expected error for retargeted symlink, got nil")
+	}
+
+	if !errors.Is(err, errUserBlockedPath) {
+		t.Errorf("expected errUserBlockedPath, got: %v", err)
+	}
+}
+
+func TestValidateFilePath_UserBlockedSymlinkRetargetedDirectTargetAccess(t *testing.T) {
+	t.Parallel()
+	// After retargeting, direct access to the new target (not through
+	// the symlink) should NOT be blocked — the operator only blocked
+	// the symlink path, not the new target.
+	tmpDir := t.TempDir()
+
+	originalTarget := filepath.Join(tmpDir, "original")
+
+	err := os.Mkdir(originalTarget, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	symlinkPath := filepath.Join(tmpDir, "blocked")
+
+	err = os.Symlink(originalTarget, symlinkPath)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	cfg := &Config{
+		BlockedPaths: []blockedPathEntry{
+			{
+				Lexical:  filepath.Clean(symlinkPath),
+				Resolved: filepath.Clean(originalTarget),
+			},
+		},
+	}
+
+	newTarget := filepath.Join(tmpDir, "newtarget")
+
+	err = os.Mkdir(newTarget, 0o750)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newFile := filepath.Join(newTarget, "leaked.txt")
+
+	err = os.WriteFile(newFile, []byte("retargeted"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Retarget the symlink.
+	err = os.Remove(symlinkPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Symlink(newTarget, symlinkPath)
+	if err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	// Direct access to the new target — should NOT be blocked.
+	result, err := validateFilePath(newFile, cfg)
+	if err != nil {
+		t.Fatalf("expected direct access to retarget destination to be allowed, got: %v", err)
+	}
+
+	if result != filepath.Clean(newFile) {
+		t.Errorf("expected %q, got %q", filepath.Clean(newFile), result)
 	}
 }

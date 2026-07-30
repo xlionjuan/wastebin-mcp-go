@@ -149,8 +149,12 @@ func TestConfigFromEnv_AllSet(t *testing.T) {
 	}
 
 	wantBlocked = filepath.Clean(wantBlocked)
-	if cfg.BlockedPaths[0] != wantBlocked {
-		t.Errorf("got %q, want %q", cfg.BlockedPaths[0], wantBlocked)
+	if cfg.BlockedPaths[0].Resolved != wantBlocked {
+		t.Errorf("got resolved %q, want %q", cfg.BlockedPaths[0].Resolved, wantBlocked)
+	}
+
+	if cfg.BlockedPaths[0].Lexical != filepath.Clean(linkDir) {
+		t.Errorf("got lexical %q, want %q", cfg.BlockedPaths[0].Lexical, filepath.Clean(linkDir))
 	}
 
 	if cfg.MaxContentSize != 512000 {
@@ -241,6 +245,10 @@ func TestConfigFromEnv_BlockedPathsWhitespace(t *testing.T) {
 
 	if len(cfg.BlockedPaths) != 3 {
 		t.Fatalf("expected 3 BlockedPaths, got %d: %v", len(cfg.BlockedPaths), cfg.BlockedPaths)
+	}
+
+	if cfg.BlockedPaths[0].Lexical != "/etc" {
+		t.Errorf("expected lexical /etc, got %q", cfg.BlockedPaths[0].Lexical)
 	}
 }
 
@@ -592,12 +600,12 @@ func TestConfigFromEnv_BlockedPathsEmptyParts(t *testing.T) {
 	}
 
 	// Both should resolve to absolute paths.
-	if !strings.HasSuffix(cfg.BlockedPaths[0], "/etc") {
-		t.Errorf("expected first blocked path to end with /etc, got %q", cfg.BlockedPaths[0])
+	if !strings.HasSuffix(cfg.BlockedPaths[0].Lexical, "/etc") {
+		t.Errorf("expected first blocked lexical to end with /etc, got %q", cfg.BlockedPaths[0].Lexical)
 	}
 
-	if !strings.HasSuffix(cfg.BlockedPaths[1], "/proc") {
-		t.Errorf("expected second blocked path to end with /proc, got %q", cfg.BlockedPaths[1])
+	if !strings.HasSuffix(cfg.BlockedPaths[1].Lexical, "/proc") {
+		t.Errorf("expected second blocked lexical to end with /proc, got %q", cfg.BlockedPaths[1].Lexical)
 	}
 }
 
@@ -840,8 +848,12 @@ func TestConfigFromEnv_BlockedPathsSymlink(t *testing.T) {
 	}
 
 	// The resolved path should be the real path (EvalSymlinks), not the symlink.
-	if cfg.BlockedPaths[0] != filepath.Clean(realDir) {
-		t.Errorf("expected %q, got %q", filepath.Clean(realDir), cfg.BlockedPaths[0])
+	if cfg.BlockedPaths[0].Resolved != filepath.Clean(realDir) {
+		t.Errorf("expected resolved %q, got %q", filepath.Clean(realDir), cfg.BlockedPaths[0].Resolved)
+	}
+
+	if cfg.BlockedPaths[0].Lexical != filepath.Clean(linkDir) {
+		t.Errorf("expected lexical %q, got %q", filepath.Clean(linkDir), cfg.BlockedPaths[0].Lexical)
 	}
 }
 
@@ -858,12 +870,20 @@ func TestConfigFromEnv_BlockedPathsNonExistent(t *testing.T) {
 		t.Fatalf("expected 1 BlockedPath, got %d", len(cfg.BlockedPaths))
 	}
 
-	// Non-existent absolute paths should fall back to Clean.
-	if !filepath.IsAbs(cfg.BlockedPaths[0]) {
-		t.Errorf("expected absolute path for non-existent blocked path, got %q", cfg.BlockedPaths[0])
+	// Non-existent absolute paths should fall back to Clean (lexical == resolved).
+	if !filepath.IsAbs(cfg.BlockedPaths[0].Lexical) {
+		t.Errorf("expected absolute lexical path for non-existent blocked path, got %q", cfg.BlockedPaths[0].Lexical)
 	}
 
-	if !strings.HasSuffix(cfg.BlockedPaths[0], "blocked") {
-		t.Errorf("expected path to end with 'blocked', got %q", cfg.BlockedPaths[0])
+	if !strings.HasSuffix(cfg.BlockedPaths[0].Lexical, "blocked") {
+		t.Errorf("expected lexical path to end with 'blocked', got %q", cfg.BlockedPaths[0].Lexical)
+	}
+
+	if cfg.BlockedPaths[0].Lexical != cfg.BlockedPaths[0].Resolved {
+		t.Errorf(
+			"expected lexical %q to equal resolved %q for non-existent path",
+			cfg.BlockedPaths[0].Lexical,
+			cfg.BlockedPaths[0].Resolved,
+		)
 	}
 }

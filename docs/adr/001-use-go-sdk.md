@@ -113,8 +113,9 @@ pastes.
   - Path allowlist (`WASTEBIN_MCP_ALLOWED_PATHS`): When configured, only paths
     under allowed directories are accepted. When empty, the server falls through
     to the blocklist pipeline (built-in + user blocklists).
-  - Path blocklist (`WASTEBIN_MCP_BLOCKED_PATHS`, default
-    `/etc,/proc,/sys,/dev`): Sensitive system directories are blocked.
+  - Path blocklist (`WASTEBIN_MCP_BLOCKED_PATHS`, empty by default; the
+    built-in blocklist handles `/etc,/proc,/sys,/dev`): Sensitive system
+    directories are blocked.
   - Symlink resolution (`filepath.EvalSymlinks`): Prevents symlink-based
     allowlist bypass.
   - Binary detection: First 8 KB are checked for UTF-8 validity and control
