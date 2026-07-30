@@ -173,11 +173,32 @@ func (h *Handler) sendRequest(ctx context.Context, bodyBytes []byte) (*wastebinR
 		return nil, translateHTTPError(resp.StatusCode, string(bodyBytes))
 	}
 
+	// Read through a LimitReader to prevent unbounded allocation from
+	// oversized successful response bodies.
+	limited := io.LimitReader(resp.Body, maxResponseBodyLength+1)
+
+	rawBody, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Wastebin response: %w", err)
+	}
+
+	if len(rawBody) > maxResponseBodyLength {
+		return nil, errResponseTooLarge
+	}
+
 	var wastebinResp wastebinResponse
 
-	err = json.NewDecoder(resp.Body).Decode(&wastebinResp)
+	decoder := json.NewDecoder(bytes.NewReader(rawBody))
+
+	err = decoder.Decode(&wastebinResp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse Wastebin response: %w", err)
+	}
+
+	// Reject trailing non-whitespace content after the JSON object.
+	_, tokErr := decoder.Token()
+	if tokErr != io.EOF {
+		return nil, fmt.Errorf("%w: unexpected content after JSON response", errInvalidWastebinResponse)
 	}
 
 	err = validateWastebinResponse(wastebinResp)
@@ -185,7 +206,8 @@ func (h *Handler) sendRequest(ctx context.Context, bodyBytes []byte) (*wastebinR
 		return nil, err
 	}
 
-	_, _ = io.Copy(io.Discard, resp.Body) //nolint:errcheck // Best-effort drain of body for connection reuse
+	// Best-effort bounded drain for connection reuse.
+	_, _ = io.CopyN(io.Discard, resp.Body, drainLimit) //nolint:errcheck // Bound prevents OOM
 
 	return &wastebinResp, nil
 }

@@ -20,6 +20,7 @@ var (
 	errRedirectDifferentHost   = errors.New("redirect to different host blocked")
 	errRedirectSchemeDowngrade = errors.New("redirect scheme downgrade from https to http blocked")
 	errInvalidWastebinResponse = errors.New("invalid Wastebin response")
+	errResponseTooLarge        = errors.New("wastebin response exceeds maximum allowed size")
 	errPasswordEmpty           = errors.New(
 		"password must be non-empty when provided; set a non-empty password " +
 			"or omit the field entirely",
