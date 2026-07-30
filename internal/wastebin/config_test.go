@@ -30,15 +30,8 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("expected nil AllowedPaths, got %v", cfg.AllowedPaths)
 	}
 
-	if len(cfg.BlockedPaths) != 4 {
-		t.Errorf("expected 4 BlockedPaths, got %d", len(cfg.BlockedPaths))
-	}
-
-	// Default blocked paths should have lexical == resolved.
-	for i, entry := range cfg.BlockedPaths {
-		if entry.Lexical != entry.Resolved {
-			t.Errorf("BlockedPaths[%d]: lexical %q != resolved %q", i, entry.Lexical, entry.Resolved)
-		}
+	if cfg.BlockedPaths != nil {
+		t.Errorf("expected nil BlockedPaths, got %v", cfg.BlockedPaths)
 	}
 
 	if cfg.MaxContentSize != 1048576 {

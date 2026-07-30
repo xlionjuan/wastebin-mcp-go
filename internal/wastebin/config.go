@@ -19,16 +19,11 @@ const (
 // DefaultConfig returns Config with safe defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		ServerURL:       "",
-		DefaultExpires:  defaultExpirySeconds, // 1 year
-		FileReadEnabled: true,
-		AllowedPaths:    nil,
-		BlockedPaths: []blockedPathEntry{
-			{Lexical: "/etc", Resolved: "/etc"},
-			{Lexical: "/proc", Resolved: "/proc"},
-			{Lexical: "/sys", Resolved: "/sys"},
-			{Lexical: "/dev", Resolved: "/dev"},
-		},
+		ServerURL:             "",
+		DefaultExpires:        defaultExpirySeconds, // 1 year
+		FileReadEnabled:       true,
+		AllowedPaths:          nil,
+		BlockedPaths:          nil,
 		MaxContentSize:        defaultMaxContentSize, // 1 MB
 		SandboxMounts:         nil,
 		SandboxTransparent:    false,
