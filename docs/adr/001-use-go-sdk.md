@@ -73,8 +73,9 @@ searxng-mcp-go.
   then `server.Run(ctx, &mcp.IOTransport{...})`.
 - Error messages returned as `IsError: true` MCP tool results with plain text
   descriptions.
-- Stdin validation (checking for valid MCP `initialize` message) to prevent
-  hanging when piped non-MCP input.
+- Stdin validation (checking the first line is a valid MCP handshake message —
+  `initialize` or `server/discover`) to prevent hanging when piped non-MCP
+  input.
 
 ### 3. Do NOT Add a `get_paste` Tool
 

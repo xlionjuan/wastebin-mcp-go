@@ -472,10 +472,10 @@ func TestBuildToolDescription(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// isValidMCPInitializeMessage tests
+// isValidMCPHandshakeMessage tests
 // ---------------------------------------------------------------------------
 
-func TestIsValidMCPInitializeMessage(t *testing.T) {
+func TestIsValidMCPHandshakeMessage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -484,8 +484,21 @@ func TestIsValidMCPInitializeMessage(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "valid",
+			name:     "valid initialize",
 			input:    []byte(`{"jsonrpc":"2.0","method":"initialize"}`),
+			expected: true,
+		},
+		{
+			name:     "valid server discover",
+			input:    []byte(`{"jsonrpc":"2.0","method":"server/discover"}`),
+			expected: true,
+		},
+		{
+			name: "server discover with params",
+			input: []byte(
+				`{"jsonrpc":"2.0","method":"server/discover","params":{"_meta":{` +
+					`"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`,
+			),
 			expected: true,
 		},
 		{
@@ -494,8 +507,13 @@ func TestIsValidMCPInitializeMessage(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "wrong jsonrpc version",
+			name:     "wrong jsonrpc version initialize",
 			input:    []byte(`{"jsonrpc":"1.0","method":"initialize"}`),
+			expected: false,
+		},
+		{
+			name:     "wrong jsonrpc version server discover",
+			input:    []byte(`{"jsonrpc":"1.0","method":"server/discover"}`),
 			expected: false,
 		},
 		{
@@ -519,11 +537,11 @@ func TestIsValidMCPInitializeMessage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := isValidMCPInitializeMessage(tt.input)
+			got := isValidMCPHandshakeMessage(tt.input)
 
 			if got != tt.expected {
 				t.Errorf(
-					"isValidMCPInitializeMessage(%q) = %v, want %v",
+					"isValidMCPHandshakeMessage(%q) = %v, want %v",
 					string(tt.input), got, tt.expected,
 				)
 			}
@@ -558,25 +576,48 @@ more content`
 	}
 }
 
+func TestPrepareMCPStdin_ValidServerDiscover(t *testing.T) {
+	t.Parallel()
+
+	input := `{"jsonrpc":"2.0","method":"server/discover","params":{"_meta":{` +
+		`"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}` + "\n" +
+		`more content`
+	stdin := strings.NewReader(input)
+
+	reader, err := prepareMCPStdin(stdin)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, readErr := io.ReadAll(reader)
+	if readErr != nil {
+		t.Fatalf("failed to read result: %v", readErr)
+	}
+
+	if string(got) != input {
+		t.Errorf("reader should contain the full original stdin\nwant: %q\ngot:  %q", input, string(got))
+	}
+}
+
 func TestPrepareMCPStdin_EmptyStdin(t *testing.T) {
 	t.Parallel()
 
 	stdin := strings.NewReader("")
 
 	_, err := prepareMCPStdin(stdin)
-	if !errors.Is(err, errInvalidMCPInitializeMessage) {
-		t.Errorf("expected errInvalidMCPInitializeMessage, got %v", err)
+	if !errors.Is(err, errInvalidMCPHandshakeMessage) {
+		t.Errorf("expected errInvalidMCPHandshakeMessage, got %v", err)
 	}
 }
 
 func TestPrepareMCPStdin_NonMCPStdin(t *testing.T) {
 	t.Parallel()
 
-	stdin := strings.NewReader("not an MCP initialize message\n")
+	stdin := strings.NewReader("not an MCP handshake message\n")
 
 	_, err := prepareMCPStdin(stdin)
-	if !errors.Is(err, errInvalidMCPInitializeMessage) {
-		t.Errorf("expected errInvalidMCPInitializeMessage, got %v", err)
+	if !errors.Is(err, errInvalidMCPHandshakeMessage) {
+		t.Errorf("expected errInvalidMCPHandshakeMessage, got %v", err)
 	}
 }
 
@@ -588,8 +629,8 @@ func TestPrepareMCPStdin_FirstLineOver1MB(t *testing.T) {
 	stdin := bytes.NewReader(line)
 
 	_, err := prepareMCPStdin(stdin)
-	if !errors.Is(err, errInvalidMCPInitializeMessage) {
-		t.Errorf("expected errInvalidMCPInitializeMessage for over-1MB line, got %v", err)
+	if !errors.Is(err, errInvalidMCPHandshakeMessage) {
+		t.Errorf("expected errInvalidMCPHandshakeMessage for over-1MB line, got %v", err)
 	}
 }
 
@@ -609,8 +650,8 @@ func TestPrepareMCPStdin_ReadError(t *testing.T) {
 	stdin := &failReader{}
 
 	_, err := prepareMCPStdin(stdin)
-	if !errors.Is(err, errInvalidMCPInitializeMessage) {
-		t.Errorf("expected errInvalidMCPInitializeMessage for read error, got %v", err)
+	if !errors.Is(err, errInvalidMCPHandshakeMessage) {
+		t.Errorf("expected errInvalidMCPHandshakeMessage for read error, got %v", err)
 	}
 }
 

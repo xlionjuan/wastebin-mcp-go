@@ -44,55 +44,68 @@ func newCreatePasteTool(schema json.RawMessage, description string) *mcp.Tool {
 	}
 }
 
-type mcpInitializeMessage struct {
+// mcpFirstMessage is the JSON-RPC envelope of the first message an MCP client
+// sends over stdin to start a session.
+type mcpFirstMessage struct {
 	JSONRPC string `json:"jsonrpc"`
 	Method  string `json:"method"`
 }
 
-const mcpInitializeMaxBytes = 1 << 20
-
-var errInvalidMCPInitializeMessage = errors.New(
-	"stdin does not contain a valid MCP initialize message",
+// Valid JSON-RPC methods an MCP client may send as the first message of a
+// session. Legacy clients use the "initialize" handshake; clients negotiating
+// protocol version 2026-07-28 or later probe the stateless "server/discover"
+// RPC first (SEP-2575).
+const (
+	mcpMethodInitialize = "initialize"
+	mcpMethodDiscover   = "server/discover"
 )
 
-// prepareMCPStdin reads the first line of stdin to verify it contains a valid
-// MCP initialize message (JSON-RPC 2.0 with method "initialize"), preventing
-// the MCP server from hanging when piped non-MCP input.
+const mcpInitializeMaxBytes = 1 << 20
+
+var errInvalidMCPHandshakeMessage = errors.New(
+	"stdin does not contain a valid MCP handshake message",
+)
+
+// prepareMCPStdin reads the first line of stdin to verify it starts a valid
+// MCP session (JSON-RPC 2.0 with method "initialize" or "server/discover"),
+// preventing the MCP server from hanging when piped non-MCP input.
 func prepareMCPStdin(stdin io.Reader) (io.Reader, error) {
 	reader := bufio.NewReaderSize(stdin, mcpInitializeMaxBytes+1)
 
 	firstLine, err := reader.ReadBytes('\n')
 	if errors.Is(err, bufio.ErrBufferFull) {
-		return nil, errInvalidMCPInitializeMessage
+		return nil, errInvalidMCPHandshakeMessage
 	}
 
 	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, errInvalidMCPInitializeMessage
+		return nil, errInvalidMCPHandshakeMessage
 	}
 
 	if len(firstLine) > mcpInitializeMaxBytes ||
-		!isValidMCPInitializeMessage(firstLine) {
-		return nil, errInvalidMCPInitializeMessage
+		!isValidMCPHandshakeMessage(firstLine) {
+		return nil, errInvalidMCPHandshakeMessage
 	}
 
 	return io.MultiReader(bytes.NewReader(firstLine), reader), nil
 }
 
-// isValidMCPInitializeMessage checks whether the given byte slice is a valid
-// JSON-RPC 2.0 initialize message.
-func isValidMCPInitializeMessage(line []byte) bool {
+// isValidMCPHandshakeMessage checks whether the given byte slice is a valid
+// JSON-RPC 2.0 message that can start an MCP session: either the legacy
+// "initialize" request or the stateless "server/discover" RPC.
+func isValidMCPHandshakeMessage(line []byte) bool {
 	if len(bytes.TrimSpace(line)) == 0 {
 		return false
 	}
 
-	var msg mcpInitializeMessage
+	var msg mcpFirstMessage
 
 	err := json.Unmarshal(line, &msg)
 	if err != nil {
 		return false
 	}
 
-	return msg.JSONRPC == "2.0" && msg.Method == "initialize"
+	return msg.JSONRPC == "2.0" &&
+		(msg.Method == mcpMethodInitialize || msg.Method == mcpMethodDiscover)
 }
 
 // runMCPMode starts the MCP stdio server, registers the create_paste tool,

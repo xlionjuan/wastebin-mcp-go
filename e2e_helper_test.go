@@ -52,9 +52,14 @@ func (b *safeBuffer) String() string {
 // Session lifecycle helpers
 // =============================================================================
 
-// validMCPInitialize is a minimal valid MCP initialize message to pass
+// validMCPInitialize is a minimal legacy MCP initialize message to pass
 // the stdin validation gate so we reach config validation.
 const validMCPInitialize = `{"jsonrpc":"2.0","method":"initialize"}` + "\n"
+
+// validMCPDiscover is a minimal server/discover request, the first message a
+// go-sdk v1.7.0+ client sends on stdio when negotiating protocol version
+// 2026-07-28 (SEP-2575).
+const validMCPDiscover = `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/clientCapabilities":{},"io.modelcontextprotocol/clientInfo":{"name":"wastebin-mcp-go-e2e","version":"v0.0.0"},"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}` + "\n"
 
 var (
 	e2eBinaryOnce     sync.Once

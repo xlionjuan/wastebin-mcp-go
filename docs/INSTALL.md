@@ -69,14 +69,16 @@ implementing the Model Context Protocol.
 ### Stdio Transport
 
 The server communicates via stdin/stdout. MCP clients (AI agent frameworks) are
-responsible for launching the process and providing the MCP `initialize` message
+responsible for launching the process and providing the MCP handshake message
 on stdin before tool calls become available.
 
 **Stdin validation:** Before starting the server, the binary reads the first
-line of stdin and verifies it is a valid JSON-RPC 2.0 `initialize` message
-(maximum 1 MB). If the input is not a valid MCP initialize message, the server
-prints an error to stderr and exits immediately — this prevents the process
-from hanging when piped non-MCP input.
+line of stdin and verifies it is a valid JSON-RPC 2.0 MCP handshake message —
+either the legacy `initialize` request or the stateless `server/discover` RPC
+(protocol version `2026-07-28`, SEP-2575) — with a maximum of 1 MB. If the
+input is not a valid MCP handshake message, the server prints an error to
+stderr and exits immediately — this prevents the process from hanging when
+piped non-MCP input.
 
 **Logging:** All server-side logging (info, warnings, errors) goes to stderr.
 Tool results (JSON) are written to stdout.
@@ -110,7 +112,7 @@ wastebin-mcp-go
 ```
 
 > **Note:** When started without a proper MCP client, the server will reject
-> the input (since stdin is not a valid `initialize` message) and exit.
+> the input (since stdin is not a valid MCP handshake message) and exit.
 > Use a proper MCP client or the CLI mode for one-shot pastes.
 
 ---
