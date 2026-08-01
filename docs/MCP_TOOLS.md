@@ -490,5 +490,8 @@ reconstructing the retrieval commands.
 - **Stdin validation**: First line of stdin must be a valid JSON-RPC 2.0 MCP
   session starter — `initialize`, `server/discover`, or any request carrying
   the stateless protocol metadata in `params._meta` (protocol version
-  `2026-07-28`, max 1 MB); non-MCP input causes immediate exit
+  `2026-07-28`); non-MCP input causes immediate exit. The first-line transport
+  bound is `WASTEBIN_MCP_MAX_CONTENT_SIZE` plus a 64 KiB JSON
+  envelope/escaping allowance, so a first-request `tools/call` carrying content
+  up to the configured limit passes the gate (see [Installation](INSTALL.md))
 - **SDK**: `github.com/modelcontextprotocol/go-sdk`

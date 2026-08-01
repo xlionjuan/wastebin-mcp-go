@@ -66,6 +66,20 @@ const validMCPDiscover = `{"jsonrpc":"2.0","id":1,"method":"server/discover","pa
 // handshake (SEP-2575), so this is a valid first message on stdio.
 const validMCPToolsList = `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/clientCapabilities":{},"io.modelcontextprotocol/clientInfo":{"name":"wastebin-mcp-go-e2e","version":"v0.0.0"},"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}` + "\n"
 
+// statelessToolsCallMessage builds a valid tools/call first request carrying
+// the per-request stateless protocol metadata (SEP-2575) for create_paste with
+// the given inline content. In protocol version 2026-07-28 there is no
+// handshake, so this is a valid first message on stdio.
+func statelessToolsCallMessage(content string) string {
+	encoded, err := json.Marshal(content)
+	if err != nil {
+		panic(err)
+	}
+
+	return `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"_meta":{"io.modelcontextprotocol/clientCapabilities":{},"io.modelcontextprotocol/clientInfo":{"name":"wastebin-mcp-go-e2e","version":"v0.0.0"},"io.modelcontextprotocol/protocolVersion":"2026-07-28"},"name":"create_paste","arguments":{"content":` +
+		string(encoded) + `}}}` + "\n"
+}
+
 var (
 	e2eBinaryOnce     sync.Once
 	e2eBinaryPath     string

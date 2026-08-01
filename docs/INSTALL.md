@@ -47,7 +47,7 @@ go build -ldflags="-X main.version=$(git describe --tags --always)" -o wastebin-
 | `WASTEBIN_MCP_BLOCKED_PATHS` | | — | Comma-separated absolute directory paths to block for file reads (e.g. `/home/user/secret`). Relative entries are rejected at startup. Resolved via `EvalSymlinks` (matching file-path resolution) with fallback to `Clean` for non-existent absolute paths. Applied after the built-in blocklist. Empty by default — the built-in blocklist handles system directories (`/etc`, `/proc`, `/sys`, `/dev`) separately |
 | `WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD` | | `false` | Allow password-protected pastes over non-loopback HTTP connections. By default, password-protected pastes are rejected when using `http://` with a non-loopback host. Loopback addresses (localhost, 127.0.0.1, ::1) are always allowed with a warning |
 | `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST` | | `false` | Set to `true` to disable the built-in blocklist (system directory prefixes + sensitive path components). When enabled, only the user-configured blocklist (`WASTEBIN_MCP_BLOCKED_PATHS`) and allowlist (`WASTEBIN_MCP_ALLOWED_PATHS`) apply. Since `WASTEBIN_MCP_BLOCKED_PATHS` is empty by default, this flag alone (without explicit blocklist or allowlist) allows all paths. Use with caution |
-| `WASTEBIN_MCP_MAX_CONTENT_SIZE` | | `1048576` | Maximum paste content size in bytes (client-side guard) |
+| `WASTEBIN_MCP_MAX_CONTENT_SIZE` | | `1048576` | Maximum paste content size in bytes (client-side guard). Also determines the stdio first-message transport bound (this value plus a 64 KiB JSON envelope/escaping allowance) — see [Stdio Transport](#stdio-transport) |
 | `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker-style mount mappings (`host_path:sandbox_path,...`) for sandbox path translation. Sandbox paths must be absolute POSIX paths and must not contain `..` components |
 | `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | | `false` | When set, sandbox path translation happens automatically |
 | `DEBUG` | | — | Set to `1` or `true` to enable debug logging (sparse `slog.Debug` entries on stderr — paste submission info, sandbox translation, error details; not an HTTP wire dump) |
@@ -69,19 +69,32 @@ implementing the Model Context Protocol.
 ### Stdio Transport
 
 The server communicates via stdin/stdout. MCP clients (AI agent frameworks) are
-responsible for launching the process and providing the MCP handshake message
-on stdin before tool calls become available.
+responsible for launching the process and providing the first MCP request — the
+session starter — on stdin before tool calls become available.
 
 **Stdin validation:** Before starting the server, the binary reads the first
 line of stdin and verifies it is a valid JSON-RPC 2.0 MCP session starter —
 the legacy `initialize` handshake, the stateless `server/discover` RPC, or any
 request carrying the per-request stateless protocol metadata
 (`params._meta.io.modelcontextprotocol/protocolVersion`, protocol version
-`2026-07-28`, SEP-2575) — with a maximum of 1 MB. The stateless protocol has no
-handshake, so a first request such as `tools/list` is accepted and its metadata
-is validated by the MCP SDK. If the input is not a valid MCP session starter,
+`2026-07-28`, SEP-2575). The stateless protocol has no handshake, so a first
+request such as `tools/list` or `tools/call` is accepted and its metadata is
+validated by the MCP SDK. If the input is not a valid MCP session starter,
 the server prints an error to stderr and exits immediately — this prevents the
 process from hanging when piped non-MCP input.
+
+The first-line bound is a **transport limit**, not a content validator. It is
+derived from the configured paste content limit: `WASTEBIN_MCP_MAX_CONTENT_SIZE`
+plus a fixed 64 KiB allowance for the JSON-RPC envelope and JSON escaping
+(`mcpFirstMessageEnvelopeAllowance`). This keeps the gate consistent with the
+valid payload contract: a first-request `tools/call` carrying content up to the
+configured limit (typical escaping) passes, instead of failing only because it
+is the first message. Content that requires heavy JSON escaping (many quotes,
+control characters, or HTML metacharacters) expands the wire representation and
+lowers the effective first-call content ceiling accordingly. Full content and
+metadata validation is left to the MCP SDK and the `create_paste` handler. The
+gate reads at most `limit + 1` bytes (bounded memory) before rejecting an
+oversized first line.
 
 **Logging:** All server-side logging (info, warnings, errors) goes to stderr.
 Tool results (JSON) are written to stdout.
@@ -115,7 +128,7 @@ wastebin-mcp-go
 ```
 
 > **Note:** When started without a proper MCP client, the server will reject
-> the input (since stdin is not a valid MCP handshake message) and exit.
+> the input (since stdin is not a valid MCP first message) and exit.
 > Use a proper MCP client or the CLI mode for one-shot pastes.
 
 ---

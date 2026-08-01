@@ -226,6 +226,62 @@ func TestMCPHandshake_StatelessFirstRequestAccepted(t *testing.T) {
 	assertAcceptableExitCode(t, waitErr, stderr, "stateless first request", 0)
 }
 
+func TestMCPHandshake_StatelessToolsCallFirstRequestAccepted(t *testing.T) {
+	wastebinURL := os.Getenv("WASTEBIN_SERVER_URL")
+	if wastebinURL == "" {
+		t.Skip("WASTEBIN_SERVER_URL not set")
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	cmd, stdin, stderr, stdout := startRawMCPProcess(ctx, t, wastebinURL)
+
+	defer func() {
+		if cmd.Process != nil && cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()    //nolint:errcheck // best-effort cleanup
+			_, _ = cmd.Process.Wait() //nolint:errcheck // best-effort cleanup
+		}
+	}()
+
+	// Regression for the order-dependent payload ceiling: a first-request
+	// tools/call with content just below the default 1 MiB content limit
+	// exceeds a fixed 1 MiB first-line wire cap once the JSON-RPC envelope is
+	// included. The gate derives its bound from WASTEBIN_MCP_MAX_CONTENT_SIZE
+	// plus the envelope/escaping allowance, so this request must reach the SDK
+	// and produce a response instead of exiting with code 2.
+	content := strings.Repeat("a", 1048500)
+	msg := statelessToolsCallMessage(content)
+	if len(msg) <= 1<<20 {
+		t.Fatalf("test setup: expected wire size above the old fixed 1 MiB cap, got %d", len(msg))
+	}
+
+	_, err := fmt.Fprint(stdin, msg)
+	if err != nil {
+		t.Fatalf("write tools/call message: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	// Wait for the server to answer before closing stdin; closing stdin too
+	// early would race the asynchronous response write and lose the reply.
+	waitForStdoutContains(ctx, t, cmd, stdout, `"result"`, stderr)
+
+	out := stdout.String()
+	t.Logf("server stdout:\n%s", out)
+
+	if !strings.Contains(out, `"result"`) {
+		t.Fatalf("tools/call did not produce a result\nstdout:\n%s\nstderr:\n%s", out, stderr.String())
+	}
+
+	// Closing stdin makes the server see EOF after answering the request, so
+	// the process exits cleanly with code 0.
+	if err := stdin.Close(); err != nil {
+		t.Fatalf("close stdin: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	waitErr := waitForRawProcessExit(ctx, t, cmd, stderr)
+	assertAcceptableExitCode(t, waitErr, stderr, "stateless tools/call first request", 0)
+}
+
 // waitForStdoutContains polls stdout until it contains want, failing the test
 // on timeout or if the process exits first. stdout is drained by exec.Cmd's
 // copy goroutine, so the child never blocks writing to the pipe.

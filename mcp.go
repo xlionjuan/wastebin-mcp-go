@@ -67,27 +67,49 @@ const (
 // stateless requests.
 const metaKeyProtocolVersion = "io.modelcontextprotocol/protocolVersion"
 
-const mcpInitializeMaxBytes = 1 << 20
+// mcpFirstMessageEnvelopeAllowance is the headroom added to the configured max
+// paste content size when bounding the first line of stdin. It covers the
+// JSON-RPC envelope (method, id, params._meta, tool arguments) and typical JSON
+// escaping of the embedded content, so a first-request tools/call carrying
+// content up to WASTEBIN_MCP_MAX_CONTENT_SIZE passes the transport gate. The
+// gate is a bounded-read guard, not a content validator; full content and
+// metadata validation is left to the MCP SDK and the paste handler.
+const mcpFirstMessageEnvelopeAllowance = 64 << 10 // 64 KiB
 
-var errInvalidMCPHandshakeMessage = errors.New(
-	"stdin does not contain a valid MCP handshake message",
+var errInvalidMCPFirstMessage = errors.New(
+	"stdin does not contain a valid MCP first message",
 )
+
+// mcpFirstMessageMaxBytes returns the maximum size, in bytes, of the first line
+// of stdin (the MCP session starter). It is derived from the configured max
+// paste content size so that a first-request tools/call carrying content up to
+// WASTEBIN_MCP_MAX_CONTENT_SIZE is admitted once the JSON-RPC envelope and JSON
+// escaping are included. Heavy escaping (quotes, control characters, HTML
+// metacharacters) expands the wire representation and lowers the effective
+// first-call content ceiling; see docs/INSTALL.md.
+func mcpFirstMessageMaxBytes(cfg *wastebin.Config) int {
+	return int(cfg.MaxContentSize) + mcpFirstMessageEnvelopeAllowance
+}
 
 // prepareMCPStdin reads the first line of stdin to verify it starts a valid
 // MCP session (JSON-RPC 2.0 "initialize", "server/discover", or any request
 // carrying the stateless protocol metadata), preventing the MCP server from
-// hanging when piped non-MCP input.
-func prepareMCPStdin(stdin io.Reader) (io.Reader, error) {
-	reader := bufio.NewReaderSize(stdin, mcpInitializeMaxBytes+1)
+// hanging when piped non-MCP input. The line is bounded by
+// mcpFirstMessageMaxBytes(cfg); readFirstLine reports bufio.ErrBufferFull as
+// soon as a first line exceeds that bound, so memory usage stays bounded even
+// for attacker-controlled stdin.
+func prepareMCPStdin(stdin io.Reader, cfg *wastebin.Config) (io.Reader, error) {
+	maxBytes := mcpFirstMessageMaxBytes(cfg)
+
+	reader := bufio.NewReaderSize(stdin, maxBytes+1)
 
 	firstLine, err := readFirstLine(reader)
 	if err != nil {
-		return nil, errInvalidMCPHandshakeMessage
+		return nil, errInvalidMCPFirstMessage
 	}
 
-	if len(firstLine) > mcpInitializeMaxBytes ||
-		!isValidMCPHandshakeMessage(firstLine) {
-		return nil, errInvalidMCPHandshakeMessage
+	if !isValidMCPFirstMessage(firstLine) {
+		return nil, errInvalidMCPFirstMessage
 	}
 
 	return io.MultiReader(bytes.NewReader(firstLine), reader), nil
@@ -106,14 +128,14 @@ func readFirstLine(reader *bufio.Reader) ([]byte, error) {
 		return line, nil
 	}
 
-	return nil, errInvalidMCPHandshakeMessage
+	return nil, errInvalidMCPFirstMessage
 }
 
-// isValidMCPHandshakeMessage checks whether the given byte slice is a valid
+// isValidMCPFirstMessage checks whether the given byte slice is a valid
 // JSON-RPC 2.0 message that can start an MCP session: the legacy "initialize"
 // handshake, the stateless "server/discover" RPC, or any request carrying the
 // per-request protocol metadata (the stateless protocol has no handshake).
-func isValidMCPHandshakeMessage(line []byte) bool {
+func isValidMCPFirstMessage(line []byte) bool {
 	if len(bytes.TrimSpace(line)) == 0 {
 		return false
 	}
