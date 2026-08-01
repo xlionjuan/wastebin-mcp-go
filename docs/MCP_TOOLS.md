@@ -487,7 +487,8 @@ reconstructing the retrieval commands.
 - **Protocol**: MCP (Model Context Protocol)
 - **Wastebin API**: REST (`POST /` with JSON body)
 - **Server URL**: Configured via `WASTEBIN_SERVER_URL` (required)
-- **Stdin validation**: First line of stdin must be a valid JSON-RPC 2.0
-  MCP handshake message (`initialize` or, for protocol version `2026-07-28`
-  clients, `server/discover`; max 1 MB); non-MCP input causes immediate exit
+- **Stdin validation**: First line of stdin must be a valid JSON-RPC 2.0 MCP
+  session starter — `initialize`, `server/discover`, or any request carrying
+  the stateless protocol metadata in `params._meta` (protocol version
+  `2026-07-28`, max 1 MB); non-MCP input causes immediate exit
 - **SDK**: `github.com/modelcontextprotocol/go-sdk`

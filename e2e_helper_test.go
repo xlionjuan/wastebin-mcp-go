@@ -61,6 +61,11 @@ const validMCPInitialize = `{"jsonrpc":"2.0","method":"initialize"}` + "\n"
 // 2026-07-28 (SEP-2575).
 const validMCPDiscover = `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/clientCapabilities":{},"io.modelcontextprotocol/clientInfo":{"name":"wastebin-mcp-go-e2e","version":"v0.0.0"},"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}` + "\n"
 
+// validMCPToolsList is a direct tools/list request carrying the per-request
+// stateless protocol metadata. In protocol version 2026-07-28 there is no
+// handshake (SEP-2575), so this is a valid first message on stdio.
+const validMCPToolsList = `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/clientCapabilities":{},"io.modelcontextprotocol/clientInfo":{"name":"wastebin-mcp-go-e2e","version":"v0.0.0"},"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}` + "\n"
+
 var (
 	e2eBinaryOnce     sync.Once
 	e2eBinaryPath     string

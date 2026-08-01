@@ -175,6 +175,57 @@ func TestMCPHandshake_ServerDiscoverAccepted(t *testing.T) {
 	assertAcceptableExitCode(t, waitErr, stderr, "server/discover handshake", 0)
 }
 
+func TestMCPHandshake_StatelessFirstRequestAccepted(t *testing.T) {
+	wastebinURL := os.Getenv("WASTEBIN_SERVER_URL")
+	if wastebinURL == "" {
+		t.Skip("WASTEBIN_SERVER_URL not set")
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	cmd, stdin, stderr, stdout := startRawMCPProcess(ctx, t, wastebinURL)
+
+	defer func() {
+		if cmd.Process != nil && cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()    //nolint:errcheck // best-effort cleanup
+			_, _ = cmd.Process.Wait() //nolint:errcheck // best-effort cleanup
+		}
+	}()
+
+	// In the stateless protocol (>= 2026-07-28) there is no handshake: a
+	// direct tools/list request carrying the per-request _meta metadata is a
+	// valid first message (SEP-2575). The stdin gate must accept it.
+	_, err := fmt.Fprint(stdin, validMCPToolsList)
+	if err != nil {
+		t.Fatalf("write tools/list message: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	// Wait for the server to answer before closing stdin; closing stdin too
+	// early would race the asynchronous response write and lose the reply.
+	waitForStdoutContains(ctx, t, cmd, stdout, `"tools"`, stderr)
+
+	out := stdout.String()
+	t.Logf("server stdout:\n%s", out)
+
+	if !strings.Contains(out, `"result"`) {
+		t.Fatalf("tools/list did not produce a result\nstdout:\n%s\nstderr:\n%s", out, stderr.String())
+	}
+
+	if !strings.Contains(out, `"create_paste"`) {
+		t.Fatalf("tools/list result does not include create_paste\nstdout:\n%s\nstderr:\n%s", out, stderr.String())
+	}
+
+	// Closing stdin makes the server see EOF after answering the request, so
+	// the process exits cleanly with code 0.
+	if err := stdin.Close(); err != nil {
+		t.Fatalf("close stdin: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	waitErr := waitForRawProcessExit(ctx, t, cmd, stderr)
+	assertAcceptableExitCode(t, waitErr, stderr, "stateless first request", 0)
+}
+
 // waitForStdoutContains polls stdout until it contains want, failing the test
 // on timeout or if the process exits first. stdout is drained by exec.Cmd's
 // copy goroutine, so the child never blocks writing to the pipe.

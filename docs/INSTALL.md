@@ -73,12 +73,15 @@ responsible for launching the process and providing the MCP handshake message
 on stdin before tool calls become available.
 
 **Stdin validation:** Before starting the server, the binary reads the first
-line of stdin and verifies it is a valid JSON-RPC 2.0 MCP handshake message —
-either the legacy `initialize` request or the stateless `server/discover` RPC
-(protocol version `2026-07-28`, SEP-2575) — with a maximum of 1 MB. If the
-input is not a valid MCP handshake message, the server prints an error to
-stderr and exits immediately — this prevents the process from hanging when
-piped non-MCP input.
+line of stdin and verifies it is a valid JSON-RPC 2.0 MCP session starter —
+the legacy `initialize` handshake, the stateless `server/discover` RPC, or any
+request carrying the per-request stateless protocol metadata
+(`params._meta.io.modelcontextprotocol/protocolVersion`, protocol version
+`2026-07-28`, SEP-2575) — with a maximum of 1 MB. The stateless protocol has no
+handshake, so a first request such as `tools/list` is accepted and its metadata
+is validated by the MCP SDK. If the input is not a valid MCP session starter,
+the server prints an error to stderr and exits immediately — this prevents the
+process from hanging when piped non-MCP input.
 
 **Logging:** All server-side logging (info, warnings, errors) goes to stderr.
 Tool results (JSON) are written to stdout.

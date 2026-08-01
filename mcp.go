@@ -47,8 +47,9 @@ func newCreatePasteTool(schema json.RawMessage, description string) *mcp.Tool {
 // mcpFirstMessage is the JSON-RPC envelope of the first message an MCP client
 // sends over stdin to start a session.
 type mcpFirstMessage struct {
-	JSONRPC string `json:"jsonrpc"`
-	Method  string `json:"method"`
+	JSONRPC string          `json:"jsonrpc"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params"`
 }
 
 // Valid JSON-RPC methods an MCP client may send as the first message of a
@@ -60,6 +61,12 @@ const (
 	mcpMethodDiscover   = "server/discover"
 )
 
+// metaKeyProtocolVersion is the per-request metadata key that marks a request
+// as following the stateless (>= 2026-07-28) protocol (SEP-2575). It mirrors
+// mcp.MetaKeyProtocolVersion in the go-sdk, which the server uses to detect
+// stateless requests.
+const metaKeyProtocolVersion = "io.modelcontextprotocol/protocolVersion"
+
 const mcpInitializeMaxBytes = 1 << 20
 
 var errInvalidMCPHandshakeMessage = errors.New(
@@ -67,17 +74,14 @@ var errInvalidMCPHandshakeMessage = errors.New(
 )
 
 // prepareMCPStdin reads the first line of stdin to verify it starts a valid
-// MCP session (JSON-RPC 2.0 with method "initialize" or "server/discover"),
-// preventing the MCP server from hanging when piped non-MCP input.
+// MCP session (JSON-RPC 2.0 "initialize", "server/discover", or any request
+// carrying the stateless protocol metadata), preventing the MCP server from
+// hanging when piped non-MCP input.
 func prepareMCPStdin(stdin io.Reader) (io.Reader, error) {
 	reader := bufio.NewReaderSize(stdin, mcpInitializeMaxBytes+1)
 
-	firstLine, err := reader.ReadBytes('\n')
-	if errors.Is(err, bufio.ErrBufferFull) {
-		return nil, errInvalidMCPHandshakeMessage
-	}
-
-	if err != nil && !errors.Is(err, io.EOF) {
+	firstLine, err := readFirstLine(reader)
+	if err != nil {
 		return nil, errInvalidMCPHandshakeMessage
 	}
 
@@ -89,9 +93,26 @@ func prepareMCPStdin(stdin io.Reader) (io.Reader, error) {
 	return io.MultiReader(bytes.NewReader(firstLine), reader), nil
 }
 
+// readFirstLine reads a single line from reader using bufio.Reader.ReadSlice,
+// which reports bufio.ErrBufferFull as soon as a line exceeds the reader's
+// buffer. This bounds memory: an oversized first line is rejected without
+// buffering the entire line. (ReadBytes swallows ErrBufferFull internally and
+// returns the final error instead, so it cannot enforce the size cap.) A line
+// without a trailing newline is accepted when it ends at EOF; content
+// validation is done by prepareMCPStdin.
+func readFirstLine(reader *bufio.Reader) ([]byte, error) {
+	line, err := reader.ReadSlice('\n')
+	if err == nil || errors.Is(err, io.EOF) {
+		return line, nil
+	}
+
+	return nil, errInvalidMCPHandshakeMessage
+}
+
 // isValidMCPHandshakeMessage checks whether the given byte slice is a valid
-// JSON-RPC 2.0 message that can start an MCP session: either the legacy
-// "initialize" request or the stateless "server/discover" RPC.
+// JSON-RPC 2.0 message that can start an MCP session: the legacy "initialize"
+// handshake, the stateless "server/discover" RPC, or any request carrying the
+// per-request protocol metadata (the stateless protocol has no handshake).
 func isValidMCPHandshakeMessage(line []byte) bool {
 	if len(bytes.TrimSpace(line)) == 0 {
 		return false
@@ -104,8 +125,45 @@ func isValidMCPHandshakeMessage(line []byte) bool {
 		return false
 	}
 
-	return msg.JSONRPC == "2.0" &&
-		(msg.Method == mcpMethodInitialize || msg.Method == mcpMethodDiscover)
+	if msg.JSONRPC != "2.0" {
+		return false
+	}
+
+	// The legacy "initialize" handshake and the stateless "server/discover"
+	// probe are always valid session starters.
+	if msg.Method == mcpMethodInitialize || msg.Method == mcpMethodDiscover {
+		return true
+	}
+
+	// In the stateless protocol (>= 2026-07-28) there is no handshake: any
+	// request (e.g. tools/list) may be the first one, provided it carries the
+	// per-request protocol metadata in params._meta (SEP-2575). Full metadata
+	// validation is left to the go-sdk.
+	return msg.hasStatelessProtocolMeta()
+}
+
+// hasStatelessProtocolMeta reports whether the message carries the per-request
+// metadata that marks it as following the stateless (>= 2026-07-28) protocol,
+// in which any request may be the first one. Only the presence of the protocol
+// version key is checked; the go-sdk validates the full metadata.
+func (m mcpFirstMessage) hasStatelessProtocolMeta() bool {
+	if len(m.Params) == 0 {
+		return false
+	}
+
+	var params struct {
+		//nolint:tagliatelle // matches the wire key "_meta"
+		Meta map[string]json.RawMessage `json:"_meta"`
+	}
+
+	err := json.Unmarshal(m.Params, &params)
+	if err != nil {
+		return false
+	}
+
+	_, ok := params.Meta[metaKeyProtocolVersion]
+
+	return ok
 }
 
 // runMCPMode starts the MCP stdio server, registers the create_paste tool,

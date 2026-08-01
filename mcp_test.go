@@ -502,6 +502,58 @@ func TestIsValidMCPHandshakeMessage(t *testing.T) {
 			expected: true,
 		},
 		{
+			name: "stateless tools/list first request",
+			input: []byte(
+				`{"jsonrpc":"2.0","method":"tools/list","params":{"_meta":{` +
+					`"io.modelcontextprotocol/clientCapabilities":{},` +
+					`"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`,
+			),
+			expected: true,
+		},
+		{
+			name: "stateless request with legacy method name",
+			input: []byte(
+				`{"jsonrpc":"2.0","method":"notifications/initialized","params":{"_meta":{` +
+					`"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`,
+			),
+			expected: true,
+		},
+		{
+			name:     "tools/list without stateless meta",
+			input:    []byte(`{"jsonrpc":"2.0","method":"tools/list"}`),
+			expected: false,
+		},
+		{
+			name: "tools/list with meta but no protocolVersion",
+			input: []byte(
+				`{"jsonrpc":"2.0","method":"tools/list","params":{"_meta":{` +
+					`"io.modelcontextprotocol/clientCapabilities":{}}}}`,
+			),
+			expected: false,
+		},
+		{
+			name: "stateless request with wrong jsonrpc version",
+			input: []byte(
+				`{"jsonrpc":"1.0","method":"tools/list","params":{"_meta":{` +
+					`"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`,
+			),
+			expected: false,
+		},
+		{
+			name: "stateless request with non-object params",
+			input: []byte(
+				`{"jsonrpc":"2.0","method":"tools/list","params":[1,2,3]}`,
+			),
+			expected: false,
+		},
+		{
+			name: "stateless request with non-object meta",
+			input: []byte(
+				`{"jsonrpc":"2.0","method":"tools/list","params":{"_meta":"nope"}}`,
+			),
+			expected: false,
+		},
+		{
 			name:     "wrong method",
 			input:    []byte(`{"jsonrpc":"2.0","method":"ping"}`),
 			expected: false,
@@ -599,6 +651,56 @@ func TestPrepareMCPStdin_ValidServerDiscover(t *testing.T) {
 	}
 }
 
+func TestPrepareMCPStdin_ValidStatelessFirstRequest(t *testing.T) {
+	t.Parallel()
+
+	// In the stateless protocol (>= 2026-07-28) there is no handshake: a
+	// direct tools/list request carrying the per-request protocol metadata is
+	// a valid first message (SEP-2575).
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{` +
+		`"io.modelcontextprotocol/clientCapabilities":{},` +
+		`"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}` + "\n" +
+		`more content`
+	stdin := strings.NewReader(input)
+
+	reader, err := prepareMCPStdin(stdin)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, readErr := io.ReadAll(reader)
+	if readErr != nil {
+		t.Fatalf("failed to read result: %v", readErr)
+	}
+
+	if string(got) != input {
+		t.Errorf("reader should contain the full original stdin\nwant: %q\ngot:  %q", input, string(got))
+	}
+}
+
+func TestPrepareMCPStdin_ValidMessageWithoutNewlineAtEOF(t *testing.T) {
+	t.Parallel()
+
+	// A valid first message that ends at EOF without a trailing newline must
+	// still be accepted.
+	input := `{"jsonrpc":"2.0","method":"initialize"}`
+	stdin := strings.NewReader(input)
+
+	reader, err := prepareMCPStdin(stdin)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, readErr := io.ReadAll(reader)
+	if readErr != nil {
+		t.Fatalf("failed to read result: %v", readErr)
+	}
+
+	if string(got) != input {
+		t.Errorf("reader should contain the full original stdin\nwant: %q\ngot:  %q", input, string(got))
+	}
+}
+
 func TestPrepareMCPStdin_EmptyStdin(t *testing.T) {
 	t.Parallel()
 
@@ -625,12 +727,28 @@ func TestPrepareMCPStdin_FirstLineOver1MB(t *testing.T) {
 	t.Parallel()
 
 	// Build a line longer than mcpInitializeMaxBytes (1MiB) without a newline.
+	// ReadSlice reports bufio.ErrBufferFull once the line exceeds the reader's
+	// buffer, so the gate rejects it without buffering the whole line.
 	line := bytes.Repeat([]byte("a"), mcpInitializeMaxBytes+1)
 	stdin := bytes.NewReader(line)
 
 	_, err := prepareMCPStdin(stdin)
 	if !errors.Is(err, errInvalidMCPHandshakeMessage) {
 		t.Errorf("expected errInvalidMCPHandshakeMessage for over-1MB line, got %v", err)
+	}
+}
+
+func TestPrepareMCPStdin_FirstLineAtBufferLimit(t *testing.T) {
+	t.Parallel()
+
+	// A line of exactly mcpInitializeMaxBytes content plus a trailing newline
+	// fits in the reader's buffer (mcpInitializeMaxBytes+1) and is returned in
+	// full, but the newline pushes it past the 1 MiB cap.
+	input := append(bytes.Repeat([]byte("a"), mcpInitializeMaxBytes), '\n')
+
+	_, err := prepareMCPStdin(bytes.NewReader(input))
+	if !errors.Is(err, errInvalidMCPHandshakeMessage) {
+		t.Errorf("expected errInvalidMCPHandshakeMessage for line at buffer limit, got %v", err)
 	}
 }
 
