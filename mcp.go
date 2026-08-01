@@ -2,7 +2,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -76,34 +75,64 @@ const metaKeyProtocolVersion = "io.modelcontextprotocol/protocolVersion"
 // metadata validation is left to the MCP SDK and the paste handler.
 const mcpFirstMessageEnvelopeAllowance = 64 << 10 // 64 KiB
 
-var errInvalidMCPFirstMessage = errors.New(
-	"stdin does not contain a valid MCP first message",
+var (
+	errInvalidMCPFirstMessage = errors.New(
+		"stdin does not contain a valid MCP first message",
+	)
+
+	errMCPConfigRequired           = errors.New("config is required")
+	errFirstMessageContentTooSmall = errors.New("WASTEBIN_MCP_MAX_CONTENT_SIZE must be at least 1")
+	errFirstMessageContentTooLarge = errors.New("WASTEBIN_MCP_MAX_CONTENT_SIZE exceeds the maximum supported value")
 )
 
-// mcpFirstMessageMaxBytes returns the maximum size, in bytes, of the first line
-// of stdin (the MCP session starter). It is derived from the configured max
-// paste content size so that a first-request tools/call carrying content up to
-// WASTEBIN_MCP_MAX_CONTENT_SIZE is admitted once the JSON-RPC envelope and JSON
-// escaping are included. Heavy escaping (quotes, control characters, HTML
-// metacharacters) expands the wire representation and lowers the effective
-// first-call content ceiling; see docs/INSTALL.md.
-func mcpFirstMessageMaxBytes(cfg *wastebin.Config) int {
-	return int(cfg.MaxContentSize) + mcpFirstMessageEnvelopeAllowance
+// mcpFirstMessageMaxBytes returns the maximum wire size, in bytes, of the
+// first line of stdin (the MCP session starter), excluding its trailing
+// newline. It is derived from the configured max paste content size so that a
+// first-request tools/call carrying content up to WASTEBIN_MCP_MAX_CONTENT_SIZE
+// is admitted once the JSON-RPC envelope and JSON escaping are included. The
+// configured size is validated against wastebin.MaxContentSizeLimit before the
+// int conversion and the 64 KiB allowance addition, so the arithmetic cannot
+// overflow on any supported platform (including 32-bit int targets). Heavy
+// escaping (quotes, control characters, HTML metacharacters) expands the wire
+// representation and lowers the effective first-call content ceiling; see
+// docs/INSTALL.md.
+func mcpFirstMessageMaxBytes(cfg *wastebin.Config) (int, error) {
+	if cfg == nil {
+		return 0, errMCPConfigRequired
+	}
+
+	maxSize := cfg.MaxContentSize
+	if maxSize < 1 {
+		return 0, errFirstMessageContentTooSmall
+	}
+
+	if maxSize > wastebin.MaxContentSizeLimit {
+		return 0, fmt.Errorf(
+			"%w (%d exceeds the maximum of %d)",
+			errFirstMessageContentTooLarge, maxSize, wastebin.MaxContentSizeLimit,
+		)
+	}
+
+	// maxSize is in [1, wastebin.MaxContentSizeLimit], a range far below the
+	// int limits on every supported platform, so the conversion and the
+	// allowance addition cannot overflow.
+	return int(maxSize) + mcpFirstMessageEnvelopeAllowance, nil
 }
 
 // prepareMCPStdin reads the first line of stdin to verify it starts a valid
 // MCP session (JSON-RPC 2.0 "initialize", "server/discover", or any request
 // carrying the stateless protocol metadata), preventing the MCP server from
 // hanging when piped non-MCP input. The line is bounded by
-// mcpFirstMessageMaxBytes(cfg); readFirstLine reports bufio.ErrBufferFull as
-// soon as a first line exceeds that bound, so memory usage stays bounded even
-// for attacker-controlled stdin.
+// mcpFirstMessageMaxBytes(cfg); readFirstLine rejects a first line as soon as
+// it exceeds that bound, so memory usage stays bounded and the configured
+// maximum is never allocated up front, even for attacker-controlled stdin.
 func prepareMCPStdin(stdin io.Reader, cfg *wastebin.Config) (io.Reader, error) {
-	maxBytes := mcpFirstMessageMaxBytes(cfg)
+	maxBytes, err := mcpFirstMessageMaxBytes(cfg)
+	if err != nil {
+		return nil, err
+	}
 
-	reader := bufio.NewReaderSize(stdin, maxBytes+1)
-
-	firstLine, err := readFirstLine(reader)
+	firstLine, leftover, err := readFirstLine(stdin, maxBytes)
 	if err != nil {
 		return nil, errInvalidMCPFirstMessage
 	}
@@ -112,23 +141,61 @@ func prepareMCPStdin(stdin io.Reader, cfg *wastebin.Config) (io.Reader, error) {
 		return nil, errInvalidMCPFirstMessage
 	}
 
-	return io.MultiReader(bytes.NewReader(firstLine), reader), nil
+	return io.MultiReader(bytes.NewReader(firstLine), bytes.NewReader(leftover), stdin), nil
 }
 
-// readFirstLine reads a single line from reader using bufio.Reader.ReadSlice,
-// which reports bufio.ErrBufferFull as soon as a line exceeds the reader's
-// buffer. This bounds memory: an oversized first line is rejected without
-// buffering the entire line. (ReadBytes swallows ErrBufferFull internally and
-// returns the final error instead, so it cannot enforce the size cap.) A line
+// mcpFirstMessageReadChunkSize bounds how many bytes readFirstLine requests
+// from stdin in a single read. The first line is accumulated in memory only up
+// to the transport bound, and the reader never allocates the configured
+// maximum up front.
+const mcpFirstMessageReadChunkSize = 32 << 10 // 32 KiB
+
+// readFirstLine reads the first line of stdin, accepting at most maxBytes
+// message bytes plus a trailing newline, and returns the line including the
+// newline together with any bytes that were read past it. It reads
+// incrementally with a fixed-size buffer and never requests more bytes than
+// the remaining budget, so the total number of bytes read is at most
+// maxBytes+1 and memory usage stays bounded for attacker-controlled stdin. An
+// oversized first line is rejected without buffering the entire line. A line
 // without a trailing newline is accepted when it ends at EOF; content
 // validation is done by prepareMCPStdin.
-func readFirstLine(reader *bufio.Reader) ([]byte, error) {
-	line, err := reader.ReadSlice('\n')
-	if err == nil || errors.Is(err, io.EOF) {
-		return line, nil
-	}
+func readFirstLine(stdin io.Reader, maxBytes int) ([]byte, []byte, error) {
+	line := make([]byte, 0, mcpFirstMessageReadChunkSize)
+	buf := make([]byte, mcpFirstMessageReadChunkSize)
 
-	return nil, errInvalidMCPFirstMessage
+	for {
+		want := min(maxBytes+1-len(line), len(buf))
+
+		n, err := stdin.Read(buf[:want])
+		if n > 0 {
+			for i := range n {
+				if buf[i] == '\n' {
+					return append(line, '\n'), append([]byte(nil), buf[i+1:n]...), nil
+				}
+
+				line = append(line, buf[i])
+				if len(line) > maxBytes {
+					return nil, nil, errInvalidMCPFirstMessage
+				}
+			}
+		}
+
+		if n == 0 && err == nil {
+			return nil, nil, errInvalidMCPFirstMessage
+		}
+
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				if len(line) > 0 {
+					return line, nil, nil
+				}
+
+				return nil, nil, errInvalidMCPFirstMessage
+			}
+
+			return nil, nil, errInvalidMCPFirstMessage
+		}
+	}
 }
 
 // isValidMCPFirstMessage checks whether the given byte slice is a valid

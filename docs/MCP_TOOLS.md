@@ -491,7 +491,10 @@ reconstructing the retrieval commands.
   session starter — `initialize`, `server/discover`, or any request carrying
   the stateless protocol metadata in `params._meta` (protocol version
   `2026-07-28`); non-MCP input causes immediate exit. The first-line transport
-  bound is `WASTEBIN_MCP_MAX_CONTENT_SIZE` plus a 64 KiB JSON
-  envelope/escaping allowance, so a first-request `tools/call` carrying content
-  up to the configured limit passes the gate (see [Installation](INSTALL.md))
+  bound is `WASTEBIN_MCP_MAX_CONTENT_SIZE` (capped at 256 MiB) plus a 64 KiB
+  JSON envelope/escaping allowance, so a first-request `tools/call` carrying
+  content up to the configured limit passes the gate under typical JSON
+  escaping; content requiring heavy escaping (many quotes, control characters,
+  or HTML metacharacters) expands the wire representation and lowers the
+  effective first-call content ceiling (see [Installation](INSTALL.md))
 - **SDK**: `github.com/modelcontextprotocol/go-sdk`

@@ -129,14 +129,15 @@ func TestMCPLifecycle_InvalidJSONAfterInitialize(t *testing.T) {
 	assertAcceptableExitCode(t, waitErr, stderr, "invalid JSON", 0, 2)
 }
 
-func TestMCPHandshake_ServerDiscoverAccepted(t *testing.T) {
-	wastebinURL := os.Getenv("WASTEBIN_SERVER_URL")
-	if wastebinURL == "" {
-		t.Skip("WASTEBIN_SERVER_URL not set")
-	}
-
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
+// runRawFirstMessageScenario starts the MCP binary over raw stdio, writes a
+// first MCP request, waits for the server to answer, closes stdin, and asserts
+// a clean exit. wantStdout is the substring the server response must contain;
+// the response must also include a JSON-RPC "result". Returns the captured
+// stdout for additional per-test assertions.
+func runRawFirstMessageScenario(
+	ctx context.Context, t *testing.T, wastebinURL, msg, wantStdout, label string,
+) string {
+	t.Helper()
 
 	cmd, stdin, stderr, stdout := startRawMCPProcess(ctx, t, wastebinURL)
 
@@ -147,22 +148,19 @@ func TestMCPHandshake_ServerDiscoverAccepted(t *testing.T) {
 		}
 	}()
 
-	// A go-sdk v1.7.0+ client probes server/discover as its first message on
-	// stdio (SEP-2575). The stdin gate must accept it.
-	_, err := fmt.Fprint(stdin, validMCPDiscover)
-	if err != nil {
-		t.Fatalf("write server/discover message: %v\nstderr:\n%s", err, stderr.String())
+	if _, err := fmt.Fprint(stdin, msg); err != nil {
+		t.Fatalf("write first message: %v\nstderr:\n%s", err, stderr.String())
 	}
 
 	// Wait for the server to answer before closing stdin; closing stdin too
 	// early would race the asynchronous response write and lose the reply.
-	waitForStdoutContains(ctx, t, cmd, stdout, `"supportedVersions"`, stderr)
+	waitForStdoutContains(ctx, t, cmd, stdout, wantStdout, stderr)
 
 	out := stdout.String()
 	t.Logf("server stdout:\n%s", out)
 
 	if !strings.Contains(out, `"result"`) {
-		t.Fatalf("server/discover did not produce a result\nstdout:\n%s\nstderr:\n%s", out, stderr.String())
+		t.Fatalf("first message did not produce a result\nstdout:\n%s\nstderr:\n%s", out, stderr.String())
 	}
 
 	// Closing stdin makes the server see EOF after answering the request, so
@@ -172,10 +170,12 @@ func TestMCPHandshake_ServerDiscoverAccepted(t *testing.T) {
 	}
 
 	waitErr := waitForRawProcessExit(ctx, t, cmd, stderr)
-	assertAcceptableExitCode(t, waitErr, stderr, "server/discover handshake", 0)
+	assertAcceptableExitCode(t, waitErr, stderr, label, 0)
+
+	return out
 }
 
-func TestMCPHandshake_StatelessFirstRequestAccepted(t *testing.T) {
+func TestMCPFirstMessage_ServerDiscoverAccepted(t *testing.T) {
 	wastebinURL := os.Getenv("WASTEBIN_SERVER_URL")
 	if wastebinURL == "" {
 		t.Skip("WASTEBIN_SERVER_URL not set")
@@ -184,49 +184,35 @@ func TestMCPHandshake_StatelessFirstRequestAccepted(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
-	cmd, stdin, stderr, stdout := startRawMCPProcess(ctx, t, wastebinURL)
+	// A go-sdk v1.7.0+ client probes server/discover as its first message on
+	// stdio (SEP-2575). The stdin gate must accept it.
+	out := runRawFirstMessageScenario(ctx, t, wastebinURL, validMCPDiscover, `"supportedVersions"`, "server/discover first request")
 
-	defer func() {
-		if cmd.Process != nil && cmd.ProcessState == nil {
-			_ = cmd.Process.Kill()    //nolint:errcheck // best-effort cleanup
-			_, _ = cmd.Process.Wait() //nolint:errcheck // best-effort cleanup
-		}
-	}()
+	if !strings.Contains(out, `"result"`) {
+		t.Fatalf("server/discover did not produce a result\nstdout:\n%s", out)
+	}
+}
+
+func TestMCPFirstMessage_StatelessFirstRequestAccepted(t *testing.T) {
+	wastebinURL := os.Getenv("WASTEBIN_SERVER_URL")
+	if wastebinURL == "" {
+		t.Skip("WASTEBIN_SERVER_URL not set")
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
 
 	// In the stateless protocol (>= 2026-07-28) there is no handshake: a
 	// direct tools/list request carrying the per-request _meta metadata is a
 	// valid first message (SEP-2575). The stdin gate must accept it.
-	_, err := fmt.Fprint(stdin, validMCPToolsList)
-	if err != nil {
-		t.Fatalf("write tools/list message: %v\nstderr:\n%s", err, stderr.String())
-	}
-
-	// Wait for the server to answer before closing stdin; closing stdin too
-	// early would race the asynchronous response write and lose the reply.
-	waitForStdoutContains(ctx, t, cmd, stdout, `"tools"`, stderr)
-
-	out := stdout.String()
-	t.Logf("server stdout:\n%s", out)
-
-	if !strings.Contains(out, `"result"`) {
-		t.Fatalf("tools/list did not produce a result\nstdout:\n%s\nstderr:\n%s", out, stderr.String())
-	}
+	out := runRawFirstMessageScenario(ctx, t, wastebinURL, validMCPToolsList, `"tools"`, "stateless first request")
 
 	if !strings.Contains(out, `"create_paste"`) {
-		t.Fatalf("tools/list result does not include create_paste\nstdout:\n%s\nstderr:\n%s", out, stderr.String())
+		t.Fatalf("tools/list result does not include create_paste\nstdout:\n%s", out)
 	}
-
-	// Closing stdin makes the server see EOF after answering the request, so
-	// the process exits cleanly with code 0.
-	if err := stdin.Close(); err != nil {
-		t.Fatalf("close stdin: %v\nstderr:\n%s", err, stderr.String())
-	}
-
-	waitErr := waitForRawProcessExit(ctx, t, cmd, stderr)
-	assertAcceptableExitCode(t, waitErr, stderr, "stateless first request", 0)
 }
 
-func TestMCPHandshake_StatelessToolsCallFirstRequestAccepted(t *testing.T) {
+func TestMCPFirstMessage_StatelessToolsCallFirstRequestAccepted(t *testing.T) {
 	wastebinURL := os.Getenv("WASTEBIN_SERVER_URL")
 	if wastebinURL == "" {
 		t.Skip("WASTEBIN_SERVER_URL not set")
@@ -234,15 +220,6 @@ func TestMCPHandshake_StatelessToolsCallFirstRequestAccepted(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-
-	cmd, stdin, stderr, stdout := startRawMCPProcess(ctx, t, wastebinURL)
-
-	defer func() {
-		if cmd.Process != nil && cmd.ProcessState == nil {
-			_ = cmd.Process.Kill()    //nolint:errcheck // best-effort cleanup
-			_, _ = cmd.Process.Wait() //nolint:errcheck // best-effort cleanup
-		}
-	}()
 
 	// Regression for the order-dependent payload ceiling: a first-request
 	// tools/call with content just below the default 1 MiB content limit
@@ -256,30 +233,11 @@ func TestMCPHandshake_StatelessToolsCallFirstRequestAccepted(t *testing.T) {
 		t.Fatalf("test setup: expected wire size above the old fixed 1 MiB cap, got %d", len(msg))
 	}
 
-	_, err := fmt.Fprint(stdin, msg)
-	if err != nil {
-		t.Fatalf("write tools/call message: %v\nstderr:\n%s", err, stderr.String())
-	}
-
-	// Wait for the server to answer before closing stdin; closing stdin too
-	// early would race the asynchronous response write and lose the reply.
-	waitForStdoutContains(ctx, t, cmd, stdout, `"result"`, stderr)
-
-	out := stdout.String()
-	t.Logf("server stdout:\n%s", out)
+	out := runRawFirstMessageScenario(ctx, t, wastebinURL, msg, `"result"`, "stateless tools/call first request")
 
 	if !strings.Contains(out, `"result"`) {
-		t.Fatalf("tools/call did not produce a result\nstdout:\n%s\nstderr:\n%s", out, stderr.String())
+		t.Fatalf("tools/call did not produce a result\nstdout:\n%s", out)
 	}
-
-	// Closing stdin makes the server see EOF after answering the request, so
-	// the process exits cleanly with code 0.
-	if err := stdin.Close(); err != nil {
-		t.Fatalf("close stdin: %v\nstderr:\n%s", err, stderr.String())
-	}
-
-	waitErr := waitForRawProcessExit(ctx, t, cmd, stderr)
-	assertAcceptableExitCode(t, waitErr, stderr, "stateless tools/call first request", 0)
 }
 
 // waitForStdoutContains polls stdout until it contains want, failing the test
