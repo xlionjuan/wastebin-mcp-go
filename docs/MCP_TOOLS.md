@@ -302,7 +302,7 @@ claiming exact strings.
 | `content` is empty (content mode) | `"Create paste error: content cannot be empty; provide non-empty content or use file_path instead"` |
 | HTTP 403 from server | `"Create paste error: server rejected the request; content may contain disallowed data; ask the user to check the content or the server logs"` |
 | HTTP 413 from server | `"Create paste error: content exceeds the server's maximum allowed size; split the content into smaller parts and upload each separately"` |
-| Connection refused / timeout | `"Create paste error: cannot connect to Wastebin server; verify the server is running: <details>"` |
+| Connection refused / dial timeout | `"Create paste error: cannot connect to Wastebin server; verify the server is running: <details>"` |
 | DNS resolution failure | `"Create paste error: cannot resolve the server hostname; verify WASTEBIN_SERVER_URL points to a resolvable host: <details>"` |
 | Other HTTP request failure (e.g. TLS, proxy, unexpected transport error) | `"Create paste error: HTTP request failed; ask the user to check the server URL and the network connection: <details>"` |
 | Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE` | `"Create paste error: content exceeds the maximum allowed size; split the content into smaller parts and upload each separately: <size> bytes exceeds limit of <limit> bytes"` |

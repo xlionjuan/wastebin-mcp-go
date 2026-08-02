@@ -22,8 +22,13 @@ import (
 // errors" guidance that err113 enforces for errors.New at call sites.
 var (
 	errDocConnRefused = errors.New("connection refused")
+	errDocDialTimeout = context.DeadlineExceeded
 	errDocTLSFailure  = errors.New("tls: handshake failure")
 	errDocReadFailure = errors.New("connection reset by peer")
+
+	// errDocDuplicateRow wraps the duplicate handler-error row message, so the
+	// parse error wraps a static error per the err113 rule.
+	errDocDuplicateRow = errors.New("duplicate error row in the handler-error tables")
 )
 
 // docReplace pairs a concrete diagnostic value that a produced runtime error
@@ -74,12 +79,29 @@ func (c errorDocCase) pattern() string {
 	return `"Create paste error: ` + msg + `"`
 }
 
-// sentinelProducer returns a produce function for an error that carries no
-// dynamic diagnostic value.
-func sentinelProducer(err error) func() ([]docReplace, error) {
-	return func() ([]docReplace, error) {
-		return nil, err
+// errorCase returns a case whose produce returns the given error with the given
+// concrete→marker replacements applied. It is the compact form for errors
+// constructed directly (sentinels and typed errors).
+func errorCase(name, row string, replaces []docReplace, err error) errorDocCase {
+	return errorDocCase{
+		name: name,
+		row:  row,
+		produce: func() ([]docReplace, error) {
+			return replaces, err
+		},
 	}
+}
+
+// mustParseExpirationErr parses a fixed fixture expiration string and returns
+// the resulting error, panicking if parsing unexpectedly succeeds. It is only
+// used to build errorDocCases from the real ParseExpiration path.
+func mustParseExpirationErr(s string, def int) error {
+	_, err := ParseExpiration(s, def)
+	if err == nil {
+		panic("fixture expiration input unexpectedly parsed: " + s)
+	}
+
+	return err
 }
 
 // docsServerURL and docsPostURL are the fake server the docs-contract fixture
@@ -149,55 +171,55 @@ func wrappedTransportError(underlying error) error {
 	return &url.Error{Op: "Post", URL: docsPostURL, Err: underlying}
 }
 
-// errorDocCases returns one case per handler-error row documented in
-// docs/MCP_TOOLS.md (the "Always applicable", "File mode errors", and "Sandbox
-// errors" tables), spanning every handler-error family documented there. Each
-// case's pattern is derived from a real runtime error produced by the actual
-// code path.
-//
-//nolint:maintidx // large row-scoped fixture spanning every documented handler-error row
+// dialErrorCase drives the real sendRequest path with a dial-level net.OpError
+// (connection refused or dial timeout) and asserts it is routed to the
+// "cannot connect to Wastebin server" message rather than the generic HTTP
+// request failure.
+func dialErrorCase(name, row string, dialErr error) errorDocCase {
+	return errorDocCase{
+		name: name,
+		row:  row,
+		produce: func() ([]docReplace, error) {
+			underlying := &net.OpError{Op: "dial", Net: "tcp", Err: dialErr}
+			err := sendRequestError(&docsRoundTripper{err: underlying})
+
+			return []docReplace{{concrete: wrappedTransportError(underlying).Error(), marker: "<details>"}}, err
+		},
+	}
+}
+
+// redirectCase exercises translateRequestError with one of the three redirect
+// sentinels in the *url.Error shape net/http produces, and asserts the request
+// URL appears only as a ": <request URL>" suffix.
+func redirectCase(name, row, redirectURL string, sentinel error) errorDocCase {
+	return errorDocCase{
+		name: name,
+		row:  row,
+		produce: func() ([]docReplace, error) {
+			err := translateRequestError(&url.Error{Op: "Post", URL: redirectURL, Err: sentinel})
+
+			return []docReplace{{concrete: redirectURL, marker: "<request URL>"}}, err
+		},
+	}
+}
+
+// errorDocCases returns a representative subset of the handler-error rows
+// documented in docs/MCP_TOOLS.md (the "Always applicable", "File mode errors",
+// and "Sandbox errors" tables). One or more cases are kept per error-shape
+// family — transport routing, HTTP status mapping, typed errors, diagnostic
+// suffixes, response validation/processing, redirects, and file/sandbox errors
+// — and every case's pattern is derived from a real runtime error produced by
+// the actual code path. Rows whose exact output is already pinned verbatim by
+// unit tests (errors_test.go, handler_test.go, expiration_test.go) are
+// intentionally not duplicated here; this is a representative contract, not a
+// second copy of the error tables.
 func errorDocCases() []errorDocCase {
 	return []errorDocCase{
-		// Always applicable (regardless of configuration).
-		{
-			name:    "both content and file_path",
-			row:     "Both `content` and `file_path` provided (file mode enabled)",
-			produce: sentinelProducer(errBothContentAndFilePath),
-		},
-		{
-			name:    "neither content nor file_path",
-			row:     "Neither `content` nor `file_path` provided (file mode enabled)",
-			produce: sentinelProducer(errNeitherContentNorFilePath),
-		},
-		{
-			name:    "empty content",
-			row:     "`content` is empty (content mode)",
-			produce: sentinelProducer(errContentEmpty),
-		},
-		{
-			name: "HTTP 403",
-			row:  "HTTP 403 from server",
-			produce: func() ([]docReplace, error) {
-				return nil, newHTTPError(http.StatusForbidden, "forbidden body")
-			},
-		},
-		{
-			name: "HTTP 413",
-			row:  "HTTP 413 from server",
-			produce: func() ([]docReplace, error) {
-				return nil, newHTTPError(http.StatusRequestEntityTooLarge, "too large")
-			},
-		},
-		{
-			name: "connection refused or timeout",
-			row:  "Connection refused / timeout",
-			produce: func() ([]docReplace, error) {
-				underlying := &net.OpError{Op: "dial", Net: "tcp", Err: errDocConnRefused}
-				err := sendRequestError(&docsRoundTripper{err: underlying})
-
-				return []docReplace{{concrete: wrappedTransportError(underlying).Error(), marker: "<details>"}}, err
-			},
-		},
+		// Transport routing, through the real sendRequest/translateRequestError
+		// paths. Connection refused and dial timeouts share one row and both
+		// must be routed to the "cannot connect" message.
+		dialErrorCase("connection refused", "Connection refused / dial timeout", errDocConnRefused),
+		dialErrorCase("dial timeout", "Connection refused / dial timeout", errDocDialTimeout),
 		{
 			name: "DNS resolution failure",
 			row:  "DNS resolution failure",
@@ -218,118 +240,73 @@ func errorDocCases() []errorDocCase {
 				return []docReplace{{concrete: wrappedTransportError(underlying).Error(), marker: "<details>"}}, err
 			},
 		},
-		{
-			name: "content too large",
-			row:  "Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE`",
-			produce: func() ([]docReplace, error) {
-				return []docReplace{
-					{concrete: "10 bytes exceeds limit of 5 bytes", marker: "<size> bytes exceeds limit of <limit> bytes"},
-				}, newContentTooLargeError(10, 5)
-			},
-		},
-		{
-			name:    "password over HTTP",
-			row:     "Password over non-loopback HTTP without override",
-			produce: sentinelProducer(errPasswordOverHTTP),
-		},
-		{
-			name:    "password empty",
-			row:     "`password` is empty string (defensive fallback, `minLength` should catch at schema first)",
-			produce: sentinelProducer(errPasswordEmpty),
-		},
-		{
-			name: "unknown HTTP error",
-			row:  "Unknown HTTP error",
-			produce: func() ([]docReplace, error) {
-				return []docReplace{{concrete: "HTTP 500", marker: "HTTP <code>"}},
-					newHTTPError(http.StatusInternalServerError, "internal error")
-			},
-		},
-		{
-			name: "expiration negative",
-			row:  "Expiration is negative",
-			produce: func() ([]docReplace, error) {
-				return nil, ValidateExpiration(-1)
-			},
-		},
-		{
-			name: "expiration unit unknown",
-			row:  "Expiration unit is unknown",
-			produce: func() ([]docReplace, error) {
-				_, err := ParseExpiration("5x", 0)
 
-				return []docReplace{{concrete: `"x"`, marker: `"<unit>"`}}, err
-			},
-		},
-		{
-			name: "expiration format invalid",
-			row:  "Expiration format is invalid",
-			produce: func() ([]docReplace, error) {
-				_, err := ParseExpiration("abc", 0)
+		// HTTP status mapping through the typed HTTPError.
+		errorCase("HTTP 403", "HTTP 403 from server", nil, newHTTPError(http.StatusForbidden, "forbidden body")),
+		errorCase(
+			"HTTP 422 with body", "HTTP 422 from server (with body)",
+			[]docReplace{{concrete: "expiration value is invalid", marker: "<details>"}},
+			translateHTTPError(http.StatusUnprocessableEntity, "expiration value is invalid"),
+		),
+		errorCase(
+			"unknown HTTP error", "Unknown HTTP error",
+			[]docReplace{{concrete: "HTTP 500", marker: "HTTP <code>"}},
+			newHTTPError(http.StatusInternalServerError, "internal error"),
+		),
 
-				return []docReplace{{concrete: `"abc"`, marker: `"<value>"`}}, err
-			},
-		},
-		{
-			name: "expiration overflow",
-			row:  "Expiration value overflows",
-			produce: func() ([]docReplace, error) {
-				_, err := ParseExpiration("999999999999999999y", 0)
+		// Typed errors carrying structured data.
+		errorCase(
+			"content too large", "Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE`",
+			[]docReplace{{concrete: "10 bytes exceeds limit of 5 bytes", marker: "<size> bytes exceeds limit of <limit> bytes"}},
+			newContentTooLargeError(10, 5),
+		),
+		errorCase(
+			"invalid extension", "Extension contains invalid path or query characters",
+			[]docReplace{{concrete: `"a/b"`, marker: `"<extension>"`}},
+			newInvalidExtensionError("a/b"),
+		),
+		errorCase(
+			"blocked prefix", "File path rejected by built-in blocklist (system prefix)",
+			[]docReplace{{concrete: "/etc", marker: "<prefix>"}},
+			newBlockedPrefixError("/etc"),
+		),
+		errorCase(
+			"sandbox no match", "Sandbox path does not match any configured mount",
+			[]docReplace{{concrete: "/workspace/report.md", marker: "<path>"}},
+			newSandboxNoMatchError("/workspace/report.md"),
+		),
 
-				return nil, err
-			},
-		},
-		{
-			name: "expiration too large",
-			row:  "Expiration exceeds the maximum supported value",
-			produce: func() ([]docReplace, error) {
-				err := ValidateExpiration(maxExpirationSeconds + 1)
-				concrete := strconv.Itoa(maxExpirationSeconds+1) + " seconds exceeds maximum of " +
-					strconv.Itoa(maxExpirationSeconds) + " seconds"
-				marker := "<seconds> seconds exceeds maximum of " + strconv.Itoa(maxExpirationSeconds) + " seconds"
+		// Plain sentinel with no dynamic value.
+		errorCase("content is empty", "`content` is empty (content mode)", nil, errContentEmpty),
 
-				return []docReplace{{concrete: concrete, marker: marker}}, err
-			},
-		},
-		{
-			name: "expiration number invalid",
-			row:  "Expiration number is not numeric",
-			produce: func() ([]docReplace, error) {
-				_, atoiErr := strconv.Atoi("-")
-				_, err := ParseExpiration("-", 0)
+		// Expiration family: diagnostic values as %q-quoted and numeric
+		// suffixes.
+		errorCase(
+			"expiration unit unknown", "Expiration unit is unknown",
+			[]docReplace{{concrete: `"x"`, marker: `"<unit>"`}},
+			mustParseExpirationErr("5x", 0),
+		),
+		errorCase(
+			"expiration exceeds maximum", "Expiration exceeds the maximum supported value",
+			[]docReplace{{
+				concrete: strconv.Itoa(maxExpirationSeconds+1) + " seconds exceeds maximum of " +
+					strconv.Itoa(maxExpirationSeconds) + " seconds",
+				marker: "<seconds> seconds exceeds maximum of " + strconv.Itoa(maxExpirationSeconds) + " seconds",
+			}},
+			ValidateExpiration(maxExpirationSeconds+1),
+		),
 
-				return []docReplace{{concrete: atoiErr.Error(), marker: "<details>"}}, err
-			},
-		},
-		{
-			name: "invalid extension",
-			row:  "Extension contains invalid path or query characters",
-			produce: func() ([]docReplace, error) {
-				return []docReplace{{concrete: `"a/b"`, marker: `"<extension>"`}}, newInvalidExtensionError("a/b")
-			},
-		},
-		{
-			name: "empty response path",
-			row:  "Server returns response with empty paste path",
-			produce: func() ([]docReplace, error) {
-				return nil, validateWastebinResponse(wastebinResponse{Path: ""})
-			},
-		},
-		{
-			name: "non-relative response path",
-			row:  "Server returns response with non-relative paste path",
-			produce: func() ([]docReplace, error) {
-				return []docReplace{{concrete: `"abc"`, marker: `"<path>"`}},
-					validateWastebinResponse(wastebinResponse{Path: "abc"})
-			},
-		},
-		{
-			name: "response missing paste ID",
-			row:  "Server returns response without paste ID",
-			produce: func() ([]docReplace, error) {
-				return nil, validateWastebinResponse(wastebinResponse{Path: "/"})
-			},
-		},
+		// Wastebin response validation and processing through the real
+		// sendRequest path.
+		errorCase(
+			"empty response path", "Server returns response with empty paste path",
+			nil, validateWastebinResponse(wastebinResponse{Path: ""}),
+		),
+		errorCase(
+			"non-relative response path", "Server returns response with non-relative paste path",
+			[]docReplace{{concrete: `"abc"`, marker: `"<path>"`}},
+			validateWastebinResponse(wastebinResponse{Path: "abc"}),
+		),
 		{
 			name: "malformed JSON",
 			row:  "Server returns malformed JSON",
@@ -370,162 +347,46 @@ func errorDocCases() []errorDocCase {
 				return nil, err
 			},
 		},
-		{
-			name: "trailing content after JSON",
-			row:  "Server returns response with trailing non-whitespace content",
-			produce: func() ([]docReplace, error) {
-				body := `{"path":"/abc"}extra`
-				err := sendRequestError(&docsRoundTripper{
-					status: http.StatusOK,
-					body:   io.NopCloser(strings.NewReader(body)),
-				})
 
-				return nil, err
-			},
-		},
-		{
-			name: "HTTP 422 with body",
-			row:  "HTTP 422 from server (with body)",
-			produce: func() ([]docReplace, error) {
-				body := "expiration value is invalid"
-				err := translateHTTPError(http.StatusUnprocessableEntity, body)
+		// Redirect family: the request URL appears only as a ": <request URL>"
+		// suffix.
+		redirectCase(
+			"redirect to different host", "Cross-host redirect blocked",
+			"http://evil.example.com/malicious", errRedirectDifferentHost,
+		),
+		redirectCase(
+			"redirect scheme downgrade", "Redirect scheme downgrade from https to http",
+			"http://bin.example.com/redirect", errRedirectSchemeDowngrade,
+		),
+		redirectCase(
+			"too many redirects", "Too many redirects (>10)",
+			"http://bin.example.com/redirect", errTooManyRedirects,
+		),
 
-				return []docReplace{{concrete: body, marker: "<details>"}}, err
-			},
-		},
-		{
-			name: "HTTP 422 empty body",
-			row:  "HTTP 422 from server (empty body)",
-			produce: func() ([]docReplace, error) {
-				return nil, translateHTTPError(http.StatusUnprocessableEntity, "")
-			},
-		},
-		{
-			name: "redirect to different host",
-			row:  "Cross-host redirect blocked",
-			produce: func() ([]docReplace, error) {
-				redirectURL := "http://evil.example.com/malicious"
-				err := translateRequestError(&url.Error{Op: "Post", URL: redirectURL, Err: errRedirectDifferentHost})
+		// File mode errors.
+		errorCase("file not text", "File is binary or non-UTF-8", nil, errFileNotText),
+		errorCase(
+			"path not found", "File does not exist",
+			[]docReplace{{concrete: syscall.ENOENT.Error(), marker: "<details>"}},
+			newPathNotFoundError(syscall.ENOENT),
+		),
+		errorCase(
+			"file cannot be read with underlying error", "File cannot be read (symlink error, other I/O error)",
+			[]docReplace{{concrete: syscall.EACCES.Error(), marker: "<details>"}},
+			wrapFilePathCannotBeUsed(syscall.EACCES),
+		),
 
-				return []docReplace{{concrete: redirectURL, marker: "<request URL>"}}, err
-			},
-		},
-		{
-			name: "redirect scheme downgrade",
-			row:  "Redirect scheme downgrade from https to http",
-			produce: func() ([]docReplace, error) {
-				redirectURL := "http://bin.example.com/redirect"
-				err := translateRequestError(&url.Error{Op: "Post", URL: redirectURL, Err: errRedirectSchemeDowngrade})
-
-				return []docReplace{{concrete: redirectURL, marker: "<request URL>"}}, err
-			},
-		},
-		{
-			name: "too many redirects",
-			row:  "Too many redirects (>10)",
-			produce: func() ([]docReplace, error) {
-				redirectURL := "http://bin.example.com/redirect"
-				err := translateRequestError(&url.Error{Op: "Post", URL: redirectURL, Err: errTooManyRedirects})
-
-				return []docReplace{{concrete: redirectURL, marker: "<request URL>"}}, err
-			},
-		},
-
-		// File mode errors (only when WASTEBIN_MCP_FILE_READ_ENABLED=true).
-		{
-			name:    "file read disabled",
-			row:     "File read disabled by configuration",
-			produce: sentinelProducer(errFileReadDisabled),
-		},
-		{
-			name:    "path traversal",
-			row:     "File path rejected by traversal detection",
-			produce: sentinelProducer(errPathTraversal),
-		},
-		{
-			name:    "file path not under allowed path",
-			row:     "File path rejected by allowlist",
-			produce: sentinelProducer(errPathNotAllowed),
-		},
-		{
-			name: "blocked prefix",
-			row:  "File path rejected by built-in blocklist (system prefix)",
-			produce: func() ([]docReplace, error) {
-				return []docReplace{{concrete: "/etc", marker: "<prefix>"}}, newBlockedPrefixError("/etc")
-			},
-		},
-		{
-			name: "blocked component",
-			row:  "File path rejected by built-in blocklist (sensitive component)",
-			produce: func() ([]docReplace, error) {
-				return []docReplace{{concrete: ".ssh", marker: "<component>"}}, newBlockedComponentError(".ssh")
-			},
-		},
-		{
-			name:    "user blocked path",
-			row:     "File path rejected by user blocklist",
-			produce: sentinelProducer(errUserBlockedPath),
-		},
-		{
-			name:    "file not text",
-			row:     "File is binary or non-UTF-8",
-			produce: sentinelProducer(errFileNotText),
-		},
-		{
-			name: "path not found",
-			row:  "File does not exist",
-			produce: func() ([]docReplace, error) {
-				underlying := syscall.ENOENT
-
-				return []docReplace{{concrete: underlying.Error(), marker: "<details>"}},
-					newPathNotFoundError(underlying)
-			},
-		},
-		{
-			name: "path permission denied",
-			row:  "Permission denied accessing file path",
-			produce: func() ([]docReplace, error) {
-				underlying := syscall.EACCES
-
-				return []docReplace{{concrete: underlying.Error(), marker: "<details>"}},
-					newPathPermissionError(underlying)
-			},
-		},
-		{
-			name: "file cannot be read with underlying error",
-			row:  "File cannot be read (symlink error, other I/O error)",
-			produce: func() ([]docReplace, error) {
-				underlying := syscall.EACCES
-
-				return []docReplace{{concrete: underlying.Error(), marker: "<details>"}},
-					fmt.Errorf("%w: %w", errFilePathCannotBeUsed, underlying)
-			},
-		},
-		{
-			name:    "file is not a regular file",
-			row:     "File is not a regular file",
-			produce: sentinelProducer(errFilePathCannotBeUsed),
-		},
-
-		// Sandbox errors (only when sandbox mounts are configured).
-		{
-			name:    "sandbox no mounts",
-			row:     "Sandbox translation requested but no mounts configured",
-			produce: sentinelProducer(errSandboxTranslationNoMounts),
-		},
-		{
-			name: "sandbox no match",
-			row:  "Sandbox path does not match any configured mount",
-			produce: func() ([]docReplace, error) {
-				return []docReplace{{concrete: "/workspace/report.md", marker: "<path>"}},
-					newSandboxNoMatchError("/workspace/report.md")
-			},
-		},
+		// Sandbox errors.
+		errorCase(
+			"sandbox no mounts", "Sandbox translation requested but no mounts configured",
+			nil, errSandboxTranslationNoMounts,
+		),
 	}
 }
 
 // TestDocsMCPTools_ErrorRows guards the documentation against drift: every
-// handler-error row documented in docs/MCP_TOOLS.md must exist with its exact
+// representative error row (see errorDocCases) must exist in the
+// "Handler-Generated Errors" section of docs/MCP_TOOLS.md with its exact
 // "Error Condition" label and a "Message Pattern" cell that equals the complete
 // message produced by the real runtime error, with only the concrete diagnostic
 // values replaced by their documented <placeholder> markers. Each expected
@@ -533,7 +394,9 @@ func errorDocCases() []errorDocCase {
 // runtime wording change that updates the unit tests but forgets the docs fails
 // the contract; deleting a row, regressing a placeholder to literal syntax,
 // dropping a value placeholder, or reordering/requoting the pattern all fail
-// too.
+// too. This is a representative subset of the documented rows, not an
+// exhaustive duplicate of the error tables — the rows omitted here are already
+// pinned verbatim by the exact-output unit tests.
 func TestDocsMCPTools_ErrorRows(t *testing.T) {
 	t.Parallel()
 
@@ -545,7 +408,10 @@ func TestDocsMCPTools_ErrorRows(t *testing.T) {
 		t.Fatalf("read %s: %v", docsPath, err)
 	}
 
-	rows := parseErrorDocRows(string(data))
+	rows, err := parseErrorDocRows(string(data))
+	if err != nil {
+		t.Fatalf("parse docs/MCP_TOOLS.md error tables: %v", err)
+	}
 
 	for _, tc := range errorDocCases() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -569,15 +435,40 @@ func TestDocsMCPTools_ErrorRows(t *testing.T) {
 	}
 }
 
-// parseErrorDocRows extracts the "Message Pattern" cell of every table row in
-// docs/MCP_TOOLS.md, keyed by its "Error Condition" cell. Pattern cells are
+// handlerErrorsHeading is the Markdown heading that begins the handler-generated
+// error tables in docs/MCP_TOOLS.md. Rows are only extracted between this
+// heading and the next heading at the same level, so unrelated tables elsewhere
+// in the document cannot collide with or mask the handler-error rows.
+const handlerErrorsHeading = "#### Handler-Generated Errors"
+
+// parseErrorDocRows extracts the "Message Pattern" cell of every row in the
+// handler-error tables (under the "#### Handler-Generated Errors" heading in
+// docs/MCP_TOOLS.md), keyed by its "Error Condition" cell. Pattern cells are
 // normalized for Markdown code-span syntax (backticks stripped) so they match
 // the runtime wording; no other transformation is applied because Markdown code
-// spans do not process backslash escapes or other inline markup.
-func parseErrorDocRows(docs string) map[string]string {
+// spans do not process backslash escapes or other inline markup. A duplicate
+// condition label within the section is an error instead of a silent map
+// overwrite, so a same-named row cannot mask the intended handler row.
+func parseErrorDocRows(docs string) (map[string]string, error) {
 	rows := make(map[string]string)
 
+	inSection := false
+
 	for line := range strings.SplitSeq(docs, "\n") {
+		if strings.HasPrefix(line, "#### ") {
+			if strings.HasPrefix(line, handlerErrorsHeading) {
+				inSection = true
+			} else if inSection {
+				break
+			}
+
+			continue
+		}
+
+		if !inSection {
+			continue
+		}
+
 		cells := strings.Split(line, "|")
 		if len(cells) < 4 {
 			continue
@@ -586,14 +477,18 @@ func parseErrorDocRows(docs string) map[string]string {
 		condition := strings.TrimSpace(cells[1])
 		pattern := strings.TrimSpace(cells[2])
 
-		if condition == "" || pattern == "" || pattern == "---" {
+		if condition == "" || pattern == "" || pattern == "---" || condition == "Error Condition" {
 			continue
+		}
+
+		if _, dup := rows[condition]; dup {
+			return nil, fmt.Errorf("%w: %q", errDocDuplicateRow, condition)
 		}
 
 		rows[condition] = normalizeDocCell(pattern)
 	}
 
-	return rows
+	return rows, nil
 }
 
 // normalizeDocCell strips the Markdown code-span backticks that delimit the

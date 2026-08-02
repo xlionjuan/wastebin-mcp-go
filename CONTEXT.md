@@ -184,7 +184,7 @@ sentinel errors.
 |-----------------|---------|
 | HTTP 403 | "server rejected the request; content may contain disallowed data; ask the user to check the content or the server logs" |
 | HTTP 413 | "content exceeds the server's maximum allowed size; split the content into smaller parts and upload each separately" |
-| Connection refused / timeout | "cannot connect to Wastebin server; verify the server is running: <wrapped err>" |
+| Connection refused / dial timeout | "cannot connect to Wastebin server; verify the server is running: <wrapped err>" |
 | DNS resolution failure | "cannot resolve the server hostname; verify WASTEBIN_SERVER_URL points to a resolvable host: <wrapped err>" |
 | Sandbox translation requested, no mounts | "sandbox path translation was requested but no sandbox mounts are configured; ask the user to check WASTEBIN_MCP_SANDBOX_MOUNTS if translation should be enabled" |
 | Sandbox path matches no mount | "sandbox path does not match any configured mount; ask the user to check the sandbox mount configuration: <path>" |

@@ -215,6 +215,14 @@ func (h *Handler) sendRequest(ctx context.Context, bodyBytes []byte) (*wastebinR
 	return &wastebinResp, nil
 }
 
+// wrapFilePathCannotBeUsed wraps the errFilePathCannotBeUsed sentinel with an
+// underlying open/stat/read error, preserving both in the error chain for
+// errors.Is matching. The wrapping format is produced here so readFileContent's
+// call sites and the docs-contract fixture share one source of truth.
+func wrapFilePathCannotBeUsed(underlying error) error {
+	return fmt.Errorf("%w: %w", errFilePathCannotBeUsed, underlying)
+}
+
 // readFileContent reads file content from the given path, handling sandbox
 // translation, path validation, text detection, and extension detection.
 //
@@ -263,13 +271,13 @@ func (h *Handler) readFileContent(
 	//    through LimitReader.
 	f, openErr := openFileResolved(resolvedPath, h.config.AllowedPaths)
 	if openErr != nil {
-		return "", "", fmt.Errorf("%w: %w", errFilePathCannotBeUsed, openErr)
+		return "", "", wrapFilePathCannotBeUsed(openErr)
 	}
 	defer f.Close() //nolint:errcheck // Read-only file; close error non-critical
 
 	fi, statErr := f.Stat()
 	if statErr != nil {
-		return "", "", fmt.Errorf("%w: %w", errFilePathCannotBeUsed, statErr)
+		return "", "", wrapFilePathCannotBeUsed(statErr)
 	}
 
 	if !fi.Mode().IsRegular() {
@@ -282,7 +290,7 @@ func (h *Handler) readFileContent(
 
 	data, readErr := io.ReadAll(io.LimitReader(f, h.config.MaxContentSize+1))
 	if readErr != nil {
-		return "", "", fmt.Errorf("%w: %w", errFilePathCannotBeUsed, readErr)
+		return "", "", wrapFilePathCannotBeUsed(readErr)
 	}
 
 	if int64(len(data)) > h.config.MaxContentSize {
