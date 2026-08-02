@@ -34,8 +34,8 @@ file_path (raw user input)
     ├── (1a) PATH TRAVERSAL DETECTION (raw input)
     │       Rejects `..` / `../` patterns in the raw input.
     │       Independent from all path resolution.
-    │       Error: "path traversal is not allowed and will always be rejected.
-    │               Do not attempt again"
+    │       Error: "path traversal is not allowed and will always be rejected;
+    │               do not attempt again"
     │
     ├── (1b) SENSITIVE COMPONENT DETECTION (raw input, before resolution)
     │       Checks each path component in the normalized raw path against
@@ -44,7 +44,7 @@ file_path (raw user input)
     │       symlink (e.g. .ssh → realssh) is caught before the symlink
     │       target hides the component name.
     │       Error (typed BlockedComponentError): "file path contains a blocked
-    │       component and will always be rejected. Do not attempt again:
+    │       component and will always be rejected; do not attempt again:
     │       <component>"
     │       Same component check is repeated on the resolved path as
     │       Stage 3b for defense in depth.
@@ -58,7 +58,7 @@ file_path (raw user input)
     │       Catches access through a user-blocked directory that was
     │       created or retargeted as a symlink after startup.
     │       Error: "file path is in a user-blocked directory and will always
-    │       be rejected. Do not attempt again"
+    │       be rejected; do not attempt again"
     │       Bypassed by ALLOWED_PATHS.
     │
     ├── filepath.EvalSymlinks + filepath.Clean
@@ -77,7 +77,7 @@ file_path (raw user input)
     │              Checks resolved absolute path against:
     │              /etc, /proc, /sys, /dev
     │              Error: "file path is in a blocked system directory and will
-    │              always be rejected. Do not attempt again: <prefix>"
+    │              always be rejected; do not attempt again: <prefix>"
     │              Bypassed by ALLOWED_PATHS (prefixes are location, not
     │              sensitivity).
     │         (3b) Path component match
@@ -85,7 +85,7 @@ file_path (raw user input)
     │              resolved path against sensitive patterns like:
     │              .ssh, .gnupg, .aws, .kube, .docker, .git
     │              Error (typed BlockedComponentError): "file path contains a
-    │              blocked component and will always be rejected. Do not
+    │              blocked component and will always be rejected; do not
     │              attempt again: <component>"
     │              Enforced even inside ALLOWED_PATHS (per B2 exception).
     │              This is the defense-in-depth companion to Stage 1b.
@@ -100,7 +100,7 @@ file_path (raw user input)
     │       resolution) with fallback to Clean for non-existent
     │       absolute paths that may exist later.
     │       Error: "file path is in a user-blocked directory and will always
-    │       be rejected. Do not attempt again"
+    │       be rejected; do not attempt again"
     │       Bypassed by ALLOWED_PATHS.
     │
     └── All passed → file is allowed
@@ -243,7 +243,8 @@ Key points:
   ```
 - Error sentinel values for each stage, enabling tests to assert the
   exact rejection reason. Blocked-component rejections are returned as the
-  typed `BlockedComponentError`; all messages follow the unified
+  typed `BlockedComponentError` and blocked-prefix rejections as
+  `BlockedPrefixError`; all messages follow the unified
   `"<problem>; <next-step guidance>"` wording from
   [ADR 005](005-error-model.md).
 

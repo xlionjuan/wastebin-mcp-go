@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"syscall"
 	"testing"
 )
@@ -55,7 +56,13 @@ func TestTypedErrors_ExactOutput(t *testing.T) {
 			name: "BlockedComponentError",
 			err:  NewBlockedComponentError(".ssh"),
 			want: "file path contains a blocked component and will always be " +
-				"rejected. Do not attempt again: .ssh",
+				"rejected; do not attempt again: .ssh",
+		},
+		{
+			name: "BlockedPrefixError",
+			err:  NewBlockedPrefixError("/etc"),
+			want: "file path is in a blocked system directory and will always be " +
+				"rejected; do not attempt again: /etc",
 		},
 		{
 			name: "HTTPError forbidden",
@@ -143,6 +150,11 @@ func TestTypedErrors_IsLegacySentinels(t *testing.T) {
 			sentinel: errBuiltinBlockedComponent,
 		},
 		{
+			name:     "BlockedPrefixError",
+			err:      NewBlockedPrefixError("/etc"),
+			sentinel: errBuiltinBlockedPrefix,
+		},
+		{
 			name:     "HTTPError forbidden",
 			err:      NewHTTPError(http.StatusForbidden, ""),
 			sentinel: errServerRejected,
@@ -189,5 +201,94 @@ func TestTypedErrors_As(t *testing.T) {
 
 	if target.Size != 10 || target.Limit != 5 {
 		t.Errorf("Size/Limit = %d/%d, want 10/5", target.Size, target.Limit)
+	}
+}
+
+// TestTypedErrors_UnwrapChain wraps each typed error in a fmt.Errorf chain and
+// asserts errors.Is still matches through the chain. For path errors it also
+// asserts the underlying OS error class is reachable, which exercises Unwrap()
+// (errors.Join with the underlying filesystem error).
+func TestTypedErrors_UnwrapChain(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		err      error
+		sentinel error
+		osTarget error
+	}{
+		{
+			name:     "ContentTooLargeError",
+			err:      NewContentTooLargeError(10, 5),
+			sentinel: errContentTooLarge,
+		},
+		{
+			name:     "InvalidExtensionError",
+			err:      NewInvalidExtensionError("a/b"),
+			sentinel: errInvalidExtension,
+		},
+		{
+			name:     "PathNotFoundError",
+			err:      NewPathNotFoundError(syscall.ENOENT),
+			sentinel: errPathNotFound,
+			osTarget: os.ErrNotExist,
+		},
+		{
+			name:     "PathPermissionError",
+			err:      NewPathPermissionError(syscall.EACCES),
+			sentinel: errPathPermissionDenied,
+			osTarget: os.ErrPermission,
+		},
+		{
+			name:     "SandboxNoMatchError",
+			err:      NewSandboxNoMatchError("/x"),
+			sentinel: errSandboxTranslationNoMatch,
+		},
+		{
+			name:     "BlockedComponentError",
+			err:      NewBlockedComponentError(".ssh"),
+			sentinel: errBuiltinBlockedComponent,
+		},
+		{
+			name:     "BlockedPrefixError",
+			err:      NewBlockedPrefixError("/etc"),
+			sentinel: errBuiltinBlockedPrefix,
+		},
+		{
+			name:     "HTTPError forbidden",
+			err:      NewHTTPError(http.StatusForbidden, ""),
+			sentinel: errServerRejected,
+		},
+		{
+			name:     "HTTPError request entity too large",
+			err:      NewHTTPError(http.StatusRequestEntityTooLarge, ""),
+			sentinel: errContentTooLargeServer,
+		},
+		{
+			name:     "HTTPError unprocessable entity",
+			err:      NewHTTPError(http.StatusUnprocessableEntity, ""),
+			sentinel: errServerValidation,
+		},
+		{
+			name:     "HTTPError unknown status",
+			err:      NewHTTPError(http.StatusInternalServerError, ""),
+			sentinel: errUnknownHTTP,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			wrapped := fmt.Errorf("ctx: %w", tt.err)
+
+			if !errors.Is(wrapped, tt.sentinel) {
+				t.Errorf("errors.Is(%v, %v) = false, want true", wrapped, tt.sentinel)
+			}
+
+			if tt.osTarget != nil && !errors.Is(wrapped, tt.osTarget) {
+				t.Errorf("errors.Is(%v, %v) = false, want true", wrapped, tt.osTarget)
+			}
+		})
 	}
 }

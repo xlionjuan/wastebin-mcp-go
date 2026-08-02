@@ -300,19 +300,19 @@ claiming exact strings.
 | HTTP 403 from server | `"Create paste error: server rejected the request; content may contain disallowed data; ask the user to check the content or the server logs"` |
 | HTTP 413 from server | `"Create paste error: content exceeds the server's maximum allowed size; split the content into smaller parts and upload each separately"` |
 | Connection refused / timeout | `"Create paste error: cannot connect to Wastebin server; verify the server is running: <details>"` |
-| DNS resolution failure | `"Create paste error: cannot resolve the server hostname: <details>"` |
+| DNS resolution failure | `"Create paste error: cannot resolve the server hostname; verify WASTEBIN_SERVER_URL points to a resolvable host: <details>"` |
 | Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE` | `"Create paste error: content exceeds the maximum allowed size; split the content into smaller parts and upload each separately: <size> bytes exceeds limit of <limit> bytes"` |
 | Password over non-loopback HTTP without override | `"Create paste error: password-protected pastes are not allowed over non-loopback HTTP connections; use HTTPS or set WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD=true for local development"` |
 | `password` is empty string (defensive fallback, `minLength` should catch at schema first) | `"Create paste error: password must be non-empty when provided; set a non-empty password or omit the field entirely"` |
 | Unknown HTTP error | `"Create paste error: unknown HTTP error; ask the user to check the server status or the request: HTTP <code>"` |
-| Invalid expiration format | `"Create paste error: invalid expiration: <reason>"` (reason: `expiration cannot be negative`, `unknown expiration unit`, `invalid expiration format`, `expiration overflow`, `expiration exceeds maximum supported value`) |
+| Invalid expiration format | `"Create paste error: invalid expiration: <reason>"` (reason: `expiration cannot be negative; use a non-negative expiration value`, `unknown expiration unit; use a supported unit (s, m, h, d, w, M, y)`, `invalid expiration format; use a bare number (seconds) or a number plus unit suffix`, `expiration overflow; use a smaller expiration value`, `expiration exceeds maximum supported value; use an expiration of at most 315360000 seconds (10 years)`) |
 | Extension contains invalid path or query characters | `"Create paste error: extension contains invalid characters (/, \\, ?, #); use a plain extension like 'go' or 'py': <extension>"` |
-| Server returns response with empty paste path | `"Create paste error: invalid Wastebin response: empty path"` |
-| Server returns response with non-relative paste path | `"Create paste error: invalid Wastebin response: path must be relative, got <path>"` |
-| Server returns response without paste ID | `"Create paste error: invalid Wastebin response: path is missing paste ID"` |
-| Server returns malformed JSON | `"Create paste error: failed to parse Wastebin response: <details>"` |
+| Server returns response with empty paste path | `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: empty path"` |
+| Server returns response with non-relative paste path | `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: path must be relative, got <path>"` |
+| Server returns response without paste ID | `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: path is missing paste ID"` |
+| Server returns malformed JSON | `"Create paste error: failed to parse Wastebin response; ask the user to check the server configuration: <details>"` |
 | Wastebin response exceeds maximum allowed size | `"Create paste error: wastebin response exceeds maximum allowed size; ask the user to check the server configuration"` |
-| Server returns response with trailing non-whitespace content | `"Create paste error: invalid Wastebin response: unexpected content after JSON response"` |
+| Server returns response with trailing non-whitespace content | `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: unexpected content after JSON response"` |
 | HTTP 422 from server (with body) | `"Create paste error: server rejected the request due to a validation error; ask the user to review the content and parameters for invalid values: <details>"` |
 | HTTP 422 from server (empty body) | `"Create paste error: server rejected the request due to a validation error; ask the user to review the content and parameters for invalid values"` |
 | Cross-host redirect blocked | `"Create paste error: HTTP request failed: Get {path}: redirect to different host blocked; ask the user to check the server URL and its redirects: <from> -> <to>"` |
@@ -323,13 +323,13 @@ claiming exact strings.
 
 | Error Condition | Message Pattern |
 |---|---|
-| File read disabled by configuration | `"Create paste error: file read is disabled by configuration; use inline content instead. Do not attempt again"` |
-| File path rejected by traversal detection | `"Create paste error: path traversal is not allowed and will always be rejected. Do not attempt again"` |
+| File read disabled by configuration | `"Create paste error: file read is disabled by configuration; use inline content instead; do not attempt again"` |
+| File path rejected by traversal detection | `"Create paste error: path traversal is not allowed and will always be rejected; do not attempt again"` |
 | File path rejected by allowlist | `"Create paste error: file path is not under any configured allowed path; ask the user to check ALLOWED_PATHS if this path should be accessible"` |
-| File path rejected by built-in blocklist (system prefix) | `"Create paste error: file path is in a blocked system directory and will always be rejected. Do not attempt again: <prefix>"` |
-| File path rejected by built-in blocklist (sensitive component) | `"Create paste error: file path contains a blocked component and will always be rejected. Do not attempt again: <component>"` |
-| File path rejected by user blocklist | `"Create paste error: file path is in a user-blocked directory and will always be rejected. Do not attempt again"` |
-| File is binary or non-UTF-8 | `"Create paste error: file is binary or not valid UTF-8 text and cannot be uploaded. Do not attempt again for this file"` |
+| File path rejected by built-in blocklist (system prefix) | `"Create paste error: file path is in a blocked system directory and will always be rejected; do not attempt again: <prefix>"` |
+| File path rejected by built-in blocklist (sensitive component) | `"Create paste error: file path contains a blocked component and will always be rejected; do not attempt again: <component>"` |
+| File path rejected by user blocklist | `"Create paste error: file path is in a user-blocked directory and will always be rejected; do not attempt again"` |
+| File is binary or non-UTF-8 | `"Create paste error: file is binary or not valid UTF-8 text and cannot be uploaded; do not attempt again for this file"` |
 | File does not exist | `"Create paste error: the specified file does not exist; verify the path is correct and do not attempt the same path again: <details>"` |
 | Permission denied accessing file path | `"Create paste error: the file exists but is not readable; ask the user to check file permissions: <details>"` |
 | File cannot be read (symlink error, other I/O error, non-regular file) | `"Create paste error: file path cannot be used; ask the user to check the path or file permissions[: <details>]"` |

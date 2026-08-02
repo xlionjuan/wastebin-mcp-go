@@ -34,8 +34,8 @@ var (
 	errUnknownHTTP = errors.New(
 		"unknown HTTP error; ask the user to check the server status or the request",
 	)
-	errFileNotText = errors.New("file is binary or not valid UTF-8 text and cannot be uploaded. " +
-		"Do not attempt again for this file")
+	errFileNotText = errors.New("file is binary or not valid UTF-8 text and cannot be uploaded; " +
+		"do not attempt again for this file")
 	errServerValidation = errors.New(
 		"server rejected the request due to a validation error; " +
 			"ask the user to review the content and parameters for invalid values",
@@ -49,8 +49,9 @@ var (
 	errRedirectSchemeDowngrade = errors.New(
 		"redirect scheme downgrade from https to http blocked; use an https server URL",
 	)
-	errInvalidWastebinResponse = errors.New("invalid Wastebin response")
-	errResponseTooLarge        = errors.New(
+	errInvalidWastebinResponse = errors.New("invalid Wastebin response; " +
+		"ask the user to check the server configuration")
+	errResponseTooLarge = errors.New(
 		"wastebin response exceeds maximum allowed size; ask the user to check the server configuration",
 	)
 	errPasswordEmpty = errors.New(
@@ -66,16 +67,16 @@ var (
 
 // Path validation errors.
 var (
-	errPathTraversal = errors.New("path traversal is not allowed and will always be rejected. " +
-		"Do not attempt again")
+	errPathTraversal = errors.New("path traversal is not allowed and will always be rejected; " +
+		"do not attempt again")
 	errPathNotAllowed = errors.New("file path is not under any configured allowed path; " +
 		"ask the user to check ALLOWED_PATHS if this path should be accessible")
 	errBuiltinBlockedPrefix = errors.New("file path is in a blocked system directory " +
-		"and will always be rejected. Do not attempt again")
+		"and will always be rejected; do not attempt again")
 	errBuiltinBlockedComponent = errors.New("file path contains a blocked component " +
-		"and will always be rejected. Do not attempt again")
+		"and will always be rejected; do not attempt again")
 	errUserBlockedPath = errors.New("file path is in a user-blocked directory " +
-		"and will always be rejected. Do not attempt again")
+		"and will always be rejected; do not attempt again")
 	errFilePathCannotBeUsed = errors.New("file path cannot be used; " +
 		"ask the user to check the path or file permissions")
 	errPathNotFound = errors.New("the specified file does not exist; " +
@@ -105,17 +106,21 @@ var (
 
 // Expiration errors.
 var (
-	errNegativeExpiration    = errors.New("expiration cannot be negative")
-	errUnknownExpirationUnit = errors.New("unknown expiration unit")
-	errInvalidExpirationFmt  = errors.New("invalid expiration format")
-	errExpirationOverflow    = errors.New("expiration overflow")
-	errExpirationTooLarge    = errors.New("expiration exceeds maximum supported value")
+	errNegativeExpiration = errors.New("expiration cannot be negative; " +
+		"use a non-negative expiration value")
+	errUnknownExpirationUnit = errors.New("unknown expiration unit; " +
+		"use a supported unit (s, m, h, d, w, M, y)")
+	errInvalidExpirationFmt = errors.New("invalid expiration format; " +
+		"use a bare number (seconds) or a number plus unit suffix")
+	errExpirationOverflow = errors.New("expiration overflow; use a smaller expiration value")
+	errExpirationTooLarge = errors.New("expiration exceeds maximum supported value; " +
+		"use an expiration of at most 315360000 seconds (10 years)")
 )
 
 // File read and sandbox errors.
 var (
 	errFileReadDisabled = errors.New("file read is disabled by configuration; " +
-		"use inline content instead. Do not attempt again")
+		"use inline content instead; do not attempt again")
 	errInvalidExtension = errors.New("extension contains invalid characters (/, \\, ?, #); " +
 		"use a plain extension like 'go' or 'py'")
 	errSandboxTranslationNoMounts = errors.New("sandbox path translation was requested but no sandbox mounts are configured; " + //nolint:lll // long variable name + message
@@ -222,9 +227,11 @@ func (e *PathNotFoundError) Is(target error) bool {
 	return target == errPathNotFound
 }
 
-// Unwrap returns the wrapped legacy sentinel for errors.Is support.
+// Unwrap returns the legacy sentinel joined with the underlying filesystem
+// error, so errors.Is can match either errPathNotFound or the OS error class
+// (e.g. os.ErrNotExist) through the chain.
 func (e *PathNotFoundError) Unwrap() error {
-	return e.err
+	return errors.Join(e.err, e.Underlying)
 }
 
 // PathPermissionError indicates that the specified file exists but is not
@@ -252,9 +259,11 @@ func (e *PathPermissionError) Is(target error) bool {
 	return target == errPathPermissionDenied
 }
 
-// Unwrap returns the wrapped legacy sentinel for errors.Is support.
+// Unwrap returns the legacy sentinel joined with the underlying filesystem
+// error, so errors.Is can match either errPathPermissionDenied or the OS error
+// class (e.g. os.ErrPermission) through the chain.
 func (e *PathPermissionError) Unwrap() error {
-	return e.err
+	return errors.Join(e.err, e.Underlying)
 }
 
 // SandboxNoMatchError indicates that the sandbox path does not match any
@@ -314,6 +323,36 @@ func (e *BlockedComponentError) Is(target error) bool {
 
 // Unwrap returns the wrapped legacy sentinel for errors.Is support.
 func (e *BlockedComponentError) Unwrap() error {
+	return e.err
+}
+
+// BlockedPrefixError indicates that a path is under a built-in blocked system
+// directory prefix (e.g. /etc, /proc). It wraps errBuiltinBlockedPrefix so
+// errors.Is keeps matching the legacy sentinel.
+type BlockedPrefixError struct {
+	Reason string // Reason is the blocked path prefix.
+	err    error
+}
+
+var _ error = (*BlockedPrefixError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
+
+// NewBlockedPrefixError creates a BlockedPrefixError.
+func NewBlockedPrefixError(reason string) *BlockedPrefixError {
+	return &BlockedPrefixError{Reason: reason, err: errBuiltinBlockedPrefix}
+}
+
+// Error implements the error interface for BlockedPrefixError.
+func (e *BlockedPrefixError) Error() string {
+	return fmt.Sprintf("%v: %s", errBuiltinBlockedPrefix, e.Reason)
+}
+
+// Is implements the errors.Is interface for BlockedPrefixError.
+func (e *BlockedPrefixError) Is(target error) bool {
+	return target == errBuiltinBlockedPrefix
+}
+
+// Unwrap returns the wrapped legacy sentinel for errors.Is support.
+func (e *BlockedPrefixError) Unwrap() error {
 	return e.err
 }
 

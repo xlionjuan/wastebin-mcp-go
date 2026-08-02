@@ -1,7 +1,6 @@
 package wastebin
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -199,7 +198,7 @@ func stageBuiltinBlocked(path string) (string, error) {
 
 	for _, prefix := range builtinBlockedPrefixes {
 		if reason == filepath.Clean(prefix) {
-			return "", fmt.Errorf("%w: %s", errBuiltinBlockedPrefix, reason)
+			return "", NewBlockedPrefixError(reason)
 		}
 	}
 

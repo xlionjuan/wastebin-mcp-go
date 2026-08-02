@@ -82,7 +82,7 @@ Single tool with two usage modes — content passthrough or file path.
 | `translate_sandbox_path` | boolean | no | Translate sandbox path (only when mounts configured) |
 
 \* At least one of `content` or `file_path` is required. If both are provided,
-the server returns a clear error: "provide either 'content' or 'file_path', not both; pick exactly one input mode."
+the server returns a clear error: "provide either 'content' or 'file_path', not both; pick exactly one input mode".
 
 **Schema is built dynamically at startup based on env config:**
 
@@ -183,7 +183,7 @@ method produces the message centrally (see
 | HTTP 403 | "server rejected the request; content may contain disallowed data; ask the user to check the content or the server logs" |
 | HTTP 413 | "content exceeds the server's maximum allowed size; split the content into smaller parts and upload each separately" |
 | Connection refused / timeout | "cannot connect to Wastebin server; verify the server is running: <wrapped err>" |
-| DNS resolution failure | "cannot resolve the server hostname: <wrapped err>" |
+| DNS resolution failure | "cannot resolve the server hostname; verify WASTEBIN_SERVER_URL points to a resolvable host: <wrapped err>" |
 | Sandbox translation requested, no mounts | "sandbox path translation requested but no mounts configured; ask the user to check WASTEBIN_MCP_SANDBOX_MOUNTS if translation should be enabled" |
 | Sandbox path matches no mount | "sandbox path does not match any configured mount; ask the user to check the sandbox mount configuration: <path>" |
 

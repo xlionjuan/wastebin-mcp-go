@@ -26,7 +26,11 @@ exact strings.
 Errors that carry dynamic data are represented by typed errors. Each typed
 error wraps the legacy sentinel it replaces and implements `Unwrap()` and
 `Is()`, so existing `errors.Is(err, errSentinel)` assertions keep working
-through the chain. Errors that carry no data remain sentinel errors used with
+through the chain. `PathNotFoundError` and `PathPermissionError` additionally
+join the underlying OS error into `Unwrap()` (`errors.Join(sentinel,
+underlying)`), preserving `errors.Is(err, os.ErrNotExist)` /
+`errors.Is(err, os.ErrPermission)` matching that callers relied on before the
+refactor. Errors that carry no data remain sentinel errors used with
 `errors.Is`.
 
 | Type | Fields | Replaces |
@@ -37,14 +41,19 @@ through the chain. Errors that carry no data remain sentinel errors used with
 | `PathPermissionError` | `Underlying` | `errPathPermissionDenied` + `validateFilePath` |
 | `SandboxNoMatchError` | `Path` | `errSandboxTranslationNoMatch` + `readFileContent` |
 | `BlockedComponentError` | `Reason` | `errBuiltinBlockedComponent` + wrapping sites |
+| `BlockedPrefixError` | `Reason` | `errBuiltinBlockedPrefix` + `stageBuiltinBlocked` |
 | `HTTPError` | `StatusCode`, `Body` | `translateHTTPError` branches (403/413/422/unknown) |
 
 ### Unified wording — BREAKING
 
 Every error message follows the `"<problem>; <next-step guidance>"` convention,
-with dynamic values appended as `: <value>`. Errors that previously carried no
-next-step guidance — HTTP 403, HTTP 422, unknown HTTP status, redirects, and
-response-too-large — gained it. Consumers that match on exact error strings
+with dynamic values appended as `: <value>`. This change added guidance to every
+family that previously carried none: HTTP 403, HTTP 422, unknown HTTP status,
+redirects, response-too-large, the path and file-mode sentinels
+(`errPathTraversal`, `errBuiltinBlockedPrefix`, `errBuiltinBlockedComponent`,
+`errUserBlockedPath`, `errFileNotText`, `errFileReadDisabled`), response
+validation (`errInvalidWastebinResponse` and its parse failures), expiration
+errors, and hostname resolution. Consumers that match on exact error strings
 must update.
 
 ### No error codes

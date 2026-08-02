@@ -113,8 +113,8 @@ func TestParseExpiration_Negative(t *testing.T) {
 		wantMsg string
 	}{
 		{"bare minus", "-", ""},
-		{"bare number", "-1", "expiration cannot be negative"},
-		{"with unit", "-1h", "expiration cannot be negative"},
+		{"bare number", "-1", "expiration cannot be negative; use a non-negative expiration value"},
+		{"with unit", "-1h", "expiration cannot be negative; use a non-negative expiration value"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -149,7 +149,7 @@ func TestParseExpiration_UnknownUnit(t *testing.T) {
 		t.Fatal("expected error for unknown unit")
 	}
 
-	if err.Error() != `unknown expiration unit: "x"` {
+	if err.Error() != `unknown expiration unit; use a supported unit (s, m, h, d, w, M, y): "x"` {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }

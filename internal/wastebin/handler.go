@@ -154,7 +154,8 @@ func (h *Handler) sendRequest(ctx context.Context, bodyBytes []byte) (*wastebinR
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		if isDNSError(err) {
-			return nil, fmt.Errorf("cannot resolve the server hostname: %w", err)
+			return nil, fmt.Errorf("cannot resolve the server hostname; "+
+				"verify WASTEBIN_SERVER_URL points to a resolvable host: %w", err)
 		}
 
 		if isConnectionError(err) {
@@ -192,7 +193,8 @@ func (h *Handler) sendRequest(ctx context.Context, bodyBytes []byte) (*wastebinR
 
 	err = decoder.Decode(&wastebinResp)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse Wastebin response: %w", err)
+		return nil, fmt.Errorf("failed to parse Wastebin response; "+
+			"ask the user to check the server configuration: %w", err)
 	}
 
 	// Reject trailing non-whitespace content after the JSON object.
