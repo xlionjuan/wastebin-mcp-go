@@ -104,8 +104,7 @@ func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs)
 // allowed size.
 func checkContentSize(content string, maxSize int64) error {
 	if int64(len(content)) > maxSize {
-		return fmt.Errorf("%w: %d bytes exceeds limit of %d bytes",
-			errContentTooLarge, len(content), maxSize)
+		return NewContentTooLargeError(int64(len(content)), maxSize)
 	}
 
 	return nil
@@ -161,7 +160,7 @@ func normalizeExtension(ext string) (string, error) {
 	normalized = strings.ToLower(normalized)
 
 	if strings.ContainsAny(normalized, "/\\?#") {
-		return "", fmt.Errorf("%w: %q", errInvalidExtension, ext)
+		return "", NewInvalidExtensionError(ext)
 	}
 
 	return normalized, nil
@@ -228,26 +227,14 @@ func buildPasteResponse(baseURL *url.URL, wastebinPath, ext string, passwordSet 
 	return resp
 }
 
-// translateHTTPError maps HTTP status codes to user-friendly error messages.
+// translateHTTPError maps HTTP status codes to typed HTTPError values with
+// user-friendly messages.
 func translateHTTPError(statusCode int, body string) error {
-	switch statusCode {
-	case http.StatusForbidden:
-		return errServerRejected
-	case http.StatusRequestEntityTooLarge:
-		return errContentTooLargeServer
-	case http.StatusUnprocessableEntity:
-		if body == "" {
-			return errServerValidation
-		}
-
-		if len(body) > maxErrorBodyLength {
-			body = body[:maxErrorBodyLength] + "..."
-		}
-
-		return fmt.Errorf("%w: %s", errServerValidation, body)
-	default:
-		return fmt.Errorf("%w: HTTP %d", errUnknownHTTP, statusCode)
+	if statusCode == http.StatusUnprocessableEntity && len(body) > maxErrorBodyLength {
+		body = body[:maxErrorBodyLength] + "..."
 	}
+
+	return NewHTTPError(statusCode, body)
 }
 
 // isConnectionError checks if the error is a connection-level error

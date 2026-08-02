@@ -509,7 +509,10 @@ func TestSendRequest_NonOKResponse(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 
-	if !strings.Contains(err.Error(), "unknown HTTP error: HTTP 500") {
+	if !strings.Contains(
+		err.Error(),
+		"unknown HTTP error; ask the user to check the server status or the request: HTTP 500",
+	) {
 		t.Errorf("expected unknown HTTP error, got: %v", err)
 	}
 }

@@ -61,8 +61,8 @@ configuration. The following rules determine which parameters appear:
 
 - **File mode enabled** (default): Both `content` and `file_path` are present in
   the schema. Neither is `required` — the caller must provide exactly one.
-  If both are provided, the server returns a clear error: *"Provide either
-  'content' or 'file_path', not both."*
+  If both are provided, the server returns a clear error: *"provide either
+  'content' or 'file_path', not both; pick exactly one input mode".*
 - **File mode disabled** (`WASTEBIN_MCP_FILE_READ_ENABLED=false`): Only
   `content` is present, and it becomes required. `file_path` is excluded from
   the schema entirely.
@@ -282,56 +282,64 @@ the MCP SDK rejects it. These errors are **not** prefixed with
 These errors are returned from the `create_paste` handler and always follow the
 `"Create paste error: <message>"` format.
 
+**Format convention:** Every handler error message follows
+`"<problem>; <next-step guidance>"`, with dynamic values appended as
+`: <value>`. `<placeholder>` markers in the tables below show where dynamic
+parts appear; the exact wording is produced centrally by each error type's
+`Error()` method (see [docs/adr/005-error-model.md](adr/005-error-model.md)) and
+is pinned by contract tests, so these tables describe the shape rather than
+claiming exact strings.
+
 **Always applicable (regardless of configuration):**
 
-| Error Condition | Message |
+| Error Condition | Message Pattern |
 |---|---|
-| Both `content` and `file_path` provided (file mode enabled) | `"Create paste error: provide either 'content' or 'file_path', not both"` |
-| Neither `content` nor `file_path` provided (file mode enabled) | `"Create paste error: provide either 'content' or 'file_path'"` |
-| `content` is empty (content mode) | `"Create paste error: content cannot be empty"` |
-| HTTP 403 from server | `"Create paste error: server rejected the request; content may contain disallowed data"` |
-| HTTP 413 from server | `"Create paste error: content exceeds the server's maximum allowed size"` |
+| Both `content` and `file_path` provided (file mode enabled) | `"Create paste error: provide either 'content' or 'file_path', not both; pick exactly one input mode"` |
+| Neither `content` nor `file_path` provided (file mode enabled) | `"Create paste error: provide either 'content' or 'file_path'; supply one of the two inputs"` |
+| `content` is empty (content mode) | `"Create paste error: content cannot be empty; provide non-empty content or use file_path instead"` |
+| HTTP 403 from server | `"Create paste error: server rejected the request; content may contain disallowed data; ask the user to check the content or the server logs"` |
+| HTTP 413 from server | `"Create paste error: content exceeds the server's maximum allowed size; split the content into smaller parts and upload each separately"` |
 | Connection refused / timeout | `"Create paste error: cannot connect to Wastebin server; verify the server is running: <details>"` |
 | DNS resolution failure | `"Create paste error: cannot resolve the server hostname: <details>"` |
-| Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE` | `"Create paste error: content exceeds the maximum allowed size: <N> bytes exceeds limit of <N> bytes"` |
+| Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE` | `"Create paste error: content exceeds the maximum allowed size; split the content into smaller parts and upload each separately: <size> bytes exceeds limit of <limit> bytes"` |
 | Password over non-loopback HTTP without override | `"Create paste error: password-protected pastes are not allowed over non-loopback HTTP connections; use HTTPS or set WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD=true for local development"` |
 | `password` is empty string (defensive fallback, `minLength` should catch at schema first) | `"Create paste error: password must be non-empty when provided; set a non-empty password or omit the field entirely"` |
-| Unknown HTTP error | `"Create paste error: unknown HTTP error: HTTP <CODE>"` |
+| Unknown HTTP error | `"Create paste error: unknown HTTP error; ask the user to check the server status or the request: HTTP <code>"` |
 | Invalid expiration format | `"Create paste error: invalid expiration: <reason>"` (reason: `expiration cannot be negative`, `unknown expiration unit`, `invalid expiration format`, `expiration overflow`, `expiration exceeds maximum supported value`) |
-| Extension contains invalid path or query characters | `"Create paste error: extension contains invalid path or query characters: <ext>"` |
+| Extension contains invalid path or query characters | `"Create paste error: extension contains invalid characters (/, \\, ?, #); use a plain extension like 'go' or 'py': <extension>"` |
 | Server returns response with empty paste path | `"Create paste error: invalid Wastebin response: empty path"` |
 | Server returns response with non-relative paste path | `"Create paste error: invalid Wastebin response: path must be relative, got <path>"` |
 | Server returns response without paste ID | `"Create paste error: invalid Wastebin response: path is missing paste ID"` |
 | Server returns malformed JSON | `"Create paste error: failed to parse Wastebin response: <details>"` |
-| Wastebin response exceeds maximum allowed size | `"Create paste error: wastebin response exceeds maximum allowed size"` |
+| Wastebin response exceeds maximum allowed size | `"Create paste error: wastebin response exceeds maximum allowed size; ask the user to check the server configuration"` |
 | Server returns response with trailing non-whitespace content | `"Create paste error: invalid Wastebin response: unexpected content after JSON response"` |
-| HTTP 422 from server (with body) | `"Create paste error: server rejected the request due to a validation error: <details>"` |
-| HTTP 422 from server (empty body) | `"Create paste error: server rejected the request due to a validation error"` |
-| Cross-host redirect blocked | `"Create paste error: HTTP request failed: Get {path}: redirect to different host blocked: <from> -> <to>"` |
-| Redirect scheme downgrade from https to http | `"Create paste error: HTTP request failed: Get {path}: redirect scheme downgrade from https to http blocked: <host> (https -> http)"` |
-| Too many redirects (>10) | `"Create paste error: HTTP request failed: Get {path}: stopped after 10 redirects"` |
+| HTTP 422 from server (with body) | `"Create paste error: server rejected the request due to a validation error; ask the user to review the content and parameters for invalid values: <details>"` |
+| HTTP 422 from server (empty body) | `"Create paste error: server rejected the request due to a validation error; ask the user to review the content and parameters for invalid values"` |
+| Cross-host redirect blocked | `"Create paste error: HTTP request failed: Get {path}: redirect to different host blocked; ask the user to check the server URL and its redirects: <from> -> <to>"` |
+| Redirect scheme downgrade from https to http | `"Create paste error: HTTP request failed: Get {path}: redirect scheme downgrade from https to http blocked; use an https server URL: <host> (https -> http)"` |
+| Too many redirects (>10) | `"Create paste error: HTTP request failed: Get {path}: stopped after 10 redirects; ask the user to check the server URL for a redirect loop"` |
 
 **File mode errors (only when `WASTEBIN_MCP_FILE_READ_ENABLED=true`):**
 
-| Error Condition | Message |
+| Error Condition | Message Pattern |
 |---|---|
-| File read disabled by configuration | `"Create paste error: file read is disabled by configuration"` |
-| File path rejected by traversal detection | `"Create paste error: path traversal is not allowed"` |
-| File path rejected by allowlist | `"Create paste error: file path is not under any allowed path"` |
-| File path rejected by built-in blocklist (system prefix) | `"Create paste error: file path is in a blocked system directory (<path>)"` |
-| File path rejected by built-in blocklist (sensitive component) | `"Create paste error: file path contains a blocked component (<name>)"` |
-| File path rejected by user blocklist | `"Create paste error: file path is in a user-blocked directory"` |
-| File is binary or non-UTF-8 | `"Create paste error: file is binary or not valid UTF-8 text"` |
-| File does not exist | `"Create paste error: file path not found"` |
-| Permission denied accessing file path | `"Create paste error: permission denied for file path"` |
-| File cannot be read (symlink error, other I/O error) | `"Create paste error: file path cannot be used"` |
+| File read disabled by configuration | `"Create paste error: file read is disabled by configuration; use inline content instead. Do not attempt again"` |
+| File path rejected by traversal detection | `"Create paste error: path traversal is not allowed and will always be rejected. Do not attempt again"` |
+| File path rejected by allowlist | `"Create paste error: file path is not under any configured allowed path; ask the user to check ALLOWED_PATHS if this path should be accessible"` |
+| File path rejected by built-in blocklist (system prefix) | `"Create paste error: file path is in a blocked system directory and will always be rejected. Do not attempt again: <prefix>"` |
+| File path rejected by built-in blocklist (sensitive component) | `"Create paste error: file path contains a blocked component and will always be rejected. Do not attempt again: <component>"` |
+| File path rejected by user blocklist | `"Create paste error: file path is in a user-blocked directory and will always be rejected. Do not attempt again"` |
+| File is binary or non-UTF-8 | `"Create paste error: file is binary or not valid UTF-8 text and cannot be uploaded. Do not attempt again for this file"` |
+| File does not exist | `"Create paste error: the specified file does not exist; verify the path is correct and do not attempt the same path again: <details>"` |
+| Permission denied accessing file path | `"Create paste error: the file exists but is not readable; ask the user to check file permissions: <details>"` |
+| File cannot be read (symlink error, other I/O error, non-regular file) | `"Create paste error: file path cannot be used; ask the user to check the path or file permissions[: <details>]"` |
 
 **Sandbox errors (only when sandbox mounts are configured):**
 
-| Error Condition | Message |
+| Error Condition | Message Pattern |
 |---|---|
-| Sandbox translation requested but no mounts configured | `"Create paste error: sandbox path translation requested but no mounts configured"` |
-| Sandbox path does not match any configured mount | `"Create paste error: sandbox path does not match any configured mount: <path>"` |
+| Sandbox translation requested but no mounts configured | `"Create paste error: sandbox path translation requested but no mounts configured; ask the user to check WASTEBIN_MCP_SANDBOX_MOUNTS if translation should be enabled"` |
+| Sandbox path does not match any configured mount | `"Create paste error: sandbox path does not match any configured mount; ask the user to check the sandbox mount configuration: <path>"` |
 
 #### Error Response Format (as received by MCP client)
 
@@ -340,7 +348,7 @@ These errors are returned from the `create_paste` handler and always follow the
   "content": [
     {
       "type": "text",
-      "text": "Create paste error: provide either 'content' or 'file_path', not both"
+      "text": "Create paste error: provide either 'content' or 'file_path', not both; pick exactly one input mode"
     }
   ],
   "isError": true

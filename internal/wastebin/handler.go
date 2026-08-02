@@ -232,14 +232,14 @@ func (h *Handler) readFileContent(
 		}
 
 		if reason, blocked := hasComponentBlocked(resolvedPath); blocked && !h.config.DisableBuiltinBlocklist {
-			return "", "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+			return "", "", NewBlockedComponentError(reason)
 		}
 
 		translator := NewTranslator(h.config.SandboxMounts)
 
 		translated, ok := translator.Translate(resolvedPath)
 		if !ok {
-			return "", "", fmt.Errorf("%w: %s", errSandboxTranslationNoMatch, filePath)
+			return "", "", NewSandboxNoMatchError(filePath)
 		}
 
 		if !isUnderMountHost(translated, h.config.SandboxMounts) {
@@ -274,8 +274,7 @@ func (h *Handler) readFileContent(
 	}
 
 	if fi.Size() > h.config.MaxContentSize {
-		return "", "", fmt.Errorf("%w: file size %d bytes exceeds limit of %d bytes",
-			errContentTooLarge, fi.Size(), h.config.MaxContentSize)
+		return "", "", NewContentTooLargeError(fi.Size(), h.config.MaxContentSize)
 	}
 
 	data, readErr := io.ReadAll(io.LimitReader(f, h.config.MaxContentSize+1))
@@ -284,8 +283,7 @@ func (h *Handler) readFileContent(
 	}
 
 	if int64(len(data)) > h.config.MaxContentSize {
-		return "", "", fmt.Errorf("%w: file size %d bytes exceeds limit of %d bytes",
-			errContentTooLarge, len(data), h.config.MaxContentSize)
+		return "", "", NewContentTooLargeError(int64(len(data)), h.config.MaxContentSize)
 	}
 
 	if !IsLikelyText(data) {

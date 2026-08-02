@@ -173,7 +173,7 @@ func newBlocklistStages(disabled bool) BlocklistStages {
 // components. Used as Stage 1b (pre-resolution).
 func stageRawComponentBlocked(path string) (string, error) {
 	if reason, blocked := hasComponentBlockedIn(normalizePath(path), builtinBlockedComponents); blocked {
-		return "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+		return "", NewBlockedComponentError(reason)
 	}
 
 	return path, nil
@@ -183,7 +183,7 @@ func stageRawComponentBlocked(path string) (string, error) {
 // components. Used as the component check inside ALLOWED_PATHS (Stage 2).
 func stageResolvedComponentBlocked(path string) (string, error) {
 	if reason, blocked := hasComponentBlockedIn(filepath.Clean(path), builtinBlockedComponents); blocked {
-		return "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+		return "", NewBlockedComponentError(reason)
 	}
 
 	return path, nil
@@ -199,11 +199,11 @@ func stageBuiltinBlocked(path string) (string, error) {
 
 	for _, prefix := range builtinBlockedPrefixes {
 		if reason == filepath.Clean(prefix) {
-			return "", fmt.Errorf("%w (%s)", errBuiltinBlockedPrefix, reason)
+			return "", fmt.Errorf("%w: %s", errBuiltinBlockedPrefix, reason)
 		}
 	}
 
-	return "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+	return "", NewBlockedComponentError(reason)
 }
 
 // ──────────────────────────────────────────────
@@ -288,11 +288,11 @@ func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err err
 		}
 
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("%w: %w", errPathNotFound, err)
+			return "", NewPathNotFoundError(err)
 		}
 
 		if os.IsPermission(err) {
-			return "", fmt.Errorf("%w: %w", errPathPermissionDenied, err)
+			return "", NewPathPermissionError(err)
 		}
 
 		return "", errFilePathCannotBeUsed
