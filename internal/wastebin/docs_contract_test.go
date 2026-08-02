@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"syscall"
@@ -209,9 +210,11 @@ func redirectCase(name, row, redirectURL string, sentinel error) errorDocCase {
 // family — transport routing, HTTP status mapping, typed errors, diagnostic
 // suffixes, response validation/processing, redirects, and file/sandbox errors
 // — and every case's pattern is derived from a real runtime error produced by
-// the actual code path. Rows whose exact output is already pinned verbatim by
-// unit tests (errors_test.go, handler_test.go, expiration_test.go) are
-// intentionally not duplicated here; this is a representative contract, not a
+// the actual code path. Some cases duplicate rows already pinned verbatim by
+// the exact-output unit tests (errors_test.go, handler_test.go,
+// expiration_test.go); those duplicates deliberately exercise placeholder
+// normalization, turning a concrete diagnostic value into its documented
+// <placeholder> marker. This is a representative contract, not an exhaustive
 // second copy of the error tables.
 func errorDocCases() []errorDocCase {
 	return []errorDocCase{
@@ -394,9 +397,11 @@ func errorDocCases() []errorDocCase {
 // runtime wording change that updates the unit tests but forgets the docs fails
 // the contract; deleting a row, regressing a placeholder to literal syntax,
 // dropping a value placeholder, or reordering/requoting the pattern all fail
-// too. This is a representative subset of the documented rows, not an
-// exhaustive duplicate of the error tables — the rows omitted here are already
-// pinned verbatim by the exact-output unit tests.
+// too. The fixture is a representative subset of the documented rows, not an
+// exhaustive duplicate of the error tables; cases that overlap the exact-output
+// unit tests do so deliberately, exercising placeholder normalization on real
+// runtime output. The parser guardrails behind this test are covered by
+// TestParseErrorDocRows_Behavior.
 func TestDocsMCPTools_ErrorRows(t *testing.T) {
 	t.Parallel()
 
@@ -498,4 +503,90 @@ func parseErrorDocRows(docs string) (map[string]string, error) {
 // and must match the runtime message verbatim.
 func normalizeDocCell(s string) string {
 	return strings.ReplaceAll(s, "`", "")
+}
+
+// TestParseErrorDocRows_Behavior covers the guardrails of parseErrorDocRows
+// that keep the docs contract from going false-green: a row sharing a condition
+// label with a handler-error row but living outside the handler-error section
+// must be ignored (so an unrelated table cannot mask or collide with the
+// intended row), a duplicate condition label inside the section must fail
+// closed instead of silently overwriting the first entry, and extraction must
+// stop at the next heading at the same level. These are behavioral tests for
+// the contract-test machinery, not coverage-only tests.
+func TestParseErrorDocRows_Behavior(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		docs string
+		want map[string]string
+		err  error
+	}{
+		{
+			name: "same-named row outside the handler section is ignored",
+			docs: "" +
+				"#### Parameters\n" +
+				"\n" +
+				"| Error Condition | Message Pattern |\n" +
+				"|---|---|\n" +
+				"| same row | outside |\n" +
+				"\n" +
+				"#### Handler-Generated Errors\n" +
+				"\n" +
+				"| Error Condition | Message Pattern |\n" +
+				"|---|---|\n" +
+				"| same row | inside |\n",
+			want: map[string]string{"same row": "inside"},
+		},
+		{
+			name: "duplicate row inside the section fails closed",
+			docs: "" +
+				"#### Handler-Generated Errors\n" +
+				"\n" +
+				"| Error Condition | Message Pattern |\n" +
+				"|---|---|\n" +
+				"| same row | first |\n" +
+				"| same row | second |\n",
+			err: errDocDuplicateRow,
+		},
+		{
+			name: "parsing stops at the next heading",
+			docs: "" +
+				"#### Handler-Generated Errors\n" +
+				"\n" +
+				"| Error Condition | Message Pattern |\n" +
+				"|---|---|\n" +
+				"| keep me | pattern |\n" +
+				"\n" +
+				"#### Unrelated Section\n" +
+				"\n" +
+				"| Error Condition | Message Pattern |\n" +
+				"|---|---|\n" +
+				"| drop me | pattern |\n",
+			want: map[string]string{"keep me": "pattern"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rows, err := parseErrorDocRows(tc.docs)
+			if tc.err != nil {
+				if !errors.Is(err, tc.err) {
+					t.Fatalf("parseErrorDocRows() error = %v, want errors.Is(err, %v)", err, tc.err)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("parseErrorDocRows() unexpected error: %v", err)
+			}
+
+			if !reflect.DeepEqual(rows, tc.want) {
+				t.Errorf("parseErrorDocRows() = %v, want %v", rows, tc.want)
+			}
+		})
+	}
 }
