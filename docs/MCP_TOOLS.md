@@ -309,10 +309,15 @@ claiming exact strings.
 | Password over non-loopback HTTP without override | `"Create paste error: password-protected pastes are not allowed over non-loopback HTTP connections; use HTTPS or set WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD=true for local development"` |
 | `password` is empty string (defensive fallback, `minLength` should catch at schema first) | `"Create paste error: password must be non-empty when provided; set a non-empty password or omit the field entirely"` |
 | Unknown HTTP error | `"Create paste error: unknown HTTP error; ask the user to check the server status or the request: HTTP <code>"` |
-| Invalid expiration | `"Create paste error: <reason>"` — `<reason>` is one of: `expiration cannot be negative; use a non-negative expiration value`, `unknown expiration unit; use a supported unit (s, m, h, d, w, M, y): <unit>`, `invalid expiration format; use a bare number (seconds) or a number plus unit suffix: <value>`, `expiration overflow; use a smaller expiration value`, `expiration exceeds maximum supported value; use an expiration of at most 315360000 seconds (10 years): <seconds> seconds exceeds maximum of 315360000 seconds`, `invalid expiration number; use a valid numeric expiration value: <details>` |
-| Extension contains invalid path or query characters | `"Create paste error: extension contains invalid characters (/, \\, ?, #); use a plain extension like 'go' or 'py': "<extension>"` |
+| Expiration is negative | `"Create paste error: expiration cannot be negative; use a non-negative expiration value"` |
+| Expiration unit is unknown | `"Create paste error: unknown expiration unit; use a supported unit (s, m, h, d, w, M, y): "<unit>""` |
+| Expiration format is invalid | `"Create paste error: invalid expiration format; use a bare number (seconds) or a number plus unit suffix: "<value>""` |
+| Expiration value overflows | `"Create paste error: expiration overflow; use a smaller expiration value"` |
+| Expiration exceeds the maximum supported value | `"Create paste error: expiration exceeds maximum supported value; use an expiration of at most 315360000 seconds (10 years): <seconds> seconds exceeds maximum of 315360000 seconds"` |
+| Expiration number is not numeric | `"Create paste error: invalid expiration number; use a valid numeric expiration value: <details>"` |
+| Extension contains invalid path or query characters | `"Create paste error: extension contains invalid characters (/, \, ?, #); use a plain extension like 'go' or 'py': "<extension>""` |
 | Server returns response with empty paste path | `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: empty path"` |
-| Server returns response with non-relative paste path | `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: path must be relative, got <path>"` |
+| Server returns response with non-relative paste path | `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: path must be relative, got "<path>""` |
 | Server returns response without paste ID | `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: path is missing paste ID"` |
 | Server returns malformed JSON | `"Create paste error: failed to parse Wastebin response; ask the user to check the server configuration: <details>"` |
 | Failed to read the Wastebin response body | `"Create paste error: failed to read Wastebin response; ask the user to check the server configuration: <details>"` |
@@ -337,7 +342,8 @@ claiming exact strings.
 | File is binary or non-UTF-8 | `"Create paste error: file is binary or not valid UTF-8 text and cannot be uploaded; do not attempt again for this file"` |
 | File does not exist | `"Create paste error: the specified file does not exist; verify the path is correct and do not attempt the same path again: <details>"` |
 | Permission denied accessing file path | `"Create paste error: the file exists but is not readable; ask the user to check file permissions: <details>"` |
-| File cannot be read (symlink error, other I/O error, non-regular file) | `"Create paste error: file path cannot be used; ask the user to check the path or file permissions[: <details>]"` |
+| File cannot be read (symlink error, other I/O error) | `"Create paste error: file path cannot be used; ask the user to check the path or file permissions: <details>"` |
+| File is not a regular file | `"Create paste error: file path cannot be used; ask the user to check the path or file permissions"` |
 
 **Sandbox errors (only when sandbox mounts are configured):**
 

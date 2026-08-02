@@ -1,246 +1,539 @@
-package wastebin_test
+package wastebin //nolint:testpackage // contract test produces real runtime errors through unexported code
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
-// errorDocCase pairs one documented error with the docs/MCP_TOOLS.md table row
-// that documents it:
-//
-//   - row is the exact "Error Condition" cell used to locate the row, so a
-//     deleted row or a drifted label fails the test.
-//   - pattern is the complete "Message Pattern" the row must contain, including
-//     its <placeholder> markers, quoting, and Markdown escaping resolved to the
-//     runtime form. Verifying the full documented pattern (not just the static
-//     wording) catches a placeholder regressing to literal syntax (e.g. `{path}`
-//     for `<request URL>`), a dropped `<size>`/`<limit>` suffix, or broken
-//     quoting/ordering.
-//
-// This is a small fixture of the rows documented in docs/MCP_TOOLS.md, not a
-// parser of the whole Markdown file. The exact runtime wording of each error is
-// pinned separately by errors_test.go and handler_test.go.
+// Error sentinels used by the docs-contract fixture to drive the real runtime
+// error paths. They are static test errors, following the "wrapped static
+// errors" guidance that err113 enforces for errors.New at call sites.
+var (
+	errDocConnRefused = errors.New("connection refused")
+	errDocTLSFailure  = errors.New("tls: handshake failure")
+	errDocReadFailure = errors.New("connection reset by peer")
+)
+
+// docReplace pairs a concrete diagnostic value that a produced runtime error
+// contains with the documented <placeholder> marker that stands for it in
+// docs/MCP_TOOLS.md.
+type docReplace struct {
+	concrete string
+	marker   string
+}
+
+// errorDocCase connects one handler-error row documented in docs/MCP_TOOLS.md
+// to the real runtime error that produces it. produce() runs the actual code
+// path and returns the error together with the concrete diagnostic values to
+// replace with their documented <placeholder> markers. The documented pattern
+// is then derived from the runtime message, so a runtime wording change that is
+// reflected in the unit tests but forgotten in the docs fails the contract
+// instead of silently passing.
 type errorDocCase struct {
 	name    string
 	row     string
-	pattern string
+	produce func() ([]docReplace, error)
+}
+
+// pattern derives the documented "Message Pattern" cell from the real runtime
+// error: the concrete diagnostic values are replaced with their documented
+// <placeholder> markers, and the handler message is wrapped in the
+// "Create paste error: " prefix plus the quotes used by the docs tables. A
+// concrete value that no longer appears in the runtime message means the
+// runtime wording changed and the fixture must be updated — that is a loud
+// panic, not a silent pass.
+func (c errorDocCase) pattern() string {
+	replaces, err := c.produce()
+	msg := err.Error()
+
+	for _, r := range replaces {
+		replaced := strings.Replace(msg, r.concrete, r.marker, 1)
+		if replaced == msg {
+			panic(fmt.Sprintf(
+				"%s: concrete diagnostic %q not found in runtime message %q; "+
+					"the runtime wording changed and the fixture must be updated",
+				c.name, r.concrete, msg,
+			))
+		}
+
+		msg = replaced
+	}
+
+	return `"Create paste error: ` + msg + `"`
+}
+
+// sentinelProducer returns a produce function for an error that carries no
+// dynamic diagnostic value.
+func sentinelProducer(err error) func() ([]docReplace, error) {
+	return func() ([]docReplace, error) {
+		return nil, err
+	}
+}
+
+// docsServerURL and docsPostURL are the fake server the docs-contract fixture
+// drives the real sendRequest error paths against, without any network
+// connection. postURL matches what NewWastebinClient computes
+// (baseURL.JoinPath("/")).
+const docsServerURL = "http://example.com"
+
+var docsPostURL = mustURL(docsServerURL).JoinPath("/").String()
+
+// mustURL parses a URL or panics; it is only used for the fixed fixture URLs.
+func mustURL(raw string) *url.URL {
+	u, err := url.Parse(raw)
+	if err != nil {
+		panic(err)
+	}
+
+	return u
+}
+
+// docsRoundTripper is a RoundTripper returning a fixed response or error, so
+// the real sendRequest error paths are exercised deterministically.
+type docsRoundTripper struct {
+	status int
+	body   io.ReadCloser
+	err    error
+}
+
+func (d *docsRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	if d.err != nil {
+		return nil, d.err
+	}
+
+	return &http.Response{
+		StatusCode: d.status,
+		Header:     make(http.Header),
+		Body:       d.body,
+	}, nil
+}
+
+// failReader is an io.Reader whose Read always fails.
+type failReader struct{ err error }
+
+func (r *failReader) Read([]byte) (int, error) {
+	return 0, r.err
+}
+
+// sendRequestError runs sendRequest against a Handler whose HTTP client uses
+// the given RoundTripper and returns the produced error.
+func sendRequestError(rt http.RoundTripper) error {
+	h := &Handler{
+		baseURL:    mustURL(docsServerURL),
+		httpClient: &http.Client{Transport: rt},
+		config:     &Config{},
+		postURL:    docsPostURL,
+	}
+
+	_, err := h.sendRequest(context.Background(), []byte(`{"text":"hello"}`))
+
+	return err
+}
+
+// wrappedTransportError reproduces the *url.Error shape net/http's Client.Do
+// returns for a RoundTripper failure, so the concrete diagnostic tail that
+// appears in the produced message can be derived.
+func wrappedTransportError(underlying error) error {
+	return &url.Error{Op: "Post", URL: docsPostURL, Err: underlying}
 }
 
 // errorDocCases returns one case per handler-error row documented in
 // docs/MCP_TOOLS.md (the "Always applicable", "File mode errors", and "Sandbox
-// errors" tables), spanning every handler-error family documented there.
+// errors" tables), spanning every handler-error family documented there. Each
+// case's pattern is derived from a real runtime error produced by the actual
+// code path.
 //
-//nolint:lll // fixture patterns are complete documented messages exceeding 120 columns
+//nolint:maintidx // large row-scoped fixture spanning every documented handler-error row
 func errorDocCases() []errorDocCase {
 	return []errorDocCase{
+		// Always applicable (regardless of configuration).
 		{
 			name:    "both content and file_path",
 			row:     "Both `content` and `file_path` provided (file mode enabled)",
-			pattern: `"Create paste error: provide either 'content' or 'file_path', not both; pick exactly one input mode"`,
+			produce: sentinelProducer(errBothContentAndFilePath),
 		},
 		{
 			name:    "neither content nor file_path",
 			row:     "Neither `content` nor `file_path` provided (file mode enabled)",
-			pattern: `"Create paste error: provide either 'content' or 'file_path'; supply one of the two inputs"`,
+			produce: sentinelProducer(errNeitherContentNorFilePath),
 		},
 		{
 			name:    "empty content",
 			row:     "`content` is empty (content mode)",
-			pattern: `"Create paste error: content cannot be empty; provide non-empty content or use file_path instead"`,
+			produce: sentinelProducer(errContentEmpty),
 		},
 		{
-			name:    "HTTP 403",
-			row:     "HTTP 403 from server",
-			pattern: `"Create paste error: server rejected the request; content may contain disallowed data; ask the user to check the content or the server logs"`,
+			name: "HTTP 403",
+			row:  "HTTP 403 from server",
+			produce: func() ([]docReplace, error) {
+				return nil, newHTTPError(http.StatusForbidden, "forbidden body")
+			},
 		},
 		{
-			name:    "HTTP 413",
-			row:     "HTTP 413 from server",
-			pattern: `"Create paste error: content exceeds the server's maximum allowed size; split the content into smaller parts and upload each separately"`,
+			name: "HTTP 413",
+			row:  "HTTP 413 from server",
+			produce: func() ([]docReplace, error) {
+				return nil, newHTTPError(http.StatusRequestEntityTooLarge, "too large")
+			},
 		},
 		{
-			name:    "connection refused or timeout",
-			row:     "Connection refused / timeout",
-			pattern: `"Create paste error: cannot connect to Wastebin server; verify the server is running: <details>"`,
+			name: "connection refused or timeout",
+			row:  "Connection refused / timeout",
+			produce: func() ([]docReplace, error) {
+				underlying := &net.OpError{Op: "dial", Net: "tcp", Err: errDocConnRefused}
+				err := sendRequestError(&docsRoundTripper{err: underlying})
+
+				return []docReplace{{concrete: wrappedTransportError(underlying).Error(), marker: "<details>"}}, err
+			},
 		},
 		{
-			name:    "DNS resolution failure",
-			row:     "DNS resolution failure",
-			pattern: `"Create paste error: cannot resolve the server hostname; verify WASTEBIN_SERVER_URL points to a resolvable host: <details>"`,
+			name: "DNS resolution failure",
+			row:  "DNS resolution failure",
+			produce: func() ([]docReplace, error) {
+				underlying := &net.DNSError{Err: "no such host", Name: "example.com"}
+				err := sendRequestError(&docsRoundTripper{err: underlying})
+
+				return []docReplace{{concrete: wrappedTransportError(underlying).Error(), marker: "<details>"}}, err
+			},
 		},
 		{
-			name:    "other HTTP request failure",
-			row:     "Other HTTP request failure (e.g. TLS, proxy, unexpected transport error)",
-			pattern: `"Create paste error: HTTP request failed; ask the user to check the server URL and the network connection: <details>"`,
+			name: "other HTTP request failure",
+			row:  "Other HTTP request failure (e.g. TLS, proxy, unexpected transport error)",
+			produce: func() ([]docReplace, error) {
+				underlying := errDocTLSFailure
+				err := translateRequestError(wrappedTransportError(underlying))
+
+				return []docReplace{{concrete: wrappedTransportError(underlying).Error(), marker: "<details>"}}, err
+			},
 		},
 		{
-			name:    "content too large",
-			row:     "Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE`",
-			pattern: `"Create paste error: content exceeds the maximum allowed size; split the content into smaller parts and upload each separately: <size> bytes exceeds limit of <limit> bytes"`,
+			name: "content too large",
+			row:  "Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE`",
+			produce: func() ([]docReplace, error) {
+				return []docReplace{
+					{concrete: "10 bytes exceeds limit of 5 bytes", marker: "<size> bytes exceeds limit of <limit> bytes"},
+				}, newContentTooLargeError(10, 5)
+			},
 		},
 		{
 			name:    "password over HTTP",
 			row:     "Password over non-loopback HTTP without override",
-			pattern: `"Create paste error: password-protected pastes are not allowed over non-loopback HTTP connections; use HTTPS or set WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD=true for local development"`,
+			produce: sentinelProducer(errPasswordOverHTTP),
 		},
 		{
 			name:    "password empty",
 			row:     "`password` is empty string (defensive fallback, `minLength` should catch at schema first)",
-			pattern: `"Create paste error: password must be non-empty when provided; set a non-empty password or omit the field entirely"`,
+			produce: sentinelProducer(errPasswordEmpty),
 		},
 		{
-			name:    "unknown HTTP error",
-			row:     "Unknown HTTP error",
-			pattern: `"Create paste error: unknown HTTP error; ask the user to check the server status or the request: HTTP <code>"`,
+			name: "unknown HTTP error",
+			row:  "Unknown HTTP error",
+			produce: func() ([]docReplace, error) {
+				return []docReplace{{concrete: "HTTP 500", marker: "HTTP <code>"}},
+					newHTTPError(http.StatusInternalServerError, "internal error")
+			},
 		},
 		{
-			name: "invalid expiration",
-			row:  "Invalid expiration",
-			pattern: `"Create paste error: <reason>"` + " — " +
-				"<reason> is one of: expiration cannot be negative; use a non-negative expiration value, " +
-				"unknown expiration unit; use a supported unit (s, m, h, d, w, M, y): <unit>, " +
-				"invalid expiration format; use a bare number (seconds) or a number plus unit suffix: <value>, " +
-				"expiration overflow; use a smaller expiration value, " +
-				"expiration exceeds maximum supported value; use an expiration of at most 315360000 seconds (10 years): <seconds> seconds exceeds maximum of 315360000 seconds, " +
-				"invalid expiration number; use a valid numeric expiration value: <details>",
+			name: "expiration negative",
+			row:  "Expiration is negative",
+			produce: func() ([]docReplace, error) {
+				return nil, ValidateExpiration(-1)
+			},
 		},
 		{
-			name:    "invalid extension",
-			row:     "Extension contains invalid path or query characters",
-			pattern: `"Create paste error: extension contains invalid characters (/, \, ?, #); use a plain extension like 'go' or 'py': "<extension>"`,
+			name: "expiration unit unknown",
+			row:  "Expiration unit is unknown",
+			produce: func() ([]docReplace, error) {
+				_, err := ParseExpiration("5x", 0)
+
+				return []docReplace{{concrete: `"x"`, marker: `"<unit>"`}}, err
+			},
 		},
 		{
-			name:    "empty response path",
-			row:     "Server returns response with empty paste path",
-			pattern: `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: empty path"`,
+			name: "expiration format invalid",
+			row:  "Expiration format is invalid",
+			produce: func() ([]docReplace, error) {
+				_, err := ParseExpiration("abc", 0)
+
+				return []docReplace{{concrete: `"abc"`, marker: `"<value>"`}}, err
+			},
 		},
 		{
-			name:    "non-relative response path",
-			row:     "Server returns response with non-relative paste path",
-			pattern: `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: path must be relative, got <path>"`,
+			name: "expiration overflow",
+			row:  "Expiration value overflows",
+			produce: func() ([]docReplace, error) {
+				_, err := ParseExpiration("999999999999999999y", 0)
+
+				return nil, err
+			},
 		},
 		{
-			name:    "response missing paste ID",
-			row:     "Server returns response without paste ID",
-			pattern: `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: path is missing paste ID"`,
+			name: "expiration too large",
+			row:  "Expiration exceeds the maximum supported value",
+			produce: func() ([]docReplace, error) {
+				err := ValidateExpiration(maxExpirationSeconds + 1)
+				concrete := strconv.Itoa(maxExpirationSeconds+1) + " seconds exceeds maximum of " +
+					strconv.Itoa(maxExpirationSeconds) + " seconds"
+				marker := "<seconds> seconds exceeds maximum of " + strconv.Itoa(maxExpirationSeconds) + " seconds"
+
+				return []docReplace{{concrete: concrete, marker: marker}}, err
+			},
 		},
 		{
-			name:    "malformed JSON",
-			row:     "Server returns malformed JSON",
-			pattern: `"Create paste error: failed to parse Wastebin response; ask the user to check the server configuration: <details>"`,
+			name: "expiration number invalid",
+			row:  "Expiration number is not numeric",
+			produce: func() ([]docReplace, error) {
+				_, atoiErr := strconv.Atoi("-")
+				_, err := ParseExpiration("-", 0)
+
+				return []docReplace{{concrete: atoiErr.Error(), marker: "<details>"}}, err
+			},
 		},
 		{
-			name:    "failed to read response body",
-			row:     "Failed to read the Wastebin response body",
-			pattern: `"Create paste error: failed to read Wastebin response; ask the user to check the server configuration: <details>"`,
+			name: "invalid extension",
+			row:  "Extension contains invalid path or query characters",
+			produce: func() ([]docReplace, error) {
+				return []docReplace{{concrete: `"a/b"`, marker: `"<extension>"`}}, newInvalidExtensionError("a/b")
+			},
 		},
 		{
-			name:    "response too large",
-			row:     "Wastebin response exceeds maximum allowed size",
-			pattern: `"Create paste error: wastebin response exceeds maximum allowed size; ask the user to check the server configuration"`,
+			name: "empty response path",
+			row:  "Server returns response with empty paste path",
+			produce: func() ([]docReplace, error) {
+				return nil, validateWastebinResponse(wastebinResponse{Path: ""})
+			},
 		},
 		{
-			name:    "trailing content after JSON",
-			row:     "Server returns response with trailing non-whitespace content",
-			pattern: `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: unexpected content after JSON response"`,
+			name: "non-relative response path",
+			row:  "Server returns response with non-relative paste path",
+			produce: func() ([]docReplace, error) {
+				return []docReplace{{concrete: `"abc"`, marker: `"<path>"`}},
+					validateWastebinResponse(wastebinResponse{Path: "abc"})
+			},
 		},
 		{
-			name:    "HTTP 422 with body",
-			row:     "HTTP 422 from server (with body)",
-			pattern: `"Create paste error: server rejected the request due to a validation error; ask the user to review the content and parameters for invalid values: <details>"`,
+			name: "response missing paste ID",
+			row:  "Server returns response without paste ID",
+			produce: func() ([]docReplace, error) {
+				return nil, validateWastebinResponse(wastebinResponse{Path: "/"})
+			},
 		},
 		{
-			name:    "HTTP 422 empty body",
-			row:     "HTTP 422 from server (empty body)",
-			pattern: `"Create paste error: server rejected the request due to a validation error; ask the user to review the content and parameters for invalid values"`,
+			name: "malformed JSON",
+			row:  "Server returns malformed JSON",
+			produce: func() ([]docReplace, error) {
+				body := `{invalid json`
+				decErr := json.NewDecoder(strings.NewReader(body)).Decode(new(wastebinResponse))
+				err := sendRequestError(&docsRoundTripper{
+					status: http.StatusOK,
+					body:   io.NopCloser(strings.NewReader(body)),
+				})
+
+				return []docReplace{{concrete: decErr.Error(), marker: "<details>"}}, err
+			},
 		},
 		{
-			name:    "redirect to different host",
-			row:     "Cross-host redirect blocked",
-			pattern: `"Create paste error: redirect to different host blocked; ask the user to check the server URL and its redirects: <request URL>"`,
+			name: "failed to read response body",
+			row:  "Failed to read the Wastebin response body",
+			produce: func() ([]docReplace, error) {
+				readErr := errDocReadFailure
+				err := sendRequestError(&docsRoundTripper{
+					status: http.StatusOK,
+					body:   io.NopCloser(&failReader{err: readErr}),
+				})
+
+				return []docReplace{{concrete: readErr.Error(), marker: "<details>"}}, err
+			},
 		},
 		{
-			name:    "redirect scheme downgrade",
-			row:     "Redirect scheme downgrade from https to http",
-			pattern: `"Create paste error: redirect scheme downgrade from https to http blocked; use an https server URL: <request URL>"`,
+			name: "response too large",
+			row:  "Wastebin response exceeds maximum allowed size",
+			produce: func() ([]docReplace, error) {
+				body := strings.Repeat("A", maxResponseBodyLength+1)
+				err := sendRequestError(&docsRoundTripper{
+					status: http.StatusOK,
+					body:   io.NopCloser(strings.NewReader(body)),
+				})
+
+				return nil, err
+			},
 		},
 		{
-			name:    "too many redirects",
-			row:     "Too many redirects (>10)",
-			pattern: `"Create paste error: stopped after 10 redirects; ask the user to check the server URL for a redirect loop: <request URL>"`,
+			name: "trailing content after JSON",
+			row:  "Server returns response with trailing non-whitespace content",
+			produce: func() ([]docReplace, error) {
+				body := `{"path":"/abc"}extra`
+				err := sendRequestError(&docsRoundTripper{
+					status: http.StatusOK,
+					body:   io.NopCloser(strings.NewReader(body)),
+				})
+
+				return nil, err
+			},
 		},
+		{
+			name: "HTTP 422 with body",
+			row:  "HTTP 422 from server (with body)",
+			produce: func() ([]docReplace, error) {
+				body := "expiration value is invalid"
+				err := translateHTTPError(http.StatusUnprocessableEntity, body)
+
+				return []docReplace{{concrete: body, marker: "<details>"}}, err
+			},
+		},
+		{
+			name: "HTTP 422 empty body",
+			row:  "HTTP 422 from server (empty body)",
+			produce: func() ([]docReplace, error) {
+				return nil, translateHTTPError(http.StatusUnprocessableEntity, "")
+			},
+		},
+		{
+			name: "redirect to different host",
+			row:  "Cross-host redirect blocked",
+			produce: func() ([]docReplace, error) {
+				redirectURL := "http://evil.example.com/malicious"
+				err := translateRequestError(&url.Error{Op: "Post", URL: redirectURL, Err: errRedirectDifferentHost})
+
+				return []docReplace{{concrete: redirectURL, marker: "<request URL>"}}, err
+			},
+		},
+		{
+			name: "redirect scheme downgrade",
+			row:  "Redirect scheme downgrade from https to http",
+			produce: func() ([]docReplace, error) {
+				redirectURL := "http://bin.example.com/redirect"
+				err := translateRequestError(&url.Error{Op: "Post", URL: redirectURL, Err: errRedirectSchemeDowngrade})
+
+				return []docReplace{{concrete: redirectURL, marker: "<request URL>"}}, err
+			},
+		},
+		{
+			name: "too many redirects",
+			row:  "Too many redirects (>10)",
+			produce: func() ([]docReplace, error) {
+				redirectURL := "http://bin.example.com/redirect"
+				err := translateRequestError(&url.Error{Op: "Post", URL: redirectURL, Err: errTooManyRedirects})
+
+				return []docReplace{{concrete: redirectURL, marker: "<request URL>"}}, err
+			},
+		},
+
+		// File mode errors (only when WASTEBIN_MCP_FILE_READ_ENABLED=true).
 		{
 			name:    "file read disabled",
 			row:     "File read disabled by configuration",
-			pattern: `"Create paste error: file read is disabled by configuration; use inline content instead; do not attempt again"`,
+			produce: sentinelProducer(errFileReadDisabled),
 		},
 		{
 			name:    "path traversal",
 			row:     "File path rejected by traversal detection",
-			pattern: `"Create paste error: path traversal is not allowed and will always be rejected; do not attempt again"`,
+			produce: sentinelProducer(errPathTraversal),
 		},
 		{
 			name:    "file path not under allowed path",
 			row:     "File path rejected by allowlist",
-			pattern: `"Create paste error: file path is not under any configured allowed path; ask the user to check ALLOWED_PATHS if this path should be accessible"`,
+			produce: sentinelProducer(errPathNotAllowed),
 		},
 		{
-			name:    "blocked prefix",
-			row:     "File path rejected by built-in blocklist (system prefix)",
-			pattern: `"Create paste error: file path is in a blocked system directory and will always be rejected; do not attempt again: <prefix>"`,
+			name: "blocked prefix",
+			row:  "File path rejected by built-in blocklist (system prefix)",
+			produce: func() ([]docReplace, error) {
+				return []docReplace{{concrete: "/etc", marker: "<prefix>"}}, newBlockedPrefixError("/etc")
+			},
 		},
 		{
-			name:    "blocked component",
-			row:     "File path rejected by built-in blocklist (sensitive component)",
-			pattern: `"Create paste error: file path contains a blocked component and will always be rejected; do not attempt again: <component>"`,
+			name: "blocked component",
+			row:  "File path rejected by built-in blocklist (sensitive component)",
+			produce: func() ([]docReplace, error) {
+				return []docReplace{{concrete: ".ssh", marker: "<component>"}}, newBlockedComponentError(".ssh")
+			},
 		},
 		{
 			name:    "user blocked path",
 			row:     "File path rejected by user blocklist",
-			pattern: `"Create paste error: file path is in a user-blocked directory and will always be rejected; do not attempt again"`,
+			produce: sentinelProducer(errUserBlockedPath),
 		},
 		{
 			name:    "file not text",
 			row:     "File is binary or non-UTF-8",
-			pattern: `"Create paste error: file is binary or not valid UTF-8 text and cannot be uploaded; do not attempt again for this file"`,
+			produce: sentinelProducer(errFileNotText),
 		},
 		{
-			name:    "path not found",
-			row:     "File does not exist",
-			pattern: `"Create paste error: the specified file does not exist; verify the path is correct and do not attempt the same path again: <details>"`,
+			name: "path not found",
+			row:  "File does not exist",
+			produce: func() ([]docReplace, error) {
+				underlying := syscall.ENOENT
+
+				return []docReplace{{concrete: underlying.Error(), marker: "<details>"}},
+					newPathNotFoundError(underlying)
+			},
 		},
 		{
-			name:    "path permission denied",
-			row:     "Permission denied accessing file path",
-			pattern: `"Create paste error: the file exists but is not readable; ask the user to check file permissions: <details>"`,
+			name: "path permission denied",
+			row:  "Permission denied accessing file path",
+			produce: func() ([]docReplace, error) {
+				underlying := syscall.EACCES
+
+				return []docReplace{{concrete: underlying.Error(), marker: "<details>"}},
+					newPathPermissionError(underlying)
+			},
 		},
 		{
-			name:    "file path cannot be used",
-			row:     "File cannot be read (symlink error, other I/O error, non-regular file)",
-			pattern: `"Create paste error: file path cannot be used; ask the user to check the path or file permissions[: <details>]"`,
+			name: "file cannot be read with underlying error",
+			row:  "File cannot be read (symlink error, other I/O error)",
+			produce: func() ([]docReplace, error) {
+				underlying := syscall.EACCES
+
+				return []docReplace{{concrete: underlying.Error(), marker: "<details>"}},
+					fmt.Errorf("%w: %w", errFilePathCannotBeUsed, underlying)
+			},
 		},
+		{
+			name:    "file is not a regular file",
+			row:     "File is not a regular file",
+			produce: sentinelProducer(errFilePathCannotBeUsed),
+		},
+
+		// Sandbox errors (only when sandbox mounts are configured).
 		{
 			name:    "sandbox no mounts",
 			row:     "Sandbox translation requested but no mounts configured",
-			pattern: `"Create paste error: sandbox path translation was requested but no sandbox mounts are configured; ask the user to check WASTEBIN_MCP_SANDBOX_MOUNTS if translation should be enabled"`,
+			produce: sentinelProducer(errSandboxTranslationNoMounts),
 		},
 		{
-			name:    "sandbox no match",
-			row:     "Sandbox path does not match any configured mount",
-			pattern: `"Create paste error: sandbox path does not match any configured mount; ask the user to check the sandbox mount configuration: <path>"`,
+			name: "sandbox no match",
+			row:  "Sandbox path does not match any configured mount",
+			produce: func() ([]docReplace, error) {
+				return []docReplace{{concrete: "/workspace/report.md", marker: "<path>"}},
+					newSandboxNoMatchError("/workspace/report.md")
+			},
 		},
 	}
 }
 
 // TestDocsMCPTools_ErrorRows guards the documentation against drift: every
 // handler-error row documented in docs/MCP_TOOLS.md must exist with its exact
-// "Error Condition" label and a "Message Pattern" that carries the complete
-// documented wording, including its <placeholder> markers, quoting, and Markdown
-// escaping. Matching is row-scoped (not a whole-file search), so deleting a row,
-// regressing a placeholder to literal syntax, dropping a value placeholder, or
-// reordering/requoting the pattern all fail instead of silently passing.
+// "Error Condition" label and a "Message Pattern" cell that equals the complete
+// message produced by the real runtime error, with only the concrete diagnostic
+// values replaced by their documented <placeholder> markers. Each expected
+// pattern is derived from runtime output (see errorDocCase.pattern), so a
+// runtime wording change that updates the unit tests but forgets the docs fails
+// the contract; deleting a row, regressing a placeholder to literal syntax,
+// dropping a value placeholder, or reordering/requoting the pattern all fail
+// too.
 func TestDocsMCPTools_ErrorRows(t *testing.T) {
 	t.Parallel()
 
@@ -265,10 +558,11 @@ func TestDocsMCPTools_ErrorRows(t *testing.T) {
 				return
 			}
 
-			if !strings.Contains(pattern, tc.pattern) {
+			want := tc.pattern()
+			if pattern != want {
 				t.Errorf(
-					"docs/MCP_TOOLS.md row %q does not document pattern %q; row documents %q",
-					tc.row, tc.pattern, pattern,
+					"docs/MCP_TOOLS.md row %q documents %q, want the runtime-derived pattern %q",
+					tc.row, pattern, want,
 				)
 			}
 		})
@@ -276,9 +570,10 @@ func TestDocsMCPTools_ErrorRows(t *testing.T) {
 }
 
 // parseErrorDocRows extracts the "Message Pattern" cell of every table row in
-// docs/MCP_TOOLS.md, keyed by its "Error Condition" cell. Cells are normalized
-// (Markdown code-span backticks stripped, backslash escapes resolved) so they
-// match the runtime wording.
+// docs/MCP_TOOLS.md, keyed by its "Error Condition" cell. Pattern cells are
+// normalized for Markdown code-span syntax (backticks stripped) so they match
+// the runtime wording; no other transformation is applied because Markdown code
+// spans do not process backslash escapes or other inline markup.
 func parseErrorDocRows(docs string) map[string]string {
 	rows := make(map[string]string)
 
@@ -301,15 +596,11 @@ func parseErrorDocRows(docs string) map[string]string {
 	return rows
 }
 
-// normalizeDocCell strips Markdown code-span backticks and resolves backslash
-// escapes used inside code spans, so the cell matches the runtime message
-// wording (e.g. the invalid-extension row escapes a literal backslash as `\\`
-// in the source). Backticks only delimit code spans in these tables; no
-// documented message contains a literal backtick.
+// normalizeDocCell strips the Markdown code-span backticks that delimit the
+// pattern cells. Backticks are the only syntax Markdown actually transforms
+// inside these cells: code spans do not process backslash escapes, so a single
+// literal backslash in the cell (e.g. the invalid-extension row) stays as-is
+// and must match the runtime message verbatim.
 func normalizeDocCell(s string) string {
-	s = strings.ReplaceAll(s, "`", "")
-	s = strings.ReplaceAll(s, `\\`, `\`)
-	s = strings.ReplaceAll(s, `\"`, `"`)
-
-	return s
+	return strings.ReplaceAll(s, "`", "")
 }
