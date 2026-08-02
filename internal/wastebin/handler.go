@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -133,7 +134,7 @@ func (h *Handler) buildRequest(args *CreatePasteArgs, content, ext string, expir
 
 	bodyBytes, err := json.Marshal(reqBody) //nolint:gosec // JSON marshaling is safe; no user-controlled structure
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		return nil, fmt.Errorf("failed to marshal request body; ask the user to check the request parameters: %w", err)
 	}
 
 	return bodyBytes, nil
@@ -144,7 +145,7 @@ func (h *Handler) buildRequest(args *CreatePasteArgs, content, ext string, expir
 func (h *Handler) sendRequest(ctx context.Context, bodyBytes []byte) (*wastebinResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.postURL, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+		return nil, fmt.Errorf("failed to create HTTP request; ask the user to check the request parameters: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -162,7 +163,7 @@ func (h *Handler) sendRequest(ctx context.Context, bodyBytes []byte) (*wastebinR
 			return nil, fmt.Errorf("cannot connect to Wastebin server; verify the server is running: %w", err)
 		}
 
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
+		return nil, translateRequestError(err)
 	}
 	defer closeResponseBody(resp)
 
@@ -180,7 +181,7 @@ func (h *Handler) sendRequest(ctx context.Context, bodyBytes []byte) (*wastebinR
 
 	rawBody, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read Wastebin response: %w", err)
+		return nil, fmt.Errorf("failed to read Wastebin response; ask the user to check the server configuration: %w", err)
 	}
 
 	if len(rawBody) > maxResponseBodyLength {
@@ -234,14 +235,14 @@ func (h *Handler) readFileContent(
 		}
 
 		if reason, blocked := hasComponentBlocked(resolvedPath); blocked && !h.config.DisableBuiltinBlocklist {
-			return "", "", NewBlockedComponentError(reason)
+			return "", "", newBlockedComponentError(reason)
 		}
 
 		translator := NewTranslator(h.config.SandboxMounts)
 
 		translated, ok := translator.Translate(resolvedPath)
 		if !ok {
-			return "", "", NewSandboxNoMatchError(filePath)
+			return "", "", newSandboxNoMatchError(filePath)
 		}
 
 		if !isUnderMountHost(translated, h.config.SandboxMounts) {
@@ -276,7 +277,7 @@ func (h *Handler) readFileContent(
 	}
 
 	if fi.Size() > h.config.MaxContentSize {
-		return "", "", NewContentTooLargeError(fi.Size(), h.config.MaxContentSize)
+		return "", "", newContentTooLargeError(fi.Size(), h.config.MaxContentSize)
 	}
 
 	data, readErr := io.ReadAll(io.LimitReader(f, h.config.MaxContentSize+1))
@@ -285,7 +286,7 @@ func (h *Handler) readFileContent(
 	}
 
 	if int64(len(data)) > h.config.MaxContentSize {
-		return "", "", NewContentTooLargeError(int64(len(data)), h.config.MaxContentSize)
+		return "", "", newContentTooLargeError(int64(len(data)), h.config.MaxContentSize)
 	}
 
 	if !IsLikelyText(data) {
@@ -341,15 +342,38 @@ func newHTTPClient() *http.Client {
 			if len(via) > 0 {
 				prev := via[len(via)-1]
 				if !strings.EqualFold(req.URL.Host, prev.URL.Host) {
-					return fmt.Errorf("%w: %s -> %s", errRedirectDifferentHost, prev.URL.Host, req.URL.Host)
+					return errRedirectDifferentHost
 				}
 
 				if prev.URL.Scheme == "https" && req.URL.Scheme == "http" {
-					return fmt.Errorf("%w: %s (%s -> %s)", errRedirectSchemeDowngrade, req.URL.Host, prev.URL.Scheme, req.URL.Scheme)
+					return errRedirectSchemeDowngrade
 				}
 			}
 
 			return nil
 		},
 	}
+}
+
+// translateRequestError converts transport-layer failures into
+// "<problem>; <next-step guidance>" messages with dynamic values appended as
+// ": <value>" suffixes. net/http wraps CheckRedirect failures in a *url.Error
+// that prefixes the request URL ("Post <url>: ..."), which would place URL
+// details before the problem-and-guidance text; the URL is appended as a
+// ": <value>" suffix instead.
+func translateRequestError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) && isRedirectError(urlErr.Err) {
+		return fmt.Errorf("%w: %s", urlErr.Err, urlErr.URL)
+	}
+
+	return fmt.Errorf("HTTP request failed; ask the user to check the server URL and the network connection: %w", err)
+}
+
+// isRedirectError reports whether err is one of the redirect policy failures
+// returned by the HTTP client's CheckRedirect.
+func isRedirectError(err error) bool {
+	return errors.Is(err, errTooManyRedirects) ||
+		errors.Is(err, errRedirectDifferentHost) ||
+		errors.Is(err, errRedirectSchemeDowngrade)
 }

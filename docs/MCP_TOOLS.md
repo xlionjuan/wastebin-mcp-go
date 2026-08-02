@@ -284,10 +284,13 @@ These errors are returned from the `create_paste` handler and always follow the
 
 **Format convention:** Every handler error message follows
 `"<problem>; <next-step guidance>"`, with dynamic values appended as
-`: <value>`. `<placeholder>` markers in the tables below show where dynamic
-parts appear; the exact wording is produced centrally by each error type's
-`Error()` method (see [docs/adr/005-error-model.md](adr/005-error-model.md)) and
-is pinned by contract tests, so these tables describe the shape rather than
+`: <value>`. The static wording is produced centrally by each sentinel or
+typed error's `Error()` method (see
+[docs/adr/005-error-model.md](adr/005-error-model.md)); purely diagnostic
+values (response details, expiration values, redirect endpoints) are appended
+with `: <value>` suffixes at the wrapping site. `<placeholder>` markers in the
+tables below show where dynamic parts appear; the typed errors' exact output is
+pinned by contract tests, so these tables describe the shape rather than
 claiming exact strings.
 
 **Always applicable (regardless of configuration):**
@@ -301,23 +304,25 @@ claiming exact strings.
 | HTTP 413 from server | `"Create paste error: content exceeds the server's maximum allowed size; split the content into smaller parts and upload each separately"` |
 | Connection refused / timeout | `"Create paste error: cannot connect to Wastebin server; verify the server is running: <details>"` |
 | DNS resolution failure | `"Create paste error: cannot resolve the server hostname; verify WASTEBIN_SERVER_URL points to a resolvable host: <details>"` |
+| Other HTTP request failure (e.g. TLS, proxy, unexpected transport error) | `"Create paste error: HTTP request failed; ask the user to check the server URL and the network connection: <details>"` |
 | Content exceeds `WASTEBIN_MCP_MAX_CONTENT_SIZE` | `"Create paste error: content exceeds the maximum allowed size; split the content into smaller parts and upload each separately: <size> bytes exceeds limit of <limit> bytes"` |
 | Password over non-loopback HTTP without override | `"Create paste error: password-protected pastes are not allowed over non-loopback HTTP connections; use HTTPS or set WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD=true for local development"` |
 | `password` is empty string (defensive fallback, `minLength` should catch at schema first) | `"Create paste error: password must be non-empty when provided; set a non-empty password or omit the field entirely"` |
 | Unknown HTTP error | `"Create paste error: unknown HTTP error; ask the user to check the server status or the request: HTTP <code>"` |
 | Invalid expiration format | `"Create paste error: invalid expiration: <reason>"` (reason: `expiration cannot be negative; use a non-negative expiration value`, `unknown expiration unit; use a supported unit (s, m, h, d, w, M, y)`, `invalid expiration format; use a bare number (seconds) or a number plus unit suffix`, `expiration overflow; use a smaller expiration value`, `expiration exceeds maximum supported value; use an expiration of at most 315360000 seconds (10 years)`) |
-| Extension contains invalid path or query characters | `"Create paste error: extension contains invalid characters (/, \\, ?, #); use a plain extension like 'go' or 'py': <extension>"` |
+| Extension contains invalid path or query characters | `"Create paste error: extension contains invalid characters (/, \\, ?, #); use a plain extension like 'go' or 'py': "<extension>"` |
 | Server returns response with empty paste path | `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: empty path"` |
 | Server returns response with non-relative paste path | `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: path must be relative, got <path>"` |
 | Server returns response without paste ID | `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: path is missing paste ID"` |
 | Server returns malformed JSON | `"Create paste error: failed to parse Wastebin response; ask the user to check the server configuration: <details>"` |
+| Failed to read the Wastebin response body | `"Create paste error: failed to read Wastebin response; ask the user to check the server configuration: <details>"` |
 | Wastebin response exceeds maximum allowed size | `"Create paste error: wastebin response exceeds maximum allowed size; ask the user to check the server configuration"` |
 | Server returns response with trailing non-whitespace content | `"Create paste error: invalid Wastebin response; ask the user to check the server configuration: unexpected content after JSON response"` |
 | HTTP 422 from server (with body) | `"Create paste error: server rejected the request due to a validation error; ask the user to review the content and parameters for invalid values: <details>"` |
 | HTTP 422 from server (empty body) | `"Create paste error: server rejected the request due to a validation error; ask the user to review the content and parameters for invalid values"` |
-| Cross-host redirect blocked | `"Create paste error: HTTP request failed: Get {path}: redirect to different host blocked; ask the user to check the server URL and its redirects: <from> -> <to>"` |
-| Redirect scheme downgrade from https to http | `"Create paste error: HTTP request failed: Get {path}: redirect scheme downgrade from https to http blocked; use an https server URL: <host> (https -> http)"` |
-| Too many redirects (>10) | `"Create paste error: HTTP request failed: Get {path}: stopped after 10 redirects; ask the user to check the server URL for a redirect loop"` |
+| Cross-host redirect blocked | `"Create paste error: redirect to different host blocked; ask the user to check the server URL and its redirects: <request URL>"` |
+| Redirect scheme downgrade from https to http | `"Create paste error: redirect scheme downgrade from https to http blocked; use an https server URL: <request URL>"` |
+| Too many redirects (>10) | `"Create paste error: stopped after 10 redirects; ask the user to check the server URL for a redirect loop: <request URL>"` |
 
 **File mode errors (only when `WASTEBIN_MCP_FILE_READ_ENABLED=true`):**
 
@@ -338,7 +343,7 @@ claiming exact strings.
 
 | Error Condition | Message Pattern |
 |---|---|
-| Sandbox translation requested but no mounts configured | `"Create paste error: sandbox path translation requested but no mounts configured; ask the user to check WASTEBIN_MCP_SANDBOX_MOUNTS if translation should be enabled"` |
+| Sandbox translation requested but no mounts configured | `"Create paste error: sandbox path translation was requested but no sandbox mounts are configured; ask the user to check WASTEBIN_MCP_SANDBOX_MOUNTS if translation should be enabled"` |
 | Sandbox path does not match any configured mount | `"Create paste error: sandbox path does not match any configured mount; ask the user to check the sandbox mount configuration: <path>"` |
 
 #### Error Response Format (as received by MCP client)

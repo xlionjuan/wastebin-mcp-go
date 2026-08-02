@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1165,5 +1166,42 @@ func TestReadFileContent_InvalidExtensionRejected(t *testing.T) {
 
 	if !errors.Is(err, errInvalidExtension) {
 		t.Errorf("expected errInvalidExtension, got: %v", err)
+	}
+}
+
+func TestTranslateRequestError_NonRedirect(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		err     error
+		wantSub string
+	}{
+		{
+			name:    "non-redirect url.Error",
+			err:     &url.Error{Op: "Post", URL: "https://example.com/", Err: io.ErrUnexpectedEOF},
+			wantSub: "unexpected EOF",
+		},
+		{
+			name:    "plain transport error",
+			err:     io.ErrUnexpectedEOF,
+			wantSub: "unexpected EOF",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := translateRequestError(tt.err).Error()
+
+			if !strings.Contains(got, "HTTP request failed; ask the user to check the server URL and the network connection") {
+				t.Errorf("expected guidance wording, got: %v", got)
+			}
+
+			if !strings.Contains(got, tt.wantSub) {
+				t.Errorf("expected wrapped detail %q in message, got: %v", tt.wantSub, got)
+			}
+		})
 	}
 }

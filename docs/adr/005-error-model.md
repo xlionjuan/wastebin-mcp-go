@@ -23,15 +23,25 @@ exact strings.
 
 ### Typed errors for data-carrying errors
 
-Errors that carry dynamic data are represented by typed errors. Each typed
-error wraps the legacy sentinel it replaces and implements `Unwrap()` and
-`Is()`, so existing `errors.Is(err, errSentinel)` assertions keep working
-through the chain. `PathNotFoundError` and `PathPermissionError` additionally
-join the underlying OS error into `Unwrap()` (`errors.Join(sentinel,
-underlying)`), preserving `errors.Is(err, os.ErrNotExist)` /
-`errors.Is(err, os.ErrPermission)` matching that callers relied on before the
-refactor. Errors that carry no data remain sentinel errors used with
-`errors.Is`.
+Errors that carry **structured, programmatically-relevant** data (size and
+limit, extension, HTTP status, sandbox path, blocked component/prefix, the
+underlying OS error) are represented by typed errors so that `errors.As` can
+extract that data. Each typed error wraps the legacy sentinel it replaces and
+implements `Unwrap()` and `Is()`, so existing `errors.Is(err, errSentinel)`
+assertions keep working through the chain. `PathNotFoundError` and
+`PathPermissionError` additionally join the underlying OS error into `Unwrap()`
+(`errors.Join(sentinel, underlying)`), preserving `errors.Is(err,
+os.ErrNotExist)` / `errors.Is(err, os.ErrPermission)` matching that callers
+relied on before the refactor. Errors that carry no data remain sentinel errors
+used with `errors.Is`.
+
+Dynamic data that is **purely diagnostic** — response-body snippets, response
+path details, expiration values, redirect endpoints — is not given its own
+type. It is appended at the wrapping site with a `fmt.Errorf("%w: <value>",
+sentinel)` suffix. The static `"<problem>; <next-step guidance>"` portion is
+still produced centrally by the sentinel (or the typed error's `Error()`
+method); only the value itself is assembled per call site, and the docs tables
+describe it with `<placeholder>` markers.
 
 | Type | Fields | Replaces |
 |---|---|---|
@@ -40,21 +50,23 @@ refactor. Errors that carry no data remain sentinel errors used with
 | `PathNotFoundError` | `Underlying` | `errPathNotFound` + `validateFilePath` |
 | `PathPermissionError` | `Underlying` | `errPathPermissionDenied` + `validateFilePath` |
 | `SandboxNoMatchError` | `Path` | `errSandboxTranslationNoMatch` + `readFileContent` |
-| `BlockedComponentError` | `Reason` | `errBuiltinBlockedComponent` + wrapping sites |
-| `BlockedPrefixError` | `Reason` | `errBuiltinBlockedPrefix` + `stageBuiltinBlocked` |
+| `BlockedComponentError` | `Component` | `errBuiltinBlockedComponent` + wrapping sites |
+| `BlockedPrefixError` | `Prefix` | `errBuiltinBlockedPrefix` + `stageBuiltinBlocked` |
 | `HTTPError` | `StatusCode`, `Body` | `translateHTTPError` branches (403/413/422/unknown) |
 
 ### Unified wording — BREAKING
 
-Every error message follows the `"<problem>; <next-step guidance>"` convention,
-with dynamic values appended as `: <value>`. This change added guidance to every
-family that previously carried none: HTTP 403, HTTP 422, unknown HTTP status,
-redirects, response-too-large, the path and file-mode sentinels
-(`errPathTraversal`, `errBuiltinBlockedPrefix`, `errBuiltinBlockedComponent`,
-`errUserBlockedPath`, `errFileNotText`, `errFileReadDisabled`), response
-validation (`errInvalidWastebinResponse` and its parse failures), expiration
-errors, and hostname resolution. Consumers that match on exact error strings
-must update.
+Every handler (create_paste pipeline) error message follows the
+`"<problem>; <next-step guidance>"` convention, with dynamic values appended as
+`: <value>`. This change added guidance to every family that previously
+carried none: HTTP 403, HTTP 422, unknown HTTP status, redirects,
+response-too-large, the path and file-mode sentinels (`errPathTraversal`,
+`errBuiltinBlockedPrefix`, `errBuiltinBlockedComponent`, `errUserBlockedPath`,
+`errFileNotText`, `errFileReadDisabled`), response validation
+(`errInvalidWastebinResponse` and its parse failures), expiration errors,
+hostname resolution, HTTP request failures (`HTTP request failed`, `failed to
+create HTTP request`), and Wastebin response read/parse failures. Consumers
+that match on exact error strings must update.
 
 ### No error codes
 
@@ -79,8 +91,10 @@ shape with `<placeholder>` markers instead of claiming exact strings.
 
 **Positive:**
 
-- Error output is produced centrally by each type's `Error()` method; there is
-  no per-call-site string assembly to drift.
+- The static wording for each error family is produced centrally — by the
+  sentinel or the typed error's `Error()` method — so wording drift is confined
+  to the diagnostic values that the docs tables describe with `<placeholder>`
+  markers.
 - `errors.Is` assertions against the legacy sentinels keep working through the
   typed errors' `Unwrap()`/`Is()`.
 - Errors that previously gave no next-step guidance now tell the agent what to

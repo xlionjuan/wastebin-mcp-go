@@ -104,7 +104,7 @@ func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs)
 // allowed size.
 func checkContentSize(content string, maxSize int64) error {
 	if int64(len(content)) > maxSize {
-		return NewContentTooLargeError(int64(len(content)), maxSize)
+		return newContentTooLargeError(int64(len(content)), maxSize)
 	}
 
 	return nil
@@ -160,7 +160,7 @@ func normalizeExtension(ext string) (string, error) {
 	normalized = strings.ToLower(normalized)
 
 	if strings.ContainsAny(normalized, "/\\?#") {
-		return "", NewInvalidExtensionError(ext)
+		return "", newInvalidExtensionError(ext)
 	}
 
 	return normalized, nil
@@ -234,7 +234,7 @@ func translateHTTPError(statusCode int, body string) error {
 		body = body[:maxErrorBodyLength] + "..."
 	}
 
-	return NewHTTPError(statusCode, body)
+	return newHTTPError(statusCode, body)
 }
 
 // isConnectionError checks if the error is a connection-level error

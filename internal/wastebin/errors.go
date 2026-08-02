@@ -10,9 +10,11 @@ import (
 // with dynamic values appended as ": <value>". See docs/adr/005-error-model.md.
 //
 // Sentinel errors mark pure conditions that carry no dynamic data; they are
-// matched with errors.Is. Errors that carry dynamic data are represented by the
-// typed errors defined below. Each typed error wraps the legacy sentinel it
-// replaces so existing errors.Is assertions keep working through the chain.
+// matched with errors.Is. Errors that carry structured, programmatically-
+// relevant data are represented by the typed errors defined below; each typed
+// error wraps the legacy sentinel it replaces so existing errors.Is assertions
+// keep working through the chain. Purely diagnostic values are appended with a
+// fmt.Errorf("%w: <value>", sentinel) suffix at the wrapping site.
 
 // Client errors.
 var (
@@ -141,10 +143,19 @@ var errOpenEmptyPath = errors.New("open: empty relative path")
 // ──────────────────────────────────────────────
 // Typed errors
 // ──────────────────────────────────────────────
+//
+// Errors that carry structured, programmatically-relevant data are typed so
+// errors.As can extract that data. Each typed error wraps the legacy sentinel
+// it replaces; Unwrap() and Is() keep existing errors.Is(err, <sentinel>)
+// assertions working through the chain. PathNotFoundError and
+// PathPermissionError additionally join the underlying OS error into Unwrap()
+// so errors.Is(err, os.ErrNotExist) / os.ErrPermission keep matching.
+// Diagnostic values that carry no structured data (e.g. a response body or an
+// expiration string) are still appended with fmt.Errorf("%w: <value>") at the
+// wrapping site.
 
 // ContentTooLargeError indicates that the paste content or file exceeds the
-// configured size limit. It wraps errContentTooLarge so errors.Is keeps
-// matching the legacy sentinel.
+// configured size limit.
 type ContentTooLargeError struct {
 	Size  int64 // Size is the size of the content, in bytes.
 	Limit int64 // Limit is the configured maximum size, in bytes.
@@ -153,29 +164,26 @@ type ContentTooLargeError struct {
 
 var _ error = (*ContentTooLargeError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
 
-// NewContentTooLargeError creates a ContentTooLargeError.
-func NewContentTooLargeError(size, limit int64) *ContentTooLargeError {
+func newContentTooLargeError(size, limit int64) *ContentTooLargeError {
 	return &ContentTooLargeError{Size: size, Limit: limit, err: errContentTooLarge}
 }
 
-// Error implements the error interface for ContentTooLargeError.
 func (e *ContentTooLargeError) Error() string {
 	return fmt.Sprintf("%v: %d bytes exceeds limit of %d bytes", errContentTooLarge, e.Size, e.Limit)
 }
 
-// Is implements the errors.Is interface for ContentTooLargeError.
+// Is reports whether target is the legacy errContentTooLarge sentinel, keeping
+// existing errors.Is(err, errContentTooLarge) checks working through this type.
 func (e *ContentTooLargeError) Is(target error) bool {
 	return target == errContentTooLarge
 }
 
-// Unwrap returns the wrapped legacy sentinel for errors.Is support.
 func (e *ContentTooLargeError) Unwrap() error {
 	return e.err
 }
 
 // InvalidExtensionError indicates that a caller-provided extension contains
-// characters that would create malformed Wastebin URLs. It wraps
-// errInvalidExtension so errors.Is keeps matching the legacy sentinel.
+// characters that would create malformed Wastebin URLs.
 type InvalidExtensionError struct {
 	Ext string // Ext is the caller-provided extension.
 	err error
@@ -183,28 +191,25 @@ type InvalidExtensionError struct {
 
 var _ error = (*InvalidExtensionError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
 
-// NewInvalidExtensionError creates an InvalidExtensionError.
-func NewInvalidExtensionError(ext string) *InvalidExtensionError {
+func newInvalidExtensionError(ext string) *InvalidExtensionError {
 	return &InvalidExtensionError{Ext: ext, err: errInvalidExtension}
 }
 
-// Error implements the error interface for InvalidExtensionError.
 func (e *InvalidExtensionError) Error() string {
 	return fmt.Sprintf("%v: %q", errInvalidExtension, e.Ext)
 }
 
-// Is implements the errors.Is interface for InvalidExtensionError.
+// Is reports whether target is the legacy errInvalidExtension sentinel, keeping
+// existing errors.Is(err, errInvalidExtension) checks working through this type.
 func (e *InvalidExtensionError) Is(target error) bool {
 	return target == errInvalidExtension
 }
 
-// Unwrap returns the wrapped legacy sentinel for errors.Is support.
 func (e *InvalidExtensionError) Unwrap() error {
 	return e.err
 }
 
-// PathNotFoundError indicates that the specified file does not exist. It wraps
-// errPathNotFound so errors.Is keeps matching the legacy sentinel.
+// PathNotFoundError indicates that the specified file does not exist.
 type PathNotFoundError struct {
 	Underlying error // Underlying is the original filesystem error.
 	err        error
@@ -212,31 +217,29 @@ type PathNotFoundError struct {
 
 var _ error = (*PathNotFoundError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
 
-// NewPathNotFoundError creates a PathNotFoundError.
-func NewPathNotFoundError(underlying error) *PathNotFoundError {
+func newPathNotFoundError(underlying error) *PathNotFoundError {
 	return &PathNotFoundError{Underlying: underlying, err: errPathNotFound}
 }
 
-// Error implements the error interface for PathNotFoundError.
 func (e *PathNotFoundError) Error() string {
 	return fmt.Sprintf("%v: %v", errPathNotFound, e.Underlying)
 }
 
-// Is implements the errors.Is interface for PathNotFoundError.
+// Is reports whether target is the legacy errPathNotFound sentinel, keeping
+// existing errors.Is(err, errPathNotFound) checks working through this type.
 func (e *PathNotFoundError) Is(target error) bool {
 	return target == errPathNotFound
 }
 
-// Unwrap returns the legacy sentinel joined with the underlying filesystem
-// error, so errors.Is can match either errPathNotFound or the OS error class
+// Unwrap joins the legacy sentinel with the underlying filesystem error so
+// errors.Is matches either errPathNotFound or the OS error class
 // (e.g. os.ErrNotExist) through the chain.
 func (e *PathNotFoundError) Unwrap() error {
 	return errors.Join(e.err, e.Underlying)
 }
 
 // PathPermissionError indicates that the specified file exists but is not
-// readable. It wraps errPathPermissionDenied so errors.Is keeps matching the
-// legacy sentinel.
+// readable.
 type PathPermissionError struct {
 	Underlying error // Underlying is the original filesystem error.
 	err        error
@@ -244,31 +247,29 @@ type PathPermissionError struct {
 
 var _ error = (*PathPermissionError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
 
-// NewPathPermissionError creates a PathPermissionError.
-func NewPathPermissionError(underlying error) *PathPermissionError {
+func newPathPermissionError(underlying error) *PathPermissionError {
 	return &PathPermissionError{Underlying: underlying, err: errPathPermissionDenied}
 }
 
-// Error implements the error interface for PathPermissionError.
 func (e *PathPermissionError) Error() string {
 	return fmt.Sprintf("%v: %v", errPathPermissionDenied, e.Underlying)
 }
 
-// Is implements the errors.Is interface for PathPermissionError.
+// Is reports whether target is the legacy errPathPermissionDenied sentinel,
+// keeping existing errors.Is(err, errPathPermissionDenied) checks working.
 func (e *PathPermissionError) Is(target error) bool {
 	return target == errPathPermissionDenied
 }
 
-// Unwrap returns the legacy sentinel joined with the underlying filesystem
-// error, so errors.Is can match either errPathPermissionDenied or the OS error
-// class (e.g. os.ErrPermission) through the chain.
+// Unwrap joins the legacy sentinel with the underlying filesystem error so
+// errors.Is matches either errPathPermissionDenied or the OS error class
+// (e.g. os.ErrPermission) through the chain.
 func (e *PathPermissionError) Unwrap() error {
 	return errors.Join(e.err, e.Underlying)
 }
 
 // SandboxNoMatchError indicates that the sandbox path does not match any
-// configured mount. It wraps errSandboxTranslationNoMatch so errors.Is keeps
-// matching the legacy sentinel.
+// configured mount.
 type SandboxNoMatchError struct {
 	Path string // Path is the sandbox path that matched no mount.
 	err  error
@@ -276,89 +277,81 @@ type SandboxNoMatchError struct {
 
 var _ error = (*SandboxNoMatchError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
 
-// NewSandboxNoMatchError creates a SandboxNoMatchError.
-func NewSandboxNoMatchError(path string) *SandboxNoMatchError {
+func newSandboxNoMatchError(path string) *SandboxNoMatchError {
 	return &SandboxNoMatchError{Path: path, err: errSandboxTranslationNoMatch}
 }
 
-// Error implements the error interface for SandboxNoMatchError.
 func (e *SandboxNoMatchError) Error() string {
 	return fmt.Sprintf("%v: %s", errSandboxTranslationNoMatch, e.Path)
 }
 
-// Is implements the errors.Is interface for SandboxNoMatchError.
+// Is reports whether target is the legacy errSandboxTranslationNoMatch
+// sentinel, keeping existing errors.Is(err, errSandboxTranslationNoMatch)
+// checks working through this type.
 func (e *SandboxNoMatchError) Is(target error) bool {
 	return target == errSandboxTranslationNoMatch
 }
 
-// Unwrap returns the wrapped legacy sentinel for errors.Is support.
 func (e *SandboxNoMatchError) Unwrap() error {
 	return e.err
 }
 
 // BlockedComponentError indicates that a path contains a built-in blocked
-// component (e.g. .ssh, .git). It wraps errBuiltinBlockedComponent so errors.Is
-// keeps matching the legacy sentinel.
+// component (e.g. .ssh, .git).
 type BlockedComponentError struct {
-	Reason string // Reason is the blocked path component.
-	err    error
+	Component string // Component is the blocked path component.
+	err       error
 }
 
 var _ error = (*BlockedComponentError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
 
-// NewBlockedComponentError creates a BlockedComponentError.
-func NewBlockedComponentError(reason string) *BlockedComponentError {
-	return &BlockedComponentError{Reason: reason, err: errBuiltinBlockedComponent}
+func newBlockedComponentError(component string) *BlockedComponentError {
+	return &BlockedComponentError{Component: component, err: errBuiltinBlockedComponent}
 }
 
-// Error implements the error interface for BlockedComponentError.
 func (e *BlockedComponentError) Error() string {
-	return fmt.Sprintf("%v: %s", errBuiltinBlockedComponent, e.Reason)
+	return fmt.Sprintf("%v: %s", errBuiltinBlockedComponent, e.Component)
 }
 
-// Is implements the errors.Is interface for BlockedComponentError.
+// Is reports whether target is the legacy errBuiltinBlockedComponent sentinel,
+// keeping existing errors.Is(err, errBuiltinBlockedComponent) checks working.
 func (e *BlockedComponentError) Is(target error) bool {
 	return target == errBuiltinBlockedComponent
 }
 
-// Unwrap returns the wrapped legacy sentinel for errors.Is support.
 func (e *BlockedComponentError) Unwrap() error {
 	return e.err
 }
 
 // BlockedPrefixError indicates that a path is under a built-in blocked system
-// directory prefix (e.g. /etc, /proc). It wraps errBuiltinBlockedPrefix so
-// errors.Is keeps matching the legacy sentinel.
+// directory prefix (e.g. /etc, /proc).
 type BlockedPrefixError struct {
-	Reason string // Reason is the blocked path prefix.
+	Prefix string // Prefix is the blocked path prefix.
 	err    error
 }
 
 var _ error = (*BlockedPrefixError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
 
-// NewBlockedPrefixError creates a BlockedPrefixError.
-func NewBlockedPrefixError(reason string) *BlockedPrefixError {
-	return &BlockedPrefixError{Reason: reason, err: errBuiltinBlockedPrefix}
+func newBlockedPrefixError(prefix string) *BlockedPrefixError {
+	return &BlockedPrefixError{Prefix: prefix, err: errBuiltinBlockedPrefix}
 }
 
-// Error implements the error interface for BlockedPrefixError.
 func (e *BlockedPrefixError) Error() string {
-	return fmt.Sprintf("%v: %s", errBuiltinBlockedPrefix, e.Reason)
+	return fmt.Sprintf("%v: %s", errBuiltinBlockedPrefix, e.Prefix)
 }
 
-// Is implements the errors.Is interface for BlockedPrefixError.
+// Is reports whether target is the legacy errBuiltinBlockedPrefix sentinel,
+// keeping existing errors.Is(err, errBuiltinBlockedPrefix) checks working.
 func (e *BlockedPrefixError) Is(target error) bool {
 	return target == errBuiltinBlockedPrefix
 }
 
-// Unwrap returns the wrapped legacy sentinel for errors.Is support.
 func (e *BlockedPrefixError) Unwrap() error {
 	return e.err
 }
 
 // HTTPError indicates that the Wastebin server returned a non-OK HTTP status.
-// It wraps a status-specific legacy sentinel so errors.Is keeps matching the
-// legacy sentinels.
+// It wraps a status-specific legacy sentinel so errors.Is keeps matching.
 type HTTPError struct {
 	StatusCode int    // StatusCode is the HTTP status code returned by the server.
 	Body       string // Body is the (truncated) response body for diagnostics.
@@ -367,8 +360,7 @@ type HTTPError struct {
 
 var _ error = (*HTTPError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
 
-// NewHTTPError creates an HTTPError for the given status code and body.
-func NewHTTPError(statusCode int, body string) *HTTPError {
+func newHTTPError(statusCode int, body string) *HTTPError {
 	var sentinel error
 
 	switch statusCode {
@@ -385,7 +377,6 @@ func NewHTTPError(statusCode int, body string) *HTTPError {
 	return &HTTPError{StatusCode: statusCode, Body: body, err: sentinel}
 }
 
-// Error implements the error interface for HTTPError.
 func (e *HTTPError) Error() string {
 	switch e.StatusCode {
 	case http.StatusUnprocessableEntity:
@@ -401,12 +392,13 @@ func (e *HTTPError) Error() string {
 	}
 }
 
-// Is implements the errors.Is interface for HTTPError.
+// Is reports whether target is the status-specific legacy sentinel wrapped by
+// this error, keeping existing errors.Is(err, <status sentinel>) checks
+// working through the chain.
 func (e *HTTPError) Is(target error) bool {
 	return target == e.err
 }
 
-// Unwrap returns the wrapped legacy sentinel for errors.Is support.
 func (e *HTTPError) Unwrap() error {
 	return e.err
 }

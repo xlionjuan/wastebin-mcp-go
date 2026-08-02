@@ -169,12 +169,14 @@ individual request and response bodies are not logged.
 
 When a paste creation fails, the error message is constructed as follows:
 
-**Unified wording**: Every error message follows the
+**Unified wording**: Every paste-creation (handler) error message follows the
 `"<problem>; <next-step guidance>"` convention, with dynamic values appended as
-`: <value>`. Errors that carry dynamic data are typed errors whose `Error()`
-method produces the message centrally (see
+`: <value>`. Errors that carry structured, programmatically-relevant data are
+typed errors whose `Error()` method produces the static wording centrally (see
 [docs/adr/005-error-model.md](docs/adr/005-error-model.md) and
-`internal/wastebin/errors.go`); pure condition checks remain sentinel errors.
+`internal/wastebin/errors.go`); purely diagnostic values are appended with
+`: <value>` suffixes at the wrapping site. Pure condition checks remain
+sentinel errors.
 
 **Known errors translated to clear messages:**
 
@@ -184,12 +186,12 @@ method produces the message centrally (see
 | HTTP 413 | "content exceeds the server's maximum allowed size; split the content into smaller parts and upload each separately" |
 | Connection refused / timeout | "cannot connect to Wastebin server; verify the server is running: <wrapped err>" |
 | DNS resolution failure | "cannot resolve the server hostname; verify WASTEBIN_SERVER_URL points to a resolvable host: <wrapped err>" |
-| Sandbox translation requested, no mounts | "sandbox path translation requested but no mounts configured; ask the user to check WASTEBIN_MCP_SANDBOX_MOUNTS if translation should be enabled" |
+| Sandbox translation requested, no mounts | "sandbox path translation was requested but no sandbox mounts are configured; ask the user to check WASTEBIN_MCP_SANDBOX_MOUNTS if translation should be enabled" |
 | Sandbox path matches no mount | "sandbox path does not match any configured mount; ask the user to check the sandbox mount configuration: <path>" |
 
 **Unknown/ambiguous errors**: Returned with the HTTP status code:
 
-`"unknown HTTP error; ask the user to check the server status or the request: HTTP {CODE}"`
+`"unknown HTTP error; ask the user to check the server status or the request: HTTP <CODE>"`
 
 **Format**: Errors are always reported via `IsError: true` in the MCP tool result
 with a plain text description. The complete error tables live in
