@@ -118,7 +118,7 @@ func parseExpires(expiresStr *string, defaultExpires int) (int, error) {
 	if expiresStr != nil && *expiresStr != "" {
 		parsed, err := ParseExpiration(*expiresStr, defaultExpires)
 		if err != nil {
-			return 0, fmt.Errorf("invalid expiration: %w", err)
+			return 0, err
 		}
 
 		expires = parsed
@@ -126,7 +126,7 @@ func parseExpires(expiresStr *string, defaultExpires int) (int, error) {
 
 	ve := ValidateExpiration(expires)
 	if ve != nil {
-		return 0, fmt.Errorf("invalid expiration: %w", ve)
+		return 0, ve
 	}
 
 	return expires, nil

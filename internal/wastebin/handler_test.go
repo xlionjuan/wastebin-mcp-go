@@ -179,8 +179,8 @@ func TestParseExpires(t *testing.T) {
 			t.Fatal("expected error for negative expiration, got nil")
 		}
 
-		if !strings.Contains(err.Error(), "invalid expiration") {
-			t.Errorf("expected 'invalid expiration' in error, got %q", err.Error())
+		if !strings.Contains(err.Error(), "expiration cannot be negative") {
+			t.Errorf("expected 'expiration cannot be negative' in error, got %q", err.Error())
 		}
 	})
 
@@ -194,8 +194,8 @@ func TestParseExpires(t *testing.T) {
 			t.Fatal("expected error for unknown unit, got nil")
 		}
 
-		if !strings.Contains(err.Error(), "invalid expiration") {
-			t.Errorf("expected 'invalid expiration' in error, got %q", err.Error())
+		if !strings.Contains(err.Error(), "unknown expiration unit") {
+			t.Errorf("expected 'unknown expiration unit' in error, got %q", err.Error())
 		}
 	})
 
@@ -209,8 +209,8 @@ func TestParseExpires(t *testing.T) {
 			t.Fatal("expected error for too-large expiration, got nil")
 		}
 
-		if !strings.Contains(err.Error(), "invalid expiration") {
-			t.Errorf("expected 'invalid expiration' in error, got %q", err.Error())
+		if !strings.Contains(err.Error(), "expiration exceeds maximum supported value") {
+			t.Errorf("expected 'expiration exceeds maximum supported value' in error, got %q", err.Error())
 		}
 
 		if !strings.Contains(err.Error(), "exceeds maximum") {
@@ -230,8 +230,8 @@ func TestParseExpires_WithDefault(t *testing.T) {
 		t.Fatal("expected error for too-large default, got nil")
 	}
 
-	if !strings.Contains(err.Error(), "invalid expiration") {
-		t.Errorf("expected 'invalid expiration' in error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "expiration exceeds maximum supported value") {
+		t.Errorf("expected 'expiration exceeds maximum supported value' in error, got %q", err.Error())
 	}
 }
 
@@ -1203,5 +1203,160 @@ func TestTranslateRequestError_NonRedirect(t *testing.T) {
 				t.Errorf("expected wrapped detail %q in message, got: %v", tt.wantSub, got)
 			}
 		})
+	}
+}
+
+// TestTranslateRequestError_Redirects pins the redirect contract: each
+// CheckRedirect sentinel surfaces as "<problem>; <guidance>: <request URL>"
+// with the request URL only in the final ": <value>" suffix — the old
+// "HTTP request failed: Post <url>: " net/http prefix must be gone — and the
+// legacy sentinel stays reachable through errors.Is.
+func TestTranslateRequestError_Redirects(t *testing.T) {
+	t.Parallel()
+
+	const requestURL = "https://bin.example.com/upload"
+
+	tests := []struct {
+		name     string
+		sentinel error
+		want     string
+	}{
+		{
+			name:     "too many redirects",
+			sentinel: errTooManyRedirects,
+			want:     "stopped after 10 redirects; ask the user to check the server URL for a redirect loop",
+		},
+		{
+			name:     "redirect to different host",
+			sentinel: errRedirectDifferentHost,
+			want:     "redirect to different host blocked; ask the user to check the server URL and its redirects",
+		},
+		{
+			name:     "redirect scheme downgrade",
+			sentinel: errRedirectSchemeDowngrade,
+			want:     "redirect scheme downgrade from https to http blocked; use an https server URL",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// net/http wraps CheckRedirect failures in a *url.Error that
+			// prefixes the request URL ("Post <url>: ..."); this is the shape
+			// sendRequest feeds into translateRequestError.
+			got := translateRequestError(&url.Error{Op: "Post", URL: requestURL, Err: tt.sentinel})
+			if got == nil {
+				t.Fatal("translateRequestError returned nil")
+			}
+
+			wantFull := tt.want + ": " + requestURL
+			if got.Error() != wantFull {
+				t.Errorf("translateRequestError() = %q, want %q", got.Error(), wantFull)
+			}
+
+			if strings.Contains(got.Error(), "HTTP request failed") {
+				t.Errorf("must not contain the generic 'HTTP request failed' prefix, got: %q", got.Error())
+			}
+
+			stalePrefix := "Post " + requestURL + ": "
+			if strings.Contains(got.Error(), stalePrefix) {
+				t.Errorf("must not contain the net/http 'Post <url>: ' prefix, got: %q", got.Error())
+			}
+
+			if n := strings.Count(got.Error(), requestURL); n != 1 {
+				t.Errorf("request URL must appear exactly once, found %d in %q", n, got.Error())
+			}
+
+			if !strings.HasSuffix(got.Error(), ": "+requestURL) {
+				t.Errorf("request URL must be the final ': <value>' suffix, got: %q", got.Error())
+			}
+
+			if !errors.Is(got, tt.sentinel) {
+				t.Errorf("errors.Is(%v, %v) = false, want true", got, tt.sentinel)
+			}
+		})
+	}
+}
+
+// errSimulatedReadFailure is returned by failingReadBody to deterministically
+// exercise the "failed to read Wastebin response" branch of sendRequest.
+var errSimulatedReadFailure = errors.New("simulated transport read failure")
+
+// failingReadBody is an io.ReadCloser whose Read always fails and that records
+// when Close is called.
+type failingReadBody struct {
+	err   error
+	close func()
+}
+
+func (b *failingReadBody) Read([]byte) (int, error) {
+	return 0, b.err
+}
+
+func (b *failingReadBody) Close() error {
+	if b.close != nil {
+		b.close()
+	}
+
+	return nil
+}
+
+// failingReadTransport returns a synthetic successful HTTP response whose body
+// fails on Read, avoiding any real network I/O so the test is deterministic.
+type failingReadTransport struct {
+	body *failingReadBody
+}
+
+func (t *failingReadTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       t.body,
+		Request:    req,
+	}, nil
+}
+
+// TestSendRequest_ReadBodyError exercises the reachable
+// "failed to read Wastebin response; ..." branch: the server returns an OK
+// response but the body Read fails mid-transfer. It pins the complete guidance
+// message, preserves the underlying error through errors.Is, and verifies the
+// response body is closed by sendRequest's deferred close.
+func TestSendRequest_ReadBodyError(t *testing.T) {
+	t.Parallel()
+
+	var closed bool
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://wastebin.example.com"
+
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	readErr := errSimulatedReadFailure
+
+	h.httpClient.Transport = &failingReadTransport{
+		body: &failingReadBody{err: readErr, close: func() { closed = true }},
+	}
+
+	_, err = h.sendRequest(t.Context(), []byte(`{"text":"test"}`))
+	if err == nil {
+		t.Fatal("expected read failure error, got nil")
+	}
+
+	want := "failed to read Wastebin response; ask the user to check the server " +
+		"configuration: simulated transport read failure"
+	if err.Error() != want {
+		t.Errorf("sendRequest error = %q, want %q", err.Error(), want)
+	}
+
+	if !errors.Is(err, readErr) {
+		t.Errorf("errors.Is(%v, %v) = false, want true", err, readErr)
+	}
+
+	if !closed {
+		t.Error("response body was not closed after the read failure")
 	}
 }
