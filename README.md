@@ -6,16 +6,16 @@ A Model Context Protocol (MCP) server and CLI tool for creating pastes on a
 ## Quick Start
 
 ```bash
-# Build
-go build ./...
+# Build (requires `just`; without `just`: go build -o wastebin-mcp-go .)
+just build
 
 # MCP mode (stdio server for AI agents)
 export WASTEBIN_SERVER_URL=https://bin-staging.xlion.tw
-wastebin-mcp-go
+./wastebin-mcp-go
 
 # CLI mode
-wastebin-mcp-go create --content "hello world" --extension md
-wastebin-mcp-go create --file-path /tmp/doc.md
+./wastebin-mcp-go create --content "hello world" --extension md
+./wastebin-mcp-go create --file-path /tmp/doc.md
 ```
 
 **Arguments**: `--help` and `--version` are available as top-level arguments. The `create` subcommand also accepts `--help`.

@@ -6,6 +6,8 @@
 
 - Go 1.26.4 or later
 - `git` (to clone the repository)
+- `just` (command runner, for the canonical `just build` recipe; see the
+  no-`just` fallback below)
 
 ### Build
 
@@ -13,14 +15,27 @@
 git clone https://github.com/xlionjuan/wastebin-mcp-go.git
 cd wastebin-mcp-go
 
-# Build all packages
+# Verify all packages compile (does not write the binary)
 go build ./...
 
-# Build a single binary
-go build -o wastebin-mcp-go .
+# Build the CLI binary (requires `just`)
+just build
+
+# Without `just`, build directly:
+# go build -o wastebin-mcp-go .
 ```
 
-The resulting binary is a standalone executable with no runtime dependencies.
+`go build ./...` verifies that every package compiles but does **not** write
+the root command binary. Use `just build` (or `go build -o wastebin-mcp-go .`)
+to produce the `wastebin-mcp-go` executable.
+
+**Standalone/static binaries:** A local source build uses Go's default build
+settings, so on a typical Linux environment with CGO enabled the resulting
+binary may be **dynamically linked** against the system C library. Truly
+self-contained static binaries (no runtime dependencies) are produced by the
+GoReleaser release pipeline with `CGO_ENABLED=0` plus the `netgo` and
+`osusergo` build tags. Download release artifacts from the Releases page if
+you need a portable, dependency-free binary.
 
 ### Install with Version
 
