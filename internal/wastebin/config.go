@@ -14,6 +14,14 @@ import (
 const (
 	defaultExpirySeconds  = 31536000 // 1 year
 	defaultMaxContentSize = 1048576  // 1 MB
+
+	// MaxContentSizeLimit is the largest accepted value of
+	// WASTEBIN_MCP_MAX_CONTENT_SIZE (256 MiB). It bounds the MCP first-message
+	// transport gate that is derived from the content size, keeping the gate's
+	// int arithmetic (conversion plus the 64 KiB envelope allowance plus the
+	// trailing-newline byte) safe on 32-bit targets and preventing a
+	// configuration mistake from triggering a large startup allocation.
+	MaxContentSizeLimit int64 = 256 << 20
 )
 
 // DefaultConfig returns Config with safe defaults.
@@ -130,6 +138,13 @@ func ConfigFromEnv() (*Config, error) {
 
 		if n < 1 {
 			return nil, errMaxContentSizeTooSmall
+		}
+
+		if n > MaxContentSizeLimit {
+			return nil, fmt.Errorf(
+				"%w (%d exceeds the maximum of %d)",
+				errMaxContentSizeTooLarge, n, MaxContentSizeLimit,
+			)
 		}
 
 		cfg.MaxContentSize = n

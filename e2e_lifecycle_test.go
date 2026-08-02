@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -113,7 +114,7 @@ func TestMCPLifecycle_InvalidJSONAfterInitialize(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
-	cmd, stdin, stderr := startRawMCPProcess(ctx, t, wastebinURL)
+	cmd, stdin, stderr, _ := startRawMCPProcess(ctx, t, wastebinURL)
 
 	defer func() {
 		if cmd.Process != nil && cmd.ProcessState == nil {
@@ -128,11 +129,163 @@ func TestMCPLifecycle_InvalidJSONAfterInitialize(t *testing.T) {
 	assertAcceptableExitCode(t, waitErr, stderr, "invalid JSON", 0, 2)
 }
 
-// startRawMCPProcess builds and starts the MCP binary with a raw stdin pipe.
-// The caller is responsible for process cleanup.
+// runRawFirstMessageScenario starts the MCP binary over raw stdio, writes a
+// first MCP request, waits for the server to answer, closes stdin, and asserts
+// a clean exit. wantStdout is the substring the server response must contain;
+// the response must also include a JSON-RPC "result". Returns the captured
+// stdout for additional per-test assertions.
+func runRawFirstMessageScenario(
+	ctx context.Context, t *testing.T, wastebinURL, msg, wantStdout, label string,
+) string {
+	t.Helper()
+
+	cmd, stdin, stderr, stdout := startRawMCPProcess(ctx, t, wastebinURL)
+
+	defer func() {
+		if cmd.Process != nil && cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()    //nolint:errcheck // best-effort cleanup
+			_, _ = cmd.Process.Wait() //nolint:errcheck // best-effort cleanup
+		}
+	}()
+
+	if _, err := fmt.Fprint(stdin, msg); err != nil {
+		t.Fatalf("write first message: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	// Wait for the server to answer before closing stdin; closing stdin too
+	// early would race the asynchronous response write and lose the reply.
+	waitForStdoutContains(ctx, t, cmd, stdout, wantStdout, stderr)
+
+	out := stdout.String()
+	t.Logf("server stdout:\n%s", out)
+
+	if !strings.Contains(out, `"result"`) {
+		t.Fatalf("first message did not produce a result\nstdout:\n%s\nstderr:\n%s", out, stderr.String())
+	}
+
+	// Closing stdin makes the server see EOF after answering the request, so
+	// the process exits cleanly with code 0.
+	if err := stdin.Close(); err != nil {
+		t.Fatalf("close stdin: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	waitErr := waitForRawProcessExit(ctx, t, cmd, stderr)
+	assertAcceptableExitCode(t, waitErr, stderr, label, 0)
+
+	return out
+}
+
+func TestMCPFirstMessage_ServerDiscoverAccepted(t *testing.T) {
+	wastebinURL := os.Getenv("WASTEBIN_SERVER_URL")
+	if wastebinURL == "" {
+		t.Skip("WASTEBIN_SERVER_URL not set")
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	// A go-sdk v1.7.0+ client probes server/discover as its first message on
+	// stdio (SEP-2575). The stdin gate must accept it.
+	out := runRawFirstMessageScenario(ctx, t, wastebinURL, validMCPDiscover, `"supportedVersions"`, "server/discover first request")
+
+	if !strings.Contains(out, `"result"`) {
+		t.Fatalf("server/discover did not produce a result\nstdout:\n%s", out)
+	}
+}
+
+func TestMCPFirstMessage_StatelessFirstRequestAccepted(t *testing.T) {
+	wastebinURL := os.Getenv("WASTEBIN_SERVER_URL")
+	if wastebinURL == "" {
+		t.Skip("WASTEBIN_SERVER_URL not set")
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	// In the stateless protocol (>= 2026-07-28) there is no handshake: a
+	// direct tools/list request carrying the per-request _meta metadata is a
+	// valid first message (SEP-2575). The stdin gate must accept it.
+	out := runRawFirstMessageScenario(ctx, t, wastebinURL, validMCPToolsList, `"tools"`, "stateless first request")
+
+	if !strings.Contains(out, `"create_paste"`) {
+		t.Fatalf("tools/list result does not include create_paste\nstdout:\n%s", out)
+	}
+}
+
+func TestMCPFirstMessage_StatelessToolsCallFirstRequestAccepted(t *testing.T) {
+	wastebinURL := os.Getenv("WASTEBIN_SERVER_URL")
+	if wastebinURL == "" {
+		t.Skip("WASTEBIN_SERVER_URL not set")
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	// Regression for the order-dependent payload ceiling: a first-request
+	// tools/call with content just below the default 1 MiB content limit
+	// exceeds a fixed 1 MiB first-line wire cap once the JSON-RPC envelope is
+	// included. The gate derives its bound from WASTEBIN_MCP_MAX_CONTENT_SIZE
+	// plus the envelope/escaping allowance, so this request must reach the SDK
+	// and produce a response instead of exiting with code 2.
+	content := strings.Repeat("a", 1048500)
+	msg := statelessToolsCallMessage(content)
+	if len(msg) <= 1<<20 {
+		t.Fatalf("test setup: expected wire size above the old fixed 1 MiB cap, got %d", len(msg))
+	}
+
+	out := runRawFirstMessageScenario(ctx, t, wastebinURL, msg, `"result"`, "stateless tools/call first request")
+
+	if !strings.Contains(out, `"result"`) {
+		t.Fatalf("tools/call did not produce a result\nstdout:\n%s", out)
+	}
+}
+
+// waitForStdoutContains polls stdout until it contains want, failing the test
+// on timeout or if the process exits first. stdout is drained by exec.Cmd's
+// copy goroutine, so the child never blocks writing to the pipe.
+func waitForStdoutContains(
+	ctx context.Context,
+	t *testing.T,
+	cmd *exec.Cmd,
+	stdout *safeBuffer,
+	want string,
+	stderr *safeBuffer,
+) {
+	t.Helper()
+
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if strings.Contains(stdout.String(), want) {
+			return
+		}
+
+		if cmd.ProcessState != nil {
+			t.Fatalf("process exited before stdout contained %q\nstdout:\n%s\nstderr:\n%s",
+				want, stdout.String(), stderr.String())
+		}
+
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timeout waiting for stdout to contain %q\nstdout:\n%s\nstderr:\n%s",
+				want, stdout.String(), stderr.String())
+		case <-deadline.C:
+			t.Fatalf("timeout waiting for stdout to contain %q\nstdout:\n%s\nstderr:\n%s",
+				want, stdout.String(), stderr.String())
+		case <-ticker.C:
+		}
+	}
+}
+
+// startRawMCPProcess builds and starts the MCP binary with a raw stdin pipe,
+// capturing stderr and stdout. The caller is responsible for process cleanup.
 func startRawMCPProcess(
 	ctx context.Context, t *testing.T, wastebinURL string,
-) (*exec.Cmd, io.WriteCloser, *safeBuffer) {
+) (*exec.Cmd, io.WriteCloser, *safeBuffer, *safeBuffer) {
 	t.Helper()
 
 	binaryPath := os.Getenv("E2E_MCP_BINARY")
@@ -142,11 +295,12 @@ func startRawMCPProcess(
 
 	t.Logf("using MCP binary: %s", binaryPath)
 
-	var stderr safeBuffer
+	var stderr, stdout safeBuffer
 
 	cmd := exec.CommandContext(ctx, binaryPath) //nolint:gosec // test runs built binary
 	cmd.Env = e2eMCPEnv(wastebinURL)
 	cmd.Stderr = &stderr
+	cmd.Stdout = &stdout
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -158,7 +312,7 @@ func startRawMCPProcess(
 		t.Fatalf("start MCP process: %v", err)
 	}
 
-	return cmd, stdin, &stderr
+	return cmd, stdin, &stderr, &stdout
 }
 
 // sendInvalidJSONInput writes a valid initialize message, waits briefly, then

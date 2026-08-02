@@ -69,7 +69,7 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 			slog.SetLogLoggerLevel(slog.LevelDebug)
 		}
 
-		mcpStdin, err := prepareMCPStdin(os.Stdin)
+		mcpStdin, err := prepareMCPStdin(os.Stdin, cfg)
 		if err != nil {
 			//nolint:errcheck // best-effort write to stderr
 			fmt.Fprintf(stderr, "ERROR: %v\n", err)

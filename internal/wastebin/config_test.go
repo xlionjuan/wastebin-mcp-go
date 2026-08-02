@@ -3,8 +3,10 @@ package wastebin //nolint:testpackage // white-box tests need access to unexport
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -231,6 +233,43 @@ func TestConfigFromEnv_ZeroMaxContentSize(t *testing.T) {
 	_, err := ConfigFromEnv()
 	if err == nil {
 		t.Fatal("expected error for zero max content size")
+	}
+}
+
+// TestConfigFromEnv_MaxInt64MaxContentSizeRejected proves the MaxInt64 content
+// size is rejected at configuration time instead of overflowing the int
+// conversion and the derived MCP first-message transport bound.
+func TestConfigFromEnv_MaxInt64MaxContentSizeRejected(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_MAX_CONTENT_SIZE", strconv.FormatInt(math.MaxInt64, 10))
+
+	_, err := ConfigFromEnv()
+	if !errors.Is(err, errMaxContentSizeTooLarge) {
+		t.Errorf("expected errMaxContentSizeTooLarge for MaxInt64, got %v", err)
+	}
+}
+
+func TestConfigFromEnv_MaxContentSizeOverLimitRejected(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_MAX_CONTENT_SIZE", strconv.FormatInt(MaxContentSizeLimit+1, 10))
+
+	_, err := ConfigFromEnv()
+	if !errors.Is(err, errMaxContentSizeTooLarge) {
+		t.Errorf("expected errMaxContentSizeTooLarge, got %v", err)
+	}
+}
+
+func TestConfigFromEnv_MaxContentSizeLimitAccepted(t *testing.T) {
+	t.Setenv("WASTEBIN_SERVER_URL", "https://bin.example.com")
+	t.Setenv("WASTEBIN_MCP_MAX_CONTENT_SIZE", strconv.FormatInt(MaxContentSizeLimit, 10))
+
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.MaxContentSize != MaxContentSizeLimit {
+		t.Errorf("expected MaxContentSize %d, got %d", MaxContentSizeLimit, cfg.MaxContentSize)
 	}
 }
 

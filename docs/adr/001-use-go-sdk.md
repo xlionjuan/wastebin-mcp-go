@@ -73,8 +73,16 @@ searxng-mcp-go.
   then `server.Run(ctx, &mcp.IOTransport{...})`.
 - Error messages returned as `IsError: true` MCP tool results with plain text
   descriptions.
-- Stdin validation (checking for valid MCP `initialize` message) to prevent
-  hanging when piped non-MCP input.
+- Stdin validation (checking the first line is a valid MCP session starter —
+  `initialize`, `server/discover`, or any request carrying the stateless
+  protocol metadata in `params._meta` for protocol version `2026-07-28`) to
+  prevent hanging when piped non-MCP input. The first-line transport bound is
+  derived from the configured `WASTEBIN_MCP_MAX_CONTENT_SIZE` (capped at
+  256 MiB) plus a 64 KiB JSON envelope/escaping allowance, so a first-request
+  `tools/call` carrying content up to the configured limit passes the gate
+  under typical JSON escaping; heavy escaping (quotes, control characters,
+  HTML metacharacters) expands the wire representation and lowers the
+  effective first-call content ceiling.
 
 ### 3. Do NOT Add a `get_paste` Tool
 

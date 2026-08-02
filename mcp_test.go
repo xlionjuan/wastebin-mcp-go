@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -484,10 +485,10 @@ func TestBuildToolDescription(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// isValidMCPInitializeMessage tests
+// isValidMCPFirstMessage tests
 // ---------------------------------------------------------------------------
 
-func TestIsValidMCPInitializeMessage(t *testing.T) {
+func TestIsValidMCPFirstMessage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -496,9 +497,74 @@ func TestIsValidMCPInitializeMessage(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "valid",
+			name:     "valid initialize",
 			input:    []byte(`{"jsonrpc":"2.0","method":"initialize"}`),
 			expected: true,
+		},
+		{
+			name:     "valid server discover",
+			input:    []byte(`{"jsonrpc":"2.0","method":"server/discover"}`),
+			expected: true,
+		},
+		{
+			name: "server discover with params",
+			input: []byte(
+				`{"jsonrpc":"2.0","method":"server/discover","params":{"_meta":{` +
+					`"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`,
+			),
+			expected: true,
+		},
+		{
+			name: "stateless tools/list first request",
+			input: []byte(
+				`{"jsonrpc":"2.0","method":"tools/list","params":{"_meta":{` +
+					`"io.modelcontextprotocol/clientCapabilities":{},` +
+					`"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`,
+			),
+			expected: true,
+		},
+		{
+			name: "stateless request with legacy method name",
+			input: []byte(
+				`{"jsonrpc":"2.0","method":"notifications/initialized","params":{"_meta":{` +
+					`"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`,
+			),
+			expected: true,
+		},
+		{
+			name:     "tools/list without stateless meta",
+			input:    []byte(`{"jsonrpc":"2.0","method":"tools/list"}`),
+			expected: false,
+		},
+		{
+			name: "tools/list with meta but no protocolVersion",
+			input: []byte(
+				`{"jsonrpc":"2.0","method":"tools/list","params":{"_meta":{` +
+					`"io.modelcontextprotocol/clientCapabilities":{}}}}`,
+			),
+			expected: false,
+		},
+		{
+			name: "stateless request with wrong jsonrpc version",
+			input: []byte(
+				`{"jsonrpc":"1.0","method":"tools/list","params":{"_meta":{` +
+					`"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`,
+			),
+			expected: false,
+		},
+		{
+			name: "stateless request with non-object params",
+			input: []byte(
+				`{"jsonrpc":"2.0","method":"tools/list","params":[1,2,3]}`,
+			),
+			expected: false,
+		},
+		{
+			name: "stateless request with non-object meta",
+			input: []byte(
+				`{"jsonrpc":"2.0","method":"tools/list","params":{"_meta":"nope"}}`,
+			),
+			expected: false,
 		},
 		{
 			name:     "wrong method",
@@ -506,8 +572,13 @@ func TestIsValidMCPInitializeMessage(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "wrong jsonrpc version",
+			name:     "wrong jsonrpc version initialize",
 			input:    []byte(`{"jsonrpc":"1.0","method":"initialize"}`),
+			expected: false,
+		},
+		{
+			name:     "wrong jsonrpc version server discover",
+			input:    []byte(`{"jsonrpc":"1.0","method":"server/discover"}`),
 			expected: false,
 		},
 		{
@@ -531,11 +602,11 @@ func TestIsValidMCPInitializeMessage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := isValidMCPInitializeMessage(tt.input)
+			got := isValidMCPFirstMessage(tt.input)
 
 			if got != tt.expected {
 				t.Errorf(
-					"isValidMCPInitializeMessage(%q) = %v, want %v",
+					"isValidMCPFirstMessage(%q) = %v, want %v",
 					string(tt.input), got, tt.expected,
 				)
 			}
@@ -555,7 +626,80 @@ some extra content
 more content`
 	stdin := strings.NewReader(input)
 
-	reader, err := prepareMCPStdin(stdin)
+	reader, err := prepareMCPStdin(stdin, wastebin.DefaultConfig())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, readErr := io.ReadAll(reader)
+	if readErr != nil {
+		t.Fatalf("failed to read result: %v", readErr)
+	}
+
+	if string(got) != input {
+		t.Errorf("reader should contain the full original stdin\nwant: %q\ngot:  %q", input, string(got))
+	}
+}
+
+func TestPrepareMCPStdin_ValidServerDiscover(t *testing.T) {
+	t.Parallel()
+
+	input := `{"jsonrpc":"2.0","method":"server/discover","params":{"_meta":{` +
+		`"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}` + "\n" +
+		`more content`
+	stdin := strings.NewReader(input)
+
+	reader, err := prepareMCPStdin(stdin, wastebin.DefaultConfig())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, readErr := io.ReadAll(reader)
+	if readErr != nil {
+		t.Fatalf("failed to read result: %v", readErr)
+	}
+
+	if string(got) != input {
+		t.Errorf("reader should contain the full original stdin\nwant: %q\ngot:  %q", input, string(got))
+	}
+}
+
+func TestPrepareMCPStdin_ValidStatelessFirstRequest(t *testing.T) {
+	t.Parallel()
+
+	// In the stateless protocol (>= 2026-07-28) there is no handshake: a
+	// direct tools/list request carrying the per-request protocol metadata is
+	// a valid first message (SEP-2575).
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{` +
+		`"io.modelcontextprotocol/clientCapabilities":{},` +
+		`"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}` + "\n" +
+		`more content`
+	stdin := strings.NewReader(input)
+
+	reader, err := prepareMCPStdin(stdin, wastebin.DefaultConfig())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, readErr := io.ReadAll(reader)
+	if readErr != nil {
+		t.Fatalf("failed to read result: %v", readErr)
+	}
+
+	if string(got) != input {
+		t.Errorf("reader should contain the full original stdin\nwant: %q\ngot:  %q", input, string(got))
+	}
+}
+
+func TestPrepareMCPStdin_ValidMessageWithoutNewlineAtEOF(t *testing.T) {
+	t.Parallel()
+
+	// A valid first message that ends at EOF without a trailing newline must
+	// still be accepted.
+	input := `{"jsonrpc":"2.0","method":"initialize"}`
+	stdin := strings.NewReader(input)
+
+	reader, err := prepareMCPStdin(stdin, wastebin.DefaultConfig())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -575,34 +719,427 @@ func TestPrepareMCPStdin_EmptyStdin(t *testing.T) {
 
 	stdin := strings.NewReader("")
 
-	_, err := prepareMCPStdin(stdin)
-	if !errors.Is(err, errInvalidMCPInitializeMessage) {
-		t.Errorf("expected errInvalidMCPInitializeMessage, got %v", err)
+	_, err := prepareMCPStdin(stdin, wastebin.DefaultConfig())
+	if !errors.Is(err, errInvalidMCPFirstMessage) {
+		t.Errorf("expected errInvalidMCPFirstMessage, got %v", err)
 	}
 }
 
 func TestPrepareMCPStdin_NonMCPStdin(t *testing.T) {
 	t.Parallel()
 
-	stdin := strings.NewReader("not an MCP initialize message\n")
+	stdin := strings.NewReader("not an MCP first message\n")
 
-	_, err := prepareMCPStdin(stdin)
-	if !errors.Is(err, errInvalidMCPInitializeMessage) {
-		t.Errorf("expected errInvalidMCPInitializeMessage, got %v", err)
+	_, err := prepareMCPStdin(stdin, wastebin.DefaultConfig())
+	if !errors.Is(err, errInvalidMCPFirstMessage) {
+		t.Errorf("expected errInvalidMCPFirstMessage, got %v", err)
 	}
 }
 
-func TestPrepareMCPStdin_FirstLineOver1MB(t *testing.T) {
+func TestMCPFirstMessageMaxBytes(t *testing.T) {
 	t.Parallel()
 
-	// Build a line longer than mcpInitializeMaxBytes (1MiB) without a newline.
-	line := bytes.Repeat([]byte("a"), mcpInitializeMaxBytes+1)
-	stdin := bytes.NewReader(line)
+	cfg := wastebin.DefaultConfig()
 
-	_, err := prepareMCPStdin(stdin)
-	if !errors.Is(err, errInvalidMCPInitializeMessage) {
-		t.Errorf("expected errInvalidMCPInitializeMessage for over-1MB line, got %v", err)
+	got, err := mcpFirstMessageMaxBytes(cfg)
+	if err != nil {
+		t.Fatalf("mcpFirstMessageMaxBytes(default) failed: %v", err)
 	}
+
+	if want := int(cfg.MaxContentSize) + mcpFirstMessageEnvelopeAllowance; got != want {
+		t.Errorf("mcpFirstMessageMaxBytes(default) = %d, want %d", got, want)
+	}
+
+	cfg.MaxContentSize = 512 * 1024
+
+	got, err = mcpFirstMessageMaxBytes(cfg)
+	if err != nil {
+		t.Fatalf("mcpFirstMessageMaxBytes(512 KiB) failed: %v", err)
+	}
+
+	if want := 512*1024 + mcpFirstMessageEnvelopeAllowance; got != want {
+		t.Errorf("mcpFirstMessageMaxBytes(512 KiB) = %d, want %d", got, want)
+	}
+}
+
+// TestMCPFirstMessageMaxBytes_SafeConversionBoundary pins the largest accepted
+// configuration: the derived bound must be exactly the content size plus the
+// envelope allowance, with no overflow on the int conversion or the addition.
+func TestMCPFirstMessageMaxBytes_SafeConversionBoundary(t *testing.T) {
+	t.Parallel()
+
+	cfg := wastebin.DefaultConfig()
+	cfg.MaxContentSize = wastebin.MaxContentSizeLimit
+
+	got, err := mcpFirstMessageMaxBytes(cfg)
+	if err != nil {
+		t.Fatalf("mcpFirstMessageMaxBytes(limit) failed: %v", err)
+	}
+
+	if want := int(wastebin.MaxContentSizeLimit) + mcpFirstMessageEnvelopeAllowance; got != want {
+		t.Errorf("mcpFirstMessageMaxBytes(limit) = %d, want %d", got, want)
+	}
+
+	if got <= 0 {
+		t.Errorf("expected a positive bound, got %d", got)
+	}
+}
+
+// TestMCPFirstMessageMaxBytes_MaxInt64Rejected proves that a MaxInt64 content
+// size is rejected before any int conversion or allowance addition, instead of
+// silently wrapping into a tiny/negative effective bound that would reject
+// valid MCP input.
+func TestMCPFirstMessageMaxBytes_MaxInt64Rejected(t *testing.T) {
+	t.Parallel()
+
+	cfg := wastebin.DefaultConfig()
+	cfg.MaxContentSize = math.MaxInt64
+
+	_, err := mcpFirstMessageMaxBytes(cfg)
+	if !errors.Is(err, errFirstMessageContentTooLarge) {
+		t.Fatalf("expected errFirstMessageContentTooLarge for a MaxInt64 content size, got %v", err)
+	}
+}
+
+func TestMCPFirstMessageMaxBytes_OverLimitRejected(t *testing.T) {
+	t.Parallel()
+
+	cfg := wastebin.DefaultConfig()
+	cfg.MaxContentSize = wastebin.MaxContentSizeLimit + 1
+
+	_, err := mcpFirstMessageMaxBytes(cfg)
+	if !errors.Is(err, errFirstMessageContentTooLarge) {
+		t.Fatalf("expected errFirstMessageContentTooLarge for a content size above the limit, got %v", err)
+	}
+}
+
+func TestMCPFirstMessageMaxBytes_NilConfig(t *testing.T) {
+	t.Parallel()
+
+	_, err := mcpFirstMessageMaxBytes(nil)
+	if !errors.Is(err, errMCPConfigRequired) {
+		t.Fatalf("expected errMCPConfigRequired, got %v", err)
+	}
+}
+
+func TestMCPFirstMessageMaxBytes_ContentTooSmall(t *testing.T) {
+	t.Parallel()
+
+	cfg := wastebin.DefaultConfig()
+	cfg.MaxContentSize = 0
+
+	_, err := mcpFirstMessageMaxBytes(cfg)
+	if !errors.Is(err, errFirstMessageContentTooSmall) {
+		t.Fatalf("expected errFirstMessageContentTooSmall, got %v", err)
+	}
+}
+
+// TestPrepareMCPStdin_RejectsOversizedConfig proves a config that overflows the
+// derived transport bound is rejected by the gate before any stdin is read.
+func TestPrepareMCPStdin_RejectsOversizedConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := wastebin.DefaultConfig()
+	cfg.MaxContentSize = wastebin.MaxContentSizeLimit + 1
+
+	_, err := prepareMCPStdin(strings.NewReader(`{"jsonrpc":"2.0","method":"initialize"}`+"\n"), cfg)
+	if !errors.Is(err, errFirstMessageContentTooLarge) {
+		t.Fatalf("expected errFirstMessageContentTooLarge propagated from the gate, got %v", err)
+	}
+}
+
+func TestPrepareMCPStdin_FirstRequestNearContentLimit(t *testing.T) {
+	t.Parallel()
+
+	cfg := wastebin.DefaultConfig()
+
+	// Regression for the order-dependent payload ceiling: a first-request
+	// tools/call with content just below WASTEBIN_MCP_MAX_CONTENT_SIZE exceeds
+	// a fixed 1 MiB first-line cap once the JSON envelope is included, but must
+	// be accepted when the gate is derived from the configured content limit.
+	content := strings.Repeat("a", int(cfg.MaxContentSize)-76)
+
+	msg := statelessToolsCallFirstRequest(content)
+	if len(msg) <= int(cfg.MaxContentSize) {
+		t.Fatalf("test setup: expected wire size above the content limit, got %d", len(msg))
+	}
+
+	reader, err := prepareMCPStdin(strings.NewReader(msg), cfg)
+	if err != nil {
+		t.Fatalf("expected near-limit first-request tools/call to be accepted, got: %v", err)
+	}
+
+	got, readErr := io.ReadAll(reader)
+	if readErr != nil {
+		t.Fatalf("failed to read result: %v", readErr)
+	}
+
+	if len(got) != len(msg) {
+		t.Errorf("replayed stdin length = %d, want %d", len(got), len(msg))
+	}
+}
+
+func TestPrepareMCPStdin_FirstRequestExactLimit(t *testing.T) {
+	t.Parallel()
+
+	cfg := wastebin.DefaultConfig()
+
+	maxBytes, err := mcpFirstMessageMaxBytes(cfg)
+	if err != nil {
+		t.Fatalf("mcpFirstMessageMaxBytes failed: %v", err)
+	}
+
+	msg := statelessToolsCallOfWireSize(t, maxBytes)
+
+	// The exact-limit message with a trailing newline forms a line of
+	// maxBytes+1 bytes, which fits the reader's buffer (maxBytes+1).
+	input := msg + "\n" + "tail"
+
+	reader, err := prepareMCPStdin(strings.NewReader(input), cfg)
+	if err != nil {
+		t.Fatalf("expected exact-limit first request to be accepted, got: %v", err)
+	}
+
+	got, readErr := io.ReadAll(reader)
+	if readErr != nil {
+		t.Fatalf("failed to read result: %v", readErr)
+	}
+
+	if len(got) != len(input) {
+		t.Errorf("replayed stdin length = %d, want %d", len(got), len(input))
+	}
+}
+
+func TestPrepareMCPStdin_FirstRequestOverLimit(t *testing.T) {
+	t.Parallel()
+
+	cfg := wastebin.DefaultConfig()
+
+	maxBytes, err := mcpFirstMessageMaxBytes(cfg)
+	if err != nil {
+		t.Fatalf("mcpFirstMessageMaxBytes failed: %v", err)
+	}
+
+	// A syntactically valid first request one byte over the limit. The gate
+	// must reject it for its size (bounded read), not because the JSON is
+	// invalid: the counting reader proves the gate stopped at the bound.
+	msg := statelessToolsCallOfWireSize(t, maxBytes+1)
+
+	counted := &countingReader{r: strings.NewReader(msg)}
+
+	_, err = prepareMCPStdin(counted, cfg)
+	if !errors.Is(err, errInvalidMCPFirstMessage) {
+		t.Fatalf("expected errInvalidMCPFirstMessage for over-limit first request, got %v", err)
+	}
+
+	if counted.n > maxBytes+1 {
+		t.Errorf("gate consumed %d bytes, want at most %d (bounded read)", counted.n, maxBytes+1)
+	}
+}
+
+func TestPrepareMCPStdin_BoundedReadOfOversizedInput(t *testing.T) {
+	t.Parallel()
+
+	cfg := wastebin.DefaultConfig()
+
+	maxBytes, err := mcpFirstMessageMaxBytes(cfg)
+	if err != nil {
+		t.Fatalf("mcpFirstMessageMaxBytes failed: %v", err)
+	}
+
+	// An attacker pipes a first line far larger than any valid MCP first
+	// message. The gate must stop reading at the buffer bound instead of
+	// buffering the whole line.
+	huge := bytes.Repeat([]byte("a"), 8*maxBytes+1)
+	counted := &countingReader{r: bytes.NewReader(huge)}
+
+	_, err = prepareMCPStdin(counted, cfg)
+	if !errors.Is(err, errInvalidMCPFirstMessage) {
+		t.Fatalf("expected errInvalidMCPFirstMessage for oversized line, got %v", err)
+	}
+
+	if counted.n > maxBytes+1 {
+		t.Errorf("gate consumed %d bytes, want at most %d (bounded read)", counted.n, maxBytes+1)
+	}
+}
+
+// TestPrepareMCPStdin_LargeNonOverflowingConfig covers a very large but
+// non-overflowing configuration (the maximum accepted content size): the bound
+// arithmetic stays exact and a valid first message still passes the gate
+// without the gate allocating anywhere near the configured maximum up front.
+func TestPrepareMCPStdin_LargeNonOverflowingConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := wastebin.DefaultConfig()
+	cfg.MaxContentSize = wastebin.MaxContentSizeLimit
+
+	maxBytes, err := mcpFirstMessageMaxBytes(cfg)
+	if err != nil {
+		t.Fatalf("mcpFirstMessageMaxBytes(limit) failed: %v", err)
+	}
+
+	if maxBytes != int(wastebin.MaxContentSizeLimit)+mcpFirstMessageEnvelopeAllowance {
+		t.Fatalf("unexpected bound %d", maxBytes)
+	}
+
+	input := `{"jsonrpc":"2.0","method":"initialize"}` + "\n"
+
+	reader, err := prepareMCPStdin(strings.NewReader(input), cfg)
+	if err != nil {
+		t.Fatalf("expected first message to be accepted under a large config, got: %v", err)
+	}
+
+	got, readErr := io.ReadAll(reader)
+	if readErr != nil {
+		t.Fatalf("failed to read result: %v", readErr)
+	}
+
+	if string(got) != input {
+		t.Errorf("reader should contain the full original stdin\nwant: %q\ngot:  %q", input, string(got))
+	}
+}
+
+// TestPrepareMCPStdin_FirstRequestEscapedContent pins the separate wire-size
+// contract under JSON escaping. The gate is a wire limit, so escaping that
+// expands the representation lowers the effective first-call content ceiling:
+// content whose decoded size is far below WASTEBIN_MCP_MAX_CONTENT_SIZE can
+// still be rejected as a first request once its escaped wire size exceeds the
+// transport bound.
+func TestPrepareMCPStdin_FirstRequestEscapedContent(t *testing.T) {
+	t.Parallel()
+
+	cfg := wastebin.DefaultConfig()
+
+	maxBytes, err := mcpFirstMessageMaxBytes(cfg)
+	if err != nil {
+		t.Fatalf("mcpFirstMessageMaxBytes failed: %v", err)
+	}
+
+	envelope := len(statelessToolsCallFirstRequest(""))
+
+	tests := []struct {
+		name string
+		rep  string
+	}{
+		{name: "html metacharacter", rep: "<"},
+		{name: "quote", rep: `"`},
+		{name: "backslash", rep: `\`},
+		{name: "control character", rep: "\x00"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			expansion := len(statelessToolsCallFirstRequest(tt.rep)) - envelope
+			if expansion < 2 {
+				t.Fatalf("test setup: expected %q to expand on the wire, got %d bytes", tt.rep, expansion)
+			}
+
+			// Largest repetition whose escaped wire size still fits within the
+			// transport bound.
+			n := (maxBytes - envelope) / expansion
+			if n < 1 {
+				t.Skipf("test setup: cannot fit a single %q below the bound", tt.rep)
+			}
+
+			atLimit := statelessToolsCallFirstRequest(strings.Repeat(tt.rep, n))
+			if len(atLimit) > maxBytes {
+				t.Fatalf("test setup: escaped wire size %d exceeds bound %d", len(atLimit), maxBytes)
+			}
+
+			reader, err := prepareMCPStdin(strings.NewReader(atLimit), cfg)
+			if err != nil {
+				t.Fatalf("expected first request with escaped content within the wire limit to be accepted, got: %v", err)
+			}
+
+			replayed, readErr := io.ReadAll(reader)
+			if readErr != nil {
+				t.Fatalf("failed to read result: %v", readErr)
+			}
+
+			if len(replayed) != len(atLimit) {
+				t.Errorf("replayed stdin length = %d, want %d", len(replayed), len(atLimit))
+			}
+
+			// The decoded content is far below the configured content limit:
+			// escaping is what pushes the wire toward the bound.
+			if n >= int(cfg.MaxContentSize) {
+				t.Errorf("test setup: decoded content %d should be well below the content limit %d", n, int(cfg.MaxContentSize))
+			}
+
+			// One more repetition pushes the escaped wire over the bound and
+			// must be rejected with bounded reading, even though the decoded
+			// content is still below WASTEBIN_MCP_MAX_CONTENT_SIZE.
+			over := statelessToolsCallFirstRequest(strings.Repeat(tt.rep, n+1))
+			if len(over) <= maxBytes {
+				t.Fatalf("test setup: expected escaped wire size above the bound, got %d", len(over))
+			}
+
+			counted := &countingReader{r: strings.NewReader(over)}
+
+			_, err = prepareMCPStdin(counted, cfg)
+			if !errors.Is(err, errInvalidMCPFirstMessage) {
+				t.Fatalf("expected errInvalidMCPFirstMessage for escaped first request over the wire limit, got %v", err)
+			}
+
+			if counted.n > maxBytes+1 {
+				t.Errorf("gate consumed %d bytes, want at most %d (bounded read)", counted.n, maxBytes+1)
+			}
+		})
+	}
+}
+
+// countingReader wraps an io.Reader and records the total number of bytes the
+// underlying reader delivered, so tests can assert how much of an
+// attacker-controlled stdin the first-message gate actually consumed.
+type countingReader struct {
+	r io.Reader
+	n int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += n
+
+	return n, err
+}
+
+// statelessToolsCallFirstRequest returns a syntactically valid stateless
+// (>= 2026-07-28) tools/call first request for create_paste with the given
+// inline content, without a trailing newline. The content is JSON-encoded, so
+// the returned wire size includes escaping overhead.
+func statelessToolsCallFirstRequest(content string) string {
+	encoded, err := json.Marshal(content)
+	if err != nil {
+		panic(err)
+	}
+
+	return `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"_meta":{` +
+		`"io.modelcontextprotocol/clientCapabilities":{},` +
+		`"io.modelcontextprotocol/clientInfo":{"name":"test","version":"0.0.0"},` +
+		`"io.modelcontextprotocol/protocolVersion":"2026-07-28"},` +
+		`"name":"create_paste","arguments":{"content":` + string(encoded) + `}}}`
+}
+
+// statelessToolsCallOfWireSize returns a valid stateless tools/call first
+// request whose wire length, excluding any trailing newline, is exactly target
+// bytes. The content is padded with 'a' characters, which JSON escaping does
+// not expand, so the size is exact.
+func statelessToolsCallOfWireSize(t *testing.T, target int) string {
+	t.Helper()
+
+	envelope := len(statelessToolsCallFirstRequest(""))
+	if target < envelope {
+		t.Fatalf("target wire size %d is below the %d-byte JSON envelope", target, envelope)
+	}
+
+	msg := statelessToolsCallFirstRequest(strings.Repeat("a", target-envelope))
+	if len(msg) != target {
+		t.Fatalf("wire size mismatch: got %d, want %d", len(msg), target)
+	}
+
+	return msg
 }
 
 // errFailReader is the sentinel error returned by failReader.
@@ -620,9 +1157,24 @@ func TestPrepareMCPStdin_ReadError(t *testing.T) {
 
 	stdin := &failReader{}
 
-	_, err := prepareMCPStdin(stdin)
-	if !errors.Is(err, errInvalidMCPInitializeMessage) {
-		t.Errorf("expected errInvalidMCPInitializeMessage for read error, got %v", err)
+	_, err := prepareMCPStdin(stdin, wastebin.DefaultConfig())
+	if !errors.Is(err, errInvalidMCPFirstMessage) {
+		t.Errorf("expected errInvalidMCPFirstMessage for read error, got %v", err)
+	}
+}
+
+// zeroReader always returns (0, nil), violating the io.Reader contract;
+// readFirstLine must not spin on such a reader.
+type zeroReader struct{}
+
+func (zeroReader) Read(_ []byte) (int, error) { return 0, nil }
+
+func TestReadFirstLine_ZeroReadNoProgress(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := readFirstLine(zeroReader{}, mcpFirstMessageEnvelopeAllowance)
+	if !errors.Is(err, errInvalidMCPFirstMessage) {
+		t.Fatalf("expected errInvalidMCPFirstMessage for a reader that never makes progress, got %v", err)
 	}
 }
 
