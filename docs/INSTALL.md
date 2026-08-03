@@ -48,8 +48,8 @@ go build -ldflags="-X main.version=$(git describe --tags --always)" -o wastebin-
 | `WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD` | | `false` | Allow password-protected pastes over non-loopback HTTP connections. By default, password-protected pastes are rejected when using `http://` with a non-loopback host. Loopback addresses (localhost, 127.0.0.1, ::1) are always allowed with a warning |
 | `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST` | | `false` | Set to `true` to disable the built-in blocklist (system directory prefixes + sensitive path components). When enabled, only the user-configured blocklist (`WASTEBIN_MCP_BLOCKED_PATHS`) and allowlist (`WASTEBIN_MCP_ALLOWED_PATHS`) apply. Since `WASTEBIN_MCP_BLOCKED_PATHS` is empty by default, this flag alone (without explicit blocklist or allowlist) allows all paths. Use with caution |
 | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | | `1048576` | Maximum paste content size in bytes (client-side guard). Also determines the stdio first-message transport bound (this value plus a 64 KiB JSON envelope/escaping allowance) — see [Stdio Transport](#stdio-transport). Values above `268435456` (256 MiB) are rejected |
-| `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker-style mount mappings (`host_path:sandbox_path,...`) for sandbox path translation. Sandbox paths must be absolute POSIX paths and must not contain `..` components |
-| `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | | `false` | When set, sandbox path translation happens automatically |
+| `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker-style mount mappings (`host_path:sandbox_path,...`) for sandbox path translation. Sandbox paths must be absolute POSIX paths and must not contain `..` components. **MCP mode only** — the CLI rejects this variable (sandbox path translation is not supported in CLI mode) |
+| `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | | `false` | When set, sandbox path translation happens automatically. **MCP mode only** — the CLI rejects this variable |
 | `DEBUG` | | — | Set to `1` or `true` to enable debug logging (sparse `slog.Debug` entries on stderr — paste submission info, sandbox translation, error details; not an HTTP wire dump) |
 
 ### Invalid Environment Variable Values
@@ -166,6 +166,11 @@ wastebin-mcp-go create \
 # Debug mode
 wastebin-mcp-go create --content "test" --debug
 ```
+
+> **Note:** Sandbox path translation is an MCP-mode-only feature. The CLI
+> (`wastebin-mcp-go create`) does not support it: setting
+> `WASTEBIN_MCP_SANDBOX_MOUNTS` or `WASTEBIN_MCP_SANDBOX_TRANSPARENT` while
+> running the CLI is rejected with a configuration error.
 
 ### CLI Flags
 
@@ -296,8 +301,12 @@ before file reading. Two modes:
 Translated paths still pass through the allowlist and blocklist checks. Mount
 host paths are validated against `ALLOWED_PATHS` at startup.
 
-> **Note:** Sandbox path translation is only available in MCP mode.
-> The CLI mode (`wastebin-mcp-go create`) does not support it.
+> **Note:** Sandbox path translation is an MCP-mode-only feature. The opt-in
+> `translate_sandbox_path` parameter is only exposed in the MCP tool schema,
+> and transparent mode applies translation only in MCP mode. CLI mode
+> (`wastebin-mcp-go create`) does not support sandbox path translation:
+> setting `WASTEBIN_MCP_SANDBOX_MOUNTS` or `WASTEBIN_MCP_SANDBOX_TRANSPARENT`
+> while running the CLI is rejected with a configuration error.
 
 ---
 

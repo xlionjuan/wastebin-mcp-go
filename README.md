@@ -18,6 +18,9 @@ wastebin-mcp-go create --content "hello world" --extension md
 wastebin-mcp-go create --file-path /tmp/doc.md
 ```
 
+CLI mode does not support sandbox path translation — the sandbox translation
+environment variables are rejected with an error when set (see `docs/INSTALL.md`).
+
 **Arguments**: `--help` and `--version` are available as top-level arguments. The `create` subcommand also accepts `--help`.
 
 **Exit codes**: 0 = success, 1 = CLI error, 2 = MCP server error.
@@ -27,7 +30,7 @@ wastebin-mcp-go create --file-path /tmp/doc.md
 - **Content mode**: paste text directly
 - **File mode** (default: on): paste from file path
 - **Path safety**: allowlist + blocklist + symlink resolution
-- **Sandbox translation** (optional, ENV-gated): translate container paths to host paths
+- **Sandbox translation** (optional, ENV-gated, MCP mode only): translate container paths to host paths
 - **Text validation**: rejects binary and non-UTF-8 files
 - **CLI mode**: one-shot paste creation (`create` subcommand)
 - **MCP mode**: stdio server for AI agents
@@ -42,8 +45,8 @@ wastebin-mcp-go create --file-path /tmp/doc.md
 | `WASTEBIN_MCP_ALLOWED_PATHS` | | — | Comma-separated absolute directory paths |
 | `WASTEBIN_MCP_BLOCKED_PATHS` | | — | Comma-separated absolute directory paths (relative paths are rejected at startup). The built-in blocklist handles `/etc,/proc,/sys,/dev` separately |
 | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | | 1048576 | Max content size in bytes |
-| `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker mount mappings (`host:sandbox,...`); sandbox paths must be absolute and must not contain `..` components |
-| `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | | false | Transparent sandbox translation |
+| `WASTEBIN_MCP_SANDBOX_MOUNTS` | | — | Docker mount mappings (`host:sandbox,...`); sandbox paths must be absolute and must not contain `..` components. MCP mode only — rejected in CLI mode |
+| `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | | false | Transparent sandbox translation. MCP mode only — rejected in CLI mode |
 | `WASTEBIN_MCP_ALLOW_INSECURE_PASSWORD` | | false | Allow password-protected pastes over non-loopback HTTP (not recommended) |
 | `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST` | | false | Disable built-in blocklist (system + sensitive paths) |
 | `DEBUG` | | — | Set to `1` or `true` to enable debug logging |

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -44,6 +45,36 @@ For more information, see: https://github.com/xlionjuan/wastebin-mcp-go
 `)
 }
 
+// errSandboxTranslationCLIUnsupported is returned when a sandbox translation
+// environment variable is set in CLI mode. Sandbox path translation is an
+// MCP-mode-only feature; the CLI must not be able to configure it.
+var errSandboxTranslationCLIUnsupported = errors.New(
+	"sandbox path translation is only available in MCP mode and is not supported by the CLI; " +
+		"unset the variable when using 'wastebin-mcp-go create'",
+)
+
+// sandboxTranslationEnvVars are the environment variables that configure
+// sandbox path translation. They are rejected in CLI mode, where sandbox
+// path translation is not supported.
+var sandboxTranslationEnvVars = []string{
+	"WASTEBIN_MCP_SANDBOX_MOUNTS",
+	"WASTEBIN_MCP_SANDBOX_TRANSPARENT",
+}
+
+// checkNoSandboxTranslationEnv rejects sandbox translation environment
+// variables in CLI mode. Sandbox path translation is an MCP-mode-only feature;
+// the CLI must not be able to define sandbox translation options, so setting
+// either variable is an explicit configuration error rather than a silent no-op.
+func checkNoSandboxTranslationEnv() error {
+	for _, env := range sandboxTranslationEnvVars {
+		if v := os.Getenv(env); v != "" {
+			return fmt.Errorf("%w: %s", errSandboxTranslationCLIUnsupported, env)
+		}
+	}
+
+	return nil
+}
+
 // runCLIMode executes the one-shot paste creation flow: reads configuration
 // from the environment, creates a Wastebin client, builds CreatePasteArgs from
 // the provided CLI flags, calls CreatePaste, and prints the JSON response to
@@ -54,6 +85,11 @@ For more information, see: https://github.com/xlionjuan/wastebin-mcp-go
 // capture. For automated schema/response verification see mcp_test.go and
 // schema_test.go.
 func runCLIMode(flags *CLIFlags) error {
+	err := checkNoSandboxTranslationEnv()
+	if err != nil {
+		return err
+	}
+
 	cfg, err := wastebin.ConfigFromEnv()
 	if err != nil {
 		return fmt.Errorf("configuration error: %w", err)

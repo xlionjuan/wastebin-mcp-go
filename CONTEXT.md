@@ -79,7 +79,7 @@ Single tool with two usage modes — content passthrough or file path.
 | `title` | string | no | Optional paste title |
 | `burn_after_reading` | boolean | no | Delete after first read |
 | `password` | string | no | Encrypt with password |
-| `translate_sandbox_path` | boolean | no | Translate sandbox path (only when mounts configured) |
+| `translate_sandbox_path` | boolean | no | Translate sandbox path (MCP mode only; only when mounts configured) |
 
 \* At least one of `content` or `file_path` is required. If both are provided,
 the server returns a clear error: "provide either 'content' or 'file_path', not both; pick exactly one input mode".
@@ -157,7 +157,11 @@ returning structured JSON responses. Activated when no CLI subcommand is given.
 
 **CLI Mode**: Activated by the `create` subcommand. Accepts paste parameters as
 flags, executes a one-shot paste creation, and prints the result to stdout, then
-exits. Output format: JSON (same as MCP mode response).
+exits. Output format: JSON (same as MCP mode response). CLI mode does not
+support sandbox path translation — it rejects the sandbox translation
+environment variables (`WASTEBIN_MCP_SANDBOX_MOUNTS`,
+`WASTEBIN_MCP_SANDBOX_TRANSPARENT`) with a configuration error, since sandbox
+translation is an MCP-mode-only feature.
 
 **Debug Mode**: Activated by `DEBUG=1` env var in MCP mode, or `--debug` flag on
 the `create` subcommand — enables sparse `slog.Debug` logging to stderr for
@@ -310,6 +314,11 @@ to prevent accidental binary uploads and to fail fast on oversized content.
 A gated feature (`WASTEBIN_MCP_SANDBOX_MOUNTS`) for translating
 container/sandbox-internal paths to host paths before file reading.
 
+**MCP mode only**: Sandbox path translation is only available in MCP mode. The
+CLI (`wastebin-mcp-go create`) does not support it and rejects the sandbox
+translation environment variables with a configuration error, so transparent
+mode never applies translation in CLI mode.
+
 **Mount Mapping Format**: Docker mount style `host_path:sandbox_path` pairs,
 comma-separated. Example:
 `/home/user/.hermes/profiles/neko/sandboxes/default/workspace:/workspace`
@@ -352,8 +361,8 @@ using `filepath.Join` normalization to bypass the traversal check.
 | Path allowlist | `WASTEBIN_MCP_ALLOWED_PATHS` | — (optional — when empty, falls through to blocklist pipeline) |
 | Path blocklist | `WASTEBIN_MCP_BLOCKED_PATHS` | — (empty; built-in blocklist handles `/etc,/proc,/sys,/dev`) |
 | Max content size | `WASTEBIN_MCP_MAX_CONTENT_SIZE` | 1 MB |
-| Sandbox mounts | `WASTEBIN_MCP_SANDBOX_MOUNTS` | — |
-| Transparent mode | `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | false |
+| Sandbox mounts | `WASTEBIN_MCP_SANDBOX_MOUNTS` | — (MCP mode only — rejected in CLI mode) |
+| Transparent mode | `WASTEBIN_MCP_SANDBOX_TRANSPARENT` | false (MCP mode only — rejected in CLI mode) |
 | Disable built-in blocklist | `WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST` | false |
 | Server URL | `WASTEBIN_SERVER_URL` | — (required) |
 | Default expires | `WASTEBIN_MCP_DEFAULT_EXPIRES` | 31536000 |
