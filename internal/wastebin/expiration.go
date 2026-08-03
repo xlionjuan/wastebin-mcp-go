@@ -45,7 +45,7 @@ func parseNumberWithUnit(s string) (int, error) {
 
 	n, err := strconv.Atoi(numStr)
 	if err != nil {
-		return 0, fmt.Errorf("invalid expiration number: %w", err)
+		return 0, fmt.Errorf("invalid expiration number; use a valid numeric expiration value: %w", err)
 	}
 
 	if n < 0 {

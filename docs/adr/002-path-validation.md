@@ -34,7 +34,8 @@ file_path (raw user input)
     ├── (1a) PATH TRAVERSAL DETECTION (raw input)
     │       Rejects `..` / `../` patterns in the raw input.
     │       Independent from all path resolution.
-    │       Error: "path traversal is not allowed"
+    │       Error: "path traversal is not allowed and will always be rejected;
+    │               do not attempt again"
     │
     ├── (1b) SENSITIVE COMPONENT DETECTION (raw input, before resolution)
     │       Checks each path component in the normalized raw path against
@@ -42,7 +43,9 @@ file_path (raw user input)
     │       Runs BEFORE filepath.EvalSymlinks, so a blocked-component
     │       symlink (e.g. .ssh → realssh) is caught before the symlink
     │       target hides the component name.
-    │       Error: "file path contains a blocked component (...)"
+    │       Error (typed BlockedComponentError): "file path contains a blocked
+    │       component and will always be rejected; do not attempt again:
+    │       <component>"
     │       Same component check is repeated on the resolved path as
     │       Stage 3b for defense in depth.
     │
@@ -54,7 +57,8 @@ file_path (raw user input)
     │       and MCP-mode absolute paths are treated identically.
     │       Catches access through a user-blocked directory that was
     │       created or retargeted as a symlink after startup.
-    │       Error: "file path is in a user-blocked directory (...)"
+    │       Error: "file path is in a user-blocked directory and will always
+    │       be rejected; do not attempt again"
     │       Bypassed by ALLOWED_PATHS.
     │
     ├── filepath.EvalSymlinks + filepath.Clean
@@ -64,21 +68,25 @@ file_path (raw user input)
     │       Path is resolved via filepath.EvalSymlinks before the check.
     │       Only absolute paths accepted.
     │       When a path matches, continues to (3b) component check.
-    │       Error: "file path is not under any allowed path"
+    │       Error: "file path is not under any configured allowed path; ask
+    │       the user to check ALLOWED_PATHS if this path should be accessible"
     │
     ├── (3) BUILT-IN BLOCKLIST (hardcoded defaults)
     │       Two independent sub-checks:
     │         (3a) Absolute path prefix match
     │              Checks resolved absolute path against:
     │              /etc, /proc, /sys, /dev
-    │              Error: "file path is in a blocked system directory (...)"
+    │              Error: "file path is in a blocked system directory and will
+    │              always be rejected; do not attempt again: <prefix>"
     │              Bypassed by ALLOWED_PATHS (prefixes are location, not
     │              sensitivity).
     │         (3b) Path component match
     │              Checks each path component (directory name) in the
     │              resolved path against sensitive patterns like:
     │              .ssh, .gnupg, .aws, .kube, .docker, .git
-    │              Error: "file path contains a blocked component (...)"
+    │              Error (typed BlockedComponentError): "file path contains a
+    │              blocked component and will always be rejected; do not
+    │              attempt again: <component>"
     │              Enforced even inside ALLOWED_PATHS (per B2 exception).
     │              This is the defense-in-depth companion to Stage 1b.
     │       Disabled by setting WASTEBIN_MCP_DISABLE_BUILTIN_BLOCKLIST=true
@@ -91,7 +99,8 @@ file_path (raw user input)
     │       Resolved via filepath.EvalSymlinks (matching Stage 2
     │       resolution) with fallback to Clean for non-existent
     │       absolute paths that may exist later.
-    │       Error: "file path is in a user-blocked directory (...)"
+    │       Error: "file path is in a user-blocked directory and will always
+    │       be rejected; do not attempt again"
     │       Bypassed by ALLOWED_PATHS.
     │
     └── All passed → file is allowed
@@ -233,7 +242,11 @@ Key points:
   }
   ```
 - Error sentinel values for each stage, enabling tests to assert the
-  exact rejection reason.
+  exact rejection reason. Blocked-component rejections are returned as the
+  typed `BlockedComponentError` and blocked-prefix rejections as
+  `BlockedPrefixError`; all messages follow the unified
+  `"<problem>; <next-step guidance>"` wording from
+  [ADR 005](005-error-model.md).
 
 ## Breaking change B2: Component blocklist inside ALLOWED_PATHS
 

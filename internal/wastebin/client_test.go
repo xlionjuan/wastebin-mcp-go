@@ -311,8 +311,8 @@ func TestCreatePaste_ExpirationTooLarge(t *testing.T) {
 		t.Fatal("expected error for too-large expiration, got nil")
 	}
 
-	if !strings.Contains(err.Error(), "invalid expiration") {
-		t.Errorf("expected invalid expiration error, got: %v", err)
+	if !strings.Contains(err.Error(), "expiration exceeds maximum supported value") {
+		t.Errorf("expected expiration exceeds maximum error, got: %v", err)
 	}
 
 	if !strings.Contains(err.Error(), "exceeds maximum") {
@@ -395,7 +395,10 @@ func TestCreatePaste_UnknownHTTPError(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 
-	if !strings.Contains(err.Error(), "unknown HTTP error: HTTP 500") {
+	if !strings.Contains(
+		err.Error(),
+		"unknown HTTP error; ask the user to check the server status or the request: HTTP 500",
+	) {
 		t.Errorf("expected unknown HTTP error message, got: %v", err)
 	}
 
@@ -437,7 +440,10 @@ func TestCreatePaste_LargeNonOKBody(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 
-	if !strings.Contains(err.Error(), "unknown HTTP error: HTTP 500") {
+	if !strings.Contains(
+		err.Error(),
+		"unknown HTTP error; ask the user to check the server status or the request: HTTP 500",
+	) {
 		t.Errorf("expected unknown HTTP error message, got: %v", err)
 	}
 }
@@ -2542,8 +2548,8 @@ func TestCreatePaste_InvalidExpiration(t *testing.T) {
 		t.Fatal("expected error for invalid expiration")
 	}
 
-	if !strings.Contains(err.Error(), "invalid expiration") {
-		t.Errorf("expected invalid expiration error, got: %v", err)
+	if !strings.Contains(err.Error(), "invalid expiration format") {
+		t.Errorf("expected 'invalid expiration format' error, got: %v", err)
 	}
 }
 

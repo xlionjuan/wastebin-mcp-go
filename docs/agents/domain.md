@@ -19,7 +19,9 @@ Single-context repo:
 ├── docs/adr/
 │   ├── 001-use-go-sdk.md
 │   ├── 002-path-validation.md
-│   └── 003-error-verbosity.md
+│   ├── 003-error-verbosity.md
+│   ├── 0004-file-read-allowlist-optional.md
+│   └── 005-error-model.md
 ├── cli.go
 ├── mcp.go
 ├── main.go

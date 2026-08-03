@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -133,7 +134,7 @@ func (h *Handler) buildRequest(args *CreatePasteArgs, content, ext string, expir
 
 	bodyBytes, err := json.Marshal(reqBody) //nolint:gosec // JSON marshaling is safe; no user-controlled structure
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		return nil, fmt.Errorf("failed to marshal request body; ask the user to check the request parameters: %w", err)
 	}
 
 	return bodyBytes, nil
@@ -144,7 +145,7 @@ func (h *Handler) buildRequest(args *CreatePasteArgs, content, ext string, expir
 func (h *Handler) sendRequest(ctx context.Context, bodyBytes []byte) (*wastebinResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.postURL, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+		return nil, fmt.Errorf("failed to create HTTP request; ask the user to check the request parameters: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -154,14 +155,15 @@ func (h *Handler) sendRequest(ctx context.Context, bodyBytes []byte) (*wastebinR
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		if isDNSError(err) {
-			return nil, fmt.Errorf("cannot resolve the server hostname: %w", err)
+			return nil, fmt.Errorf("cannot resolve the server hostname; "+
+				"verify WASTEBIN_SERVER_URL points to a resolvable host: %w", err)
 		}
 
 		if isConnectionError(err) {
 			return nil, fmt.Errorf("cannot connect to Wastebin server; verify the server is running: %w", err)
 		}
 
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
+		return nil, translateRequestError(err)
 	}
 	defer closeResponseBody(resp)
 
@@ -179,7 +181,7 @@ func (h *Handler) sendRequest(ctx context.Context, bodyBytes []byte) (*wastebinR
 
 	rawBody, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read Wastebin response: %w", err)
+		return nil, fmt.Errorf("failed to read Wastebin response; ask the user to check the server configuration: %w", err)
 	}
 
 	if len(rawBody) > maxResponseBodyLength {
@@ -192,7 +194,8 @@ func (h *Handler) sendRequest(ctx context.Context, bodyBytes []byte) (*wastebinR
 
 	err = decoder.Decode(&wastebinResp)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse Wastebin response: %w", err)
+		return nil, fmt.Errorf("failed to parse Wastebin response; "+
+			"ask the user to check the server configuration: %w", err)
 	}
 
 	// Reject trailing non-whitespace content after the JSON object.
@@ -210,6 +213,14 @@ func (h *Handler) sendRequest(ctx context.Context, bodyBytes []byte) (*wastebinR
 	_, _ = io.CopyN(io.Discard, resp.Body, drainLimit) //nolint:errcheck // Bound prevents OOM
 
 	return &wastebinResp, nil
+}
+
+// wrapFilePathCannotBeUsed wraps the errFilePathCannotBeUsed sentinel with an
+// underlying open/stat/read error, preserving both in the error chain for
+// errors.Is matching. The wrapping format is produced here so readFileContent's
+// call sites and the docs-contract fixture share one source of truth.
+func wrapFilePathCannotBeUsed(underlying error) error {
+	return fmt.Errorf("%w: %w", errFilePathCannotBeUsed, underlying)
 }
 
 // readFileContent reads file content from the given path, handling sandbox
@@ -232,14 +243,14 @@ func (h *Handler) readFileContent(
 		}
 
 		if reason, blocked := hasComponentBlocked(resolvedPath); blocked && !h.config.DisableBuiltinBlocklist {
-			return "", "", fmt.Errorf("%w (%s)", errBuiltinBlockedComponent, reason)
+			return "", "", newBlockedComponentError(reason)
 		}
 
 		translator := NewTranslator(h.config.SandboxMounts)
 
 		translated, ok := translator.Translate(resolvedPath)
 		if !ok {
-			return "", "", fmt.Errorf("%w: %s", errSandboxTranslationNoMatch, filePath)
+			return "", "", newSandboxNoMatchError(filePath)
 		}
 
 		if !isUnderMountHost(translated, h.config.SandboxMounts) {
@@ -260,13 +271,13 @@ func (h *Handler) readFileContent(
 	//    through LimitReader.
 	f, openErr := openFileResolved(resolvedPath, h.config.AllowedPaths)
 	if openErr != nil {
-		return "", "", fmt.Errorf("%w: %w", errFilePathCannotBeUsed, openErr)
+		return "", "", wrapFilePathCannotBeUsed(openErr)
 	}
 	defer f.Close() //nolint:errcheck // Read-only file; close error non-critical
 
 	fi, statErr := f.Stat()
 	if statErr != nil {
-		return "", "", fmt.Errorf("%w: %w", errFilePathCannotBeUsed, statErr)
+		return "", "", wrapFilePathCannotBeUsed(statErr)
 	}
 
 	if !fi.Mode().IsRegular() {
@@ -274,18 +285,16 @@ func (h *Handler) readFileContent(
 	}
 
 	if fi.Size() > h.config.MaxContentSize {
-		return "", "", fmt.Errorf("%w: file size %d bytes exceeds limit of %d bytes",
-			errContentTooLarge, fi.Size(), h.config.MaxContentSize)
+		return "", "", newContentTooLargeError(fi.Size(), h.config.MaxContentSize)
 	}
 
 	data, readErr := io.ReadAll(io.LimitReader(f, h.config.MaxContentSize+1))
 	if readErr != nil {
-		return "", "", fmt.Errorf("%w: %w", errFilePathCannotBeUsed, readErr)
+		return "", "", wrapFilePathCannotBeUsed(readErr)
 	}
 
 	if int64(len(data)) > h.config.MaxContentSize {
-		return "", "", fmt.Errorf("%w: file size %d bytes exceeds limit of %d bytes",
-			errContentTooLarge, len(data), h.config.MaxContentSize)
+		return "", "", newContentTooLargeError(int64(len(data)), h.config.MaxContentSize)
 	}
 
 	if !IsLikelyText(data) {
@@ -341,15 +350,38 @@ func newHTTPClient() *http.Client {
 			if len(via) > 0 {
 				prev := via[len(via)-1]
 				if !strings.EqualFold(req.URL.Host, prev.URL.Host) {
-					return fmt.Errorf("%w: %s -> %s", errRedirectDifferentHost, prev.URL.Host, req.URL.Host)
+					return errRedirectDifferentHost
 				}
 
 				if prev.URL.Scheme == "https" && req.URL.Scheme == "http" {
-					return fmt.Errorf("%w: %s (%s -> %s)", errRedirectSchemeDowngrade, req.URL.Host, prev.URL.Scheme, req.URL.Scheme)
+					return errRedirectSchemeDowngrade
 				}
 			}
 
 			return nil
 		},
 	}
+}
+
+// translateRequestError converts transport-layer failures into
+// "<problem>; <next-step guidance>" messages with dynamic values appended as
+// ": <value>" suffixes. net/http wraps CheckRedirect failures in a *url.Error
+// that prefixes the request URL ("Post <url>: ..."), which would place URL
+// details before the problem-and-guidance text; the URL is appended as a
+// ": <value>" suffix instead.
+func translateRequestError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) && isRedirectError(urlErr.Err) {
+		return fmt.Errorf("%w: %s", urlErr.Err, urlErr.URL)
+	}
+
+	return fmt.Errorf("HTTP request failed; ask the user to check the server URL and the network connection: %w", err)
+}
+
+// isRedirectError reports whether err is one of the redirect policy failures
+// returned by the HTTP client's CheckRedirect.
+func isRedirectError(err error) bool {
+	return errors.Is(err, errTooManyRedirects) ||
+		errors.Is(err, errRedirectDifferentHost) ||
+		errors.Is(err, errRedirectSchemeDowngrade)
 }
