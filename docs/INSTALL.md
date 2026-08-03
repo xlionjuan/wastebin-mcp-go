@@ -144,7 +144,8 @@ wastebin-mcp-go
 ## Running in CLI Mode
 
 CLI mode is activated by the `create` subcommand. It reads configuration from
-the environment (same env vars as MCP mode), executes a one-shot paste creation,
+the environment (same supported env vars as MCP mode, except the sandbox path
+translation variables, which are rejected), executes a one-shot paste creation,
 and prints the JSON result to stdout.
 
 ```bash
