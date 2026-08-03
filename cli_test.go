@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -304,6 +305,72 @@ func TestBuildCreatePasteArgsWithParseCreateFlagsFilePath(t *testing.T) {
 	assertStringPtr(t, "Password", args.Password, nil)
 	assertBoolPtr(t, "BurnAfterReading", args.BurnAfterReading, nil)
 	assertBoolPtr(t, "TranslateSandboxPath", args.TranslateSandboxPath, nil)
+}
+
+func TestCheckNoSandboxTranslationEnv(t *testing.T) {
+	// Cannot use t.Parallel() due to environment variable manipulation.
+	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", "")
+	t.Setenv("WASTEBIN_MCP_SANDBOX_TRANSPARENT", "")
+
+	err := checkNoSandboxTranslationEnv()
+	if err != nil {
+		t.Fatalf("expected nil with no sandbox translation env vars set, got: %v", err)
+	}
+}
+
+func TestCheckNoSandboxTranslationEnv_SandboxMountsSet(t *testing.T) {
+	// Cannot use t.Parallel() due to environment variable manipulation.
+	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", "/host:/workspace")
+	t.Setenv("WASTEBIN_MCP_SANDBOX_TRANSPARENT", "")
+
+	err := checkNoSandboxTranslationEnv()
+	if err == nil {
+		t.Fatal("expected error when WASTEBIN_MCP_SANDBOX_MOUNTS is set")
+	}
+
+	if !errors.Is(err, errSandboxTranslationCLIUnsupported) {
+		t.Errorf("expected errSandboxTranslationCLIUnsupported, got: %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "WASTEBIN_MCP_SANDBOX_MOUNTS") {
+		t.Errorf("expected error to name WASTEBIN_MCP_SANDBOX_MOUNTS, got: %v", err)
+	}
+}
+
+func TestCheckNoSandboxTranslationEnv_SandboxTransparentSet(t *testing.T) {
+	// Cannot use t.Parallel() due to environment variable manipulation.
+	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", "")
+	t.Setenv("WASTEBIN_MCP_SANDBOX_TRANSPARENT", "true")
+
+	err := checkNoSandboxTranslationEnv()
+	if err == nil {
+		t.Fatal("expected error when WASTEBIN_MCP_SANDBOX_TRANSPARENT is set")
+	}
+
+	if !errors.Is(err, errSandboxTranslationCLIUnsupported) {
+		t.Errorf("expected errSandboxTranslationCLIUnsupported, got: %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "WASTEBIN_MCP_SANDBOX_TRANSPARENT") {
+		t.Errorf("expected error to name WASTEBIN_MCP_SANDBOX_TRANSPARENT, got: %v", err)
+	}
+}
+
+func TestRunCLIMode_RejectsSandboxTranslationEnv(t *testing.T) {
+	// Cannot use t.Parallel() due to environment variable manipulation.
+	// The sandbox env check runs before ConfigFromEnv, so no server URL is
+	// required — the sandbox error must surface, not a configuration error.
+	t.Setenv("WASTEBIN_MCP_SANDBOX_MOUNTS", "")
+	t.Setenv("WASTEBIN_MCP_SANDBOX_TRANSPARENT", "true")
+
+	err := runCLIMode(&CLIFlags{Content: "test"})
+	if err == nil {
+		t.Fatal("expected error when a sandbox translation env var is set in CLI mode")
+	}
+
+	if !errors.Is(err, errSandboxTranslationCLIUnsupported) {
+		t.Errorf("expected errSandboxTranslationCLIUnsupported, got: %v", err)
+	}
 }
 
 func TestRunCLIMode_CreatePasteError(t *testing.T) {
