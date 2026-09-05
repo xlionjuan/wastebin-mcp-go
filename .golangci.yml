@@ -16,7 +16,6 @@ linters:
     - wsl_v5
   disable:
     - exhaustruct
-    - exhaustruct_v5
     - gochecknoglobals
     - gomodguard
     - wrapcheck
@@ -24,6 +23,16 @@ linters:
   settings:
     cyclop:
       max-complexity: 15
+    exhaustruct_v5:
+      # These types are intentionally initialized partially: builders that
+      # fill optional fields conditionally, config/default constructors, and
+      # external SDK/stdlib types where only the needed fields are set.
+      optional-patterns:
+        - 'github\.com/modelcontextprotocol/go-sdk/mcp\..*'
+        - 'net/http\.(Client|Transport)$'
+        - 'net\.Dialer$'
+        - 'wastebin-mcp-go\.CLIFlags$'
+        - 'wastebin-mcp-go/internal/wastebin\.(CreatePasteArgs|PasteResponse|Config|wastebinRequest|BlocklistStages)$'
     depguard:
       rules:
         main:
@@ -92,6 +101,9 @@ linters:
       - builtin$
       - examples$
     rules:
+      - linters: [exhaustruct_v5]
+        path: ".*_test\\.go$"
+        text: ".*"
       - linters: [forbidigo]
         paths:
           - "cli\\.go$"
