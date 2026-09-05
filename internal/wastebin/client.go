@@ -240,8 +240,7 @@ func translateHTTPError(statusCode int, body string) error {
 // isConnectionError checks if the error is a connection-level error
 // (connection refused, timeout, etc.).
 func isConnectionError(err error) bool {
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
+	if opErr, ok := errors.AsType[*net.OpError](err); ok {
 		return opErr.Op == "dial"
 	}
 
