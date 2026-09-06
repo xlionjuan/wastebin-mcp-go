@@ -27,16 +27,17 @@ const (
 // DefaultConfig returns Config with safe defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		ServerURL:             "",
-		DefaultExpires:        defaultExpirySeconds, // 1 year
-		FileReadEnabled:       true,
-		AllowedPaths:          nil,
-		BlockedPaths:          nil,
-		MaxContentSize:        defaultMaxContentSize, // 1 MB
-		SandboxMounts:         nil,
-		SandboxTransparent:    false,
-		AllowInsecurePassword: false,
-		Debug:                 false,
+		ServerURL:               "",
+		DefaultExpires:          defaultExpirySeconds, // 1 year
+		FileReadEnabled:         true,
+		AllowedPaths:            nil,
+		BlockedPaths:            nil,
+		MaxContentSize:          defaultMaxContentSize, // 1 MB
+		SandboxMounts:           nil,
+		SandboxTransparent:      false,
+		AllowInsecurePassword:   false,
+		DisableBuiltinBlocklist: false,
+		Debug:                   false,
 	}
 }
 

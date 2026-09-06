@@ -32,7 +32,7 @@ linters:
         - 'net/http\.(Client|Transport)$'
         - 'net\.Dialer$'
         - 'wastebin-mcp-go\.CLIFlags$'
-        - 'wastebin-mcp-go/internal/wastebin\.(CreatePasteArgs|PasteResponse|Config|wastebinRequest|BlocklistStages)$'
+        - 'wastebin-mcp-go/internal/wastebin\.(CreatePasteArgs|PasteResponse|wastebinRequest|BlocklistStages)$'
     depguard:
       rules:
         main:
