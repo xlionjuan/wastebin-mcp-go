@@ -18,6 +18,8 @@ const (
 // magic-byte signature. Only 4-byte ZIP signatures are matched (PK\x03\x04,
 // PK\x05\x06, PK\x07\x08) — plain "PK" alone is not a binary signal because
 // it appears in ordinary text (e.g. "PK is a common initialism...").
+//
+//nolint:cyclop,gocyclo // Sequence of magic-byte signature checks, one per format
 func hasBinarySignature(data []byte) bool {
 	if len(data) < minSigLen {
 		return false
@@ -102,21 +104,21 @@ const readSize = sniffSize + utf8.UTFMax
 
 // IsLikelyTextFile reads readSize bytes from path and calls IsLikelyText.
 func IsLikelyTextFile(path string) (bool, error) {
-	f, err := os.Open(path) //nolint:gosec // Path validated through validateFilePath pipeline
+	file, err := os.Open(path) //nolint:gosec // Path validated through validateFilePath pipeline
 	if err != nil {
 		return false, fmt.Errorf("failed to open file: %w", err)
 	}
-	defer func() { _ = f.Close() }() //nolint:errcheck // Close failure is non-critical; file was already read successfully
+	defer func() { _ = file.Close() }() //nolint:errcheck // Close failure non-critical; file already read
 
 	buf := make([]byte, readSize)
 
-	n, err := io.ReadFull(f, buf)
+	num, err := io.ReadFull(file, buf)
 	if err != nil {
 		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
 			// File ≤ readSize — entire content was read. The extra
 			// bytes (if any) ensure no mid-rune truncation at the
 			// sniff boundary, so no trimming is needed.
-			return IsLikelyText(buf[:n]), nil
+			return IsLikelyText(buf[:num]), nil
 		}
 
 		return false, fmt.Errorf("failed to read file: %w", err)

@@ -12,27 +12,27 @@ import (
 // Bare number -> seconds.
 // Number + unit suffix -> translated.
 // Units: s, m, h, d, w, M (30d), y (365d).
-func ParseExpiration(s string, defaultSeconds int) (int, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
+func ParseExpiration(input string, defaultSeconds int) (int, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
 		return defaultSeconds, nil
 	}
 
 	// If it starts with a digit or minus sign, try parsing.
-	if s[0] >= '0' && s[0] <= '9' || s[0] == '-' {
-		return parseNumberWithUnit(s)
+	if input[0] >= '0' && input[0] <= '9' || input[0] == '-' {
+		return parseNumberWithUnit(input)
 	}
 
-	return 0, fmt.Errorf("%w: %q", errInvalidExpirationFmt, s)
+	return 0, fmt.Errorf("%w: %q", errInvalidExpirationFmt, input)
 }
 
 // parseNumberWithUnit extracts the numeric value and optional unit suffix from
 // an expiration string like "3600", "1h", "7d", and returns the value in seconds.
-func parseNumberWithUnit(s string) (int, error) {
+func parseNumberWithUnit(input string) (int, error) {
 	// Find the boundary between the number and optional unit suffix.
 	numEnd := 0
 
-	for i, c := range s {
+	for i, c := range input {
 		if c >= '0' && c <= '9' || i == 0 && c == '-' {
 			numEnd = i + 1
 		} else {
@@ -40,21 +40,21 @@ func parseNumberWithUnit(s string) (int, error) {
 		}
 	}
 
-	numStr := s[:numEnd]
-	unitStr := s[numEnd:]
+	numStr := input[:numEnd]
+	unitStr := input[numEnd:]
 
-	n, err := strconv.Atoi(numStr)
+	num, err := strconv.Atoi(numStr)
 	if err != nil {
 		return 0, fmt.Errorf("invalid expiration number; use a valid numeric expiration value: %w", err)
 	}
 
-	if n < 0 {
+	if num < 0 {
 		return 0, errNegativeExpiration
 	}
 
 	if unitStr == "" {
 		// Bare number.
-		return n, nil
+		return num, nil
 	}
 
 	// Number with unit suffix.
@@ -63,8 +63,8 @@ func parseNumberWithUnit(s string) (int, error) {
 		return 0, fmt.Errorf("%w: %q", errUnknownExpirationUnit, unitStr)
 	}
 
-	result := n * multiplier
-	if multiplier != 0 && result/multiplier != n {
+	result := num * multiplier
+	if multiplier != 0 && result/multiplier != num {
 		return 0, errExpirationOverflow
 	}
 

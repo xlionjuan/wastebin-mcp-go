@@ -6,6 +6,14 @@ import (
 	"strings"
 )
 
+// JSON Schema key literals reused across the generated property maps.
+const (
+	schemaKeyType        = "type"
+	schemaTypeString     = "string"
+	schemaTypeBoolean    = "boolean"
+	schemaKeyDescription = "description"
+)
+
 // SchemaBuilder builds JSON Schema and tool descriptions for the create_paste
 // MCP tool based on server configuration.
 type SchemaBuilder struct {
@@ -19,6 +27,8 @@ func NewSchemaBuilder(cfg *Config) *SchemaBuilder {
 
 // BuildToolSchema generates the JSON Schema for the create_paste tool input
 // dynamically based on the server configuration.
+//
+//nolint:funlen // Schema assembled verbatim as a map; extraction would obscure the generated document
 func (b *SchemaBuilder) BuildToolSchema() (json.RawMessage, error) {
 	props := map[string]any{}
 
@@ -27,13 +37,13 @@ func (b *SchemaBuilder) BuildToolSchema() (json.RawMessage, error) {
 	// content -- always included
 	if b.cfg.FileReadEnabled {
 		props["content"] = map[string]any{
-			"type":        "string",
-			"description": "The text content of the paste. Provide this OR file_path (not both).",
+			schemaKeyType:        schemaTypeString,
+			schemaKeyDescription: "The text content of the paste. Provide this OR file_path (not both).",
 		}
 	} else {
 		props["content"] = map[string]any{
-			"type":        "string",
-			"description": "The text content of the paste.",
+			schemaKeyType:        schemaTypeString,
+			schemaKeyDescription: "The text content of the paste.",
 		}
 
 		required = append(required, "content")
@@ -53,8 +63,8 @@ func (b *SchemaBuilder) BuildToolSchema() (json.RawMessage, error) {
 		filePathDesc += b.describePathSecurity()
 
 		props["file_path"] = map[string]any{
-			"type":        "string",
-			"description": filePathDesc,
+			schemaKeyType:        schemaTypeString,
+			schemaKeyDescription: filePathDesc,
 		}
 	}
 
@@ -66,15 +76,15 @@ func (b *SchemaBuilder) BuildToolSchema() (json.RawMessage, error) {
 	}
 
 	props["extension"] = map[string]any{
-		"type":        "string",
-		"description": extDesc,
+		schemaKeyType:        schemaTypeString,
+		schemaKeyDescription: extDesc,
 	}
 
 	// expires -- optional
 	defaultExpiresDesc := DescribeDefaultExpires(b.cfg.DefaultExpires)
 	props["expires"] = map[string]any{
-		"type": "string",
-		"description": "Expiration time: bare number (seconds) or number plus unit " +
+		schemaKeyType: schemaTypeString,
+		schemaKeyDescription: "Expiration time: bare number (seconds) or number plus unit " +
 			"suffix (s, m, h, d, w, M=30d, y=365d). Examples: '3600', '1h', " +
 			"'7d', '30M'. Defaults to " + defaultExpiresDesc + ". " +
 			"Configured via WASTEBIN_MCP_DEFAULT_EXPIRES.",
@@ -82,14 +92,14 @@ func (b *SchemaBuilder) BuildToolSchema() (json.RawMessage, error) {
 
 	// title -- optional
 	props["title"] = map[string]any{
-		"type":        "string",
-		"description": "Optional title for the paste.",
+		schemaKeyType:        schemaTypeString,
+		schemaKeyDescription: "Optional title for the paste.",
 	}
 
 	// burn_after_reading -- optional
 	props["burn_after_reading"] = map[string]any{
-		"type": "boolean",
-		"description": "If true, the paste is deleted automatically after being " +
+		schemaKeyType: schemaTypeBoolean,
+		schemaKeyDescription: "If true, the paste is deleted automatically after being " +
 			"retrieved via any access method (raw, web, API) for the first " +
 			"time. The agent's own reads also count -- creating a " +
 			"burn-after-reading paste and then reading it back will delete it.",
@@ -97,24 +107,24 @@ func (b *SchemaBuilder) BuildToolSchema() (json.RawMessage, error) {
 
 	// password -- optional, must be non-empty when provided
 	props["password"] = map[string]any{
-		"type":      "string",
-		"minLength": 1,
-		"description": "Optional password to protect the paste. " +
+		schemaKeyType: schemaTypeString,
+		"minLength":   1,
+		schemaKeyDescription: "Optional password to protect the paste. " +
 			"Password-protected pastes require the Wastebin-Password header for retrieval.",
 	}
 
 	// translate_sandbox_path -- only when mounts configured and not transparent
 	if b.cfg.FileReadEnabled && len(b.cfg.SandboxMounts) > 0 && !b.cfg.SandboxTransparent {
 		props["translate_sandbox_path"] = map[string]any{
-			"type": "boolean",
-			"description": "Set to true if file_path is a sandbox-internal " +
+			schemaKeyType: schemaTypeBoolean,
+			schemaKeyDescription: "Set to true if file_path is a sandbox-internal " +
 				"path that should be translated to the corresponding host " +
 				"path using configured sandbox mounts.",
 		}
 	}
 
 	schema := map[string]any{
-		"type":                 "object",
+		schemaKeyType:          "object",
 		"properties":           props,
 		"additionalProperties": false,
 	}
@@ -139,13 +149,13 @@ func DescribeDefaultExpires(seconds int) string {
 	}
 
 	years := seconds / secondsPerYear
-	r := seconds % secondsPerYear
-	days := r / secondsPerDay
-	r %= secondsPerDay
-	hours := r / secondsPerHour
-	r %= secondsPerHour
-	minutes := r / secondsPerMinute
-	secs := r % secondsPerMinute
+	rem := seconds % secondsPerYear
+	days := rem / secondsPerDay
+	rem %= secondsPerDay
+	hours := rem / secondsPerHour
+	rem %= secondsPerHour
+	minutes := rem / secondsPerMinute
+	secs := rem % secondsPerMinute
 
 	var parts []string
 	if years == 1 {
@@ -210,24 +220,24 @@ func (b *SchemaBuilder) BuildToolDescription() string {
 // description based on the configured path policy.
 func (b *SchemaBuilder) describePathSecurity() string {
 	if len(b.cfg.AllowedPaths) > 0 {
-		s := " SECURITY: Only paths under ALLOWED_PATHS are accepted."
+		desc := " SECURITY: Only paths under ALLOWED_PATHS are accepted."
 
 		if !b.cfg.DisableBuiltinBlocklist {
-			s += " Sensitive components remain blocked."
+			desc += " Sensitive components remain blocked."
 		}
 
-		return s
+		return desc
 	}
 
 	if !b.cfg.DisableBuiltinBlocklist {
-		s := " SECURITY: The built-in blocklist rejects system paths (/etc, /proc, /sys, /dev) " +
+		desc := " SECURITY: The built-in blocklist rejects system paths (/etc, /proc, /sys, /dev) " +
 			"and sensitive components (.ssh, .gnupg, .aws, .kube, .docker, .git)."
 
 		if len(b.cfg.BlockedPaths) > 0 {
-			s += " User-defined BLOCKED_PATHS also apply."
+			desc += " User-defined BLOCKED_PATHS also apply."
 		}
 
-		return s
+		return desc
 	}
 
 	if len(b.cfg.BlockedPaths) > 0 {

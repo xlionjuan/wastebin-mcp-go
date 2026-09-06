@@ -28,7 +28,7 @@ linters:
       # fill optional fields conditionally, config/default constructors, and
       # external SDK/stdlib types where only the needed fields are set.
       optional-patterns:
-        - 'github\.com/modelcontextprotocol/go-sdk/mcp\..*'
+        - 'github\.com/modelcontextprotocol/go-sdk/mcp\.(Tool|ToolAnnotations|Implementation|IOTransport|CallToolResult|TextContent)$'
         - 'net/http\.(Client|Transport)$'
         - 'net\.Dialer$'
         - 'wastebin-mcp-go\.CLIFlags$'
@@ -105,40 +105,31 @@ linters:
         path: ".*_test\\.go$"
         text: ".*"
       - linters: [forbidigo]
-        paths:
-          - "cli\\.go$"
+        path: "cli\\.go$"
         text: ".*"
       - linters: [funlen]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [dupl]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [gosmopolitan]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [goconst]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [varnamelen]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [gocognit]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [gocyclo]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [cyclop]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [tagliatelle]
         path: 'internal/wastebin/types\.go$'

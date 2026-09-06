@@ -42,6 +42,8 @@ func DefaultConfig() *Config {
 
 // ConfigFromEnv reads and validates config from environment variables.
 // Returns validated Config or error.
+//
+//nolint:cyclop,funlen,gocognit,gocyclo // Sequential env-var parsing with per-variable validation branches
 func ConfigFromEnv() (*Config, error) {
 	cfg := DefaultConfig()
 
@@ -53,16 +55,16 @@ func ConfigFromEnv() (*Config, error) {
 
 	// Default expires.
 	if v := os.Getenv("WASTEBIN_MCP_DEFAULT_EXPIRES"); v != "" {
-		n, err := strconv.Atoi(v)
+		num, err := strconv.Atoi(v)
 		if err != nil {
 			return nil, fmt.Errorf("invalid WASTEBIN_MCP_DEFAULT_EXPIRES: %w", err)
 		}
 
-		if n < 0 {
+		if num < 0 {
 			return nil, errNegativeDefaultExpires
 		}
 
-		cfg.DefaultExpires = n
+		cfg.DefaultExpires = num
 	}
 
 	// File read enabled.
@@ -78,13 +80,13 @@ func ConfigFromEnv() (*Config, error) {
 	// Allowed paths (comma-separated absolute paths, resolved with EvalSymlinks + Clean).
 	if v := os.Getenv("WASTEBIN_MCP_ALLOWED_PATHS"); v != "" {
 		parts := strings.SplitSeq(v, ",")
-		for p := range parts {
-			p = strings.TrimSpace(p)
-			if p == "" {
+		for part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
 				continue
 			}
 
-			resolved, err := resolveConfiguredPath("WASTEBIN_MCP_ALLOWED_PATHS", p, false)
+			resolved, err := resolveConfiguredPath("WASTEBIN_MCP_ALLOWED_PATHS", part, false)
 			if err != nil {
 				return nil, err
 			}
@@ -103,15 +105,15 @@ func ConfigFromEnv() (*Config, error) {
 		cfg.BlockedPaths = nil
 
 		parts := strings.SplitSeq(v, ",")
-		for p := range parts {
-			p = strings.TrimSpace(p)
-			if p == "" {
+		for part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
 				continue
 			}
 
-			lexical := filepath.Clean(p)
+			lexical := filepath.Clean(part)
 			if !filepath.IsAbs(lexical) {
-				return nil, fmt.Errorf("%w: WASTEBIN_MCP_BLOCKED_PATHS entry %q", errConfiguredPathNotAbsolute, p)
+				return nil, fmt.Errorf("%w: WASTEBIN_MCP_BLOCKED_PATHS entry %q", errConfiguredPathNotAbsolute, part)
 			}
 
 			resolved, err := filepath.EvalSymlinks(lexical)
@@ -131,23 +133,23 @@ func ConfigFromEnv() (*Config, error) {
 
 	// Max content size.
 	if v := os.Getenv("WASTEBIN_MCP_MAX_CONTENT_SIZE"); v != "" {
-		n, err := strconv.ParseInt(v, 10, 64)
+		num, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("invalid WASTEBIN_MCP_MAX_CONTENT_SIZE: %w", err)
 		}
 
-		if n < 1 {
+		if num < 1 {
 			return nil, errMaxContentSizeTooSmall
 		}
 
-		if n > MaxContentSizeLimit {
+		if num > MaxContentSizeLimit {
 			return nil, fmt.Errorf(
 				"%w (%d exceeds the maximum of %d)",
-				errMaxContentSizeTooLarge, n, MaxContentSizeLimit,
+				errMaxContentSizeTooLarge, num, MaxContentSizeLimit,
 			)
 		}
 
-		cfg.MaxContentSize = n
+		cfg.MaxContentSize = num
 	}
 
 	// Sandbox mounts.
@@ -206,18 +208,18 @@ func ConfigFromEnv() (*Config, error) {
 	return cfg, nil
 }
 
-func resolveConfiguredPath(envName, p string, allowMissing bool) (string, error) {
-	if !filepath.IsAbs(p) {
-		return "", fmt.Errorf("%w: %s entry %q", errConfiguredPathNotAbsolute, envName, p)
+func resolveConfiguredPath(envName, rawPath string, allowMissing bool) (string, error) {
+	if !filepath.IsAbs(rawPath) {
+		return "", fmt.Errorf("%w: %s entry %q", errConfiguredPathNotAbsolute, envName, rawPath)
 	}
 
-	resolved, err := filepath.EvalSymlinks(p)
+	resolved, err := filepath.EvalSymlinks(rawPath)
 	if err != nil {
 		if allowMissing {
-			return filepath.Clean(p), nil
+			return filepath.Clean(rawPath), nil
 		}
 
-		return "", fmt.Errorf("failed to resolve %s path %q: %w", envName, p, err)
+		return "", fmt.Errorf("failed to resolve %s path %q: %w", envName, rawPath, err)
 	}
 
 	return filepath.Clean(resolved), nil
@@ -229,30 +231,30 @@ func resolveAndValidateMounts(
 	mounts []SandboxMount,
 	allowedPaths []string,
 ) ([]SandboxMount, error) {
-	for i := range mounts {
-		resolved, err := filepath.EvalSymlinks(mounts[i].HostPath)
+	for idx := range mounts {
+		resolved, err := filepath.EvalSymlinks(mounts[idx].HostPath)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"failed to resolve sandbox mount host path %q: %w",
-				mounts[i].HostPath, err,
+				mounts[idx].HostPath, err,
 			)
 		}
 
-		mounts[i].HostPath = filepath.Clean(resolved)
+		mounts[idx].HostPath = filepath.Clean(resolved)
 	}
 
 	validated := make([]SandboxMount, 0, len(mounts))
-	for _, m := range mounts {
-		if len(allowedPaths) > 0 && !isAllowedPath(m.HostPath, allowedPaths) {
+	for _, mount := range mounts {
+		if len(allowedPaths) > 0 && !isAllowedPath(mount.HostPath, allowedPaths) {
 			slog.Warn("sandbox mount host_path not under any allowed path; skipping mount",
-				"host_path", m.HostPath,
-				"sandbox_path", m.SandboxPath,
+				"host_path", mount.HostPath,
+				"sandbox_path", mount.SandboxPath,
 			)
 
 			continue
 		}
 
-		validated = append(validated, m)
+		validated = append(validated, mount)
 	}
 
 	return validated, nil

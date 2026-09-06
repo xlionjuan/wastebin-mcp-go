@@ -123,7 +123,7 @@ func (h *Handler) buildRequest(args *CreatePasteArgs, content, ext string, expir
 
 		reqBody.Password = *args.Password
 
-		if h.baseURL.Scheme == "http" {
+		if h.baseURL.Scheme == schemeHTTP {
 			if !isLoopbackHost(h.baseURL.Host) && !h.config.AllowInsecurePassword {
 				return nil, errPasswordOverHTTP
 			}
@@ -142,6 +142,8 @@ func (h *Handler) buildRequest(args *CreatePasteArgs, content, ext string, expir
 
 // sendRequest performs the HTTP POST to the Wastebin server and processes the
 // response, including error translation and response validation.
+//
+//nolint:funlen // Sequential request/response pipeline; inlining keeps error contexts local
 func (h *Handler) sendRequest(ctx context.Context, bodyBytes []byte) (*wastebinResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.postURL, bytes.NewReader(bodyBytes))
 	if err != nil {
@@ -226,7 +228,7 @@ func wrapFilePathCannotBeUsed(underlying error) error {
 // readFileContent reads file content from the given path, handling sandbox
 // translation, path validation, text detection, and extension detection.
 //
-//nolint:nonamedreturns // Both returns are string — named disambiguates.
+//nolint:cyclop,funlen,gocognit,gocyclo,nonamedreturns // Security pipeline; named returns disambiguate strings
 func (h *Handler) readFileContent(
 	filePath string, translateSandboxPath *bool, extArg *string,
 ) (content, ext string, err error) {
@@ -269,13 +271,13 @@ func (h *Handler) readFileContent(
 
 	// 3. Open via fd-based symlink-safe traversal, stat the fd, and read
 	//    through LimitReader.
-	f, openErr := openFileResolved(resolvedPath, h.config.AllowedPaths)
+	file, openErr := openFileResolved(resolvedPath, h.config.AllowedPaths)
 	if openErr != nil {
 		return "", "", wrapFilePathCannotBeUsed(openErr)
 	}
-	defer f.Close() //nolint:errcheck // Read-only file; close error non-critical
+	defer file.Close() //nolint:errcheck // Read-only file; close error non-critical
 
-	fi, statErr := f.Stat()
+	fi, statErr := file.Stat()
 	if statErr != nil {
 		return "", "", wrapFilePathCannotBeUsed(statErr)
 	}
@@ -288,7 +290,7 @@ func (h *Handler) readFileContent(
 		return "", "", newContentTooLargeError(fi.Size(), h.config.MaxContentSize)
 	}
 
-	data, readErr := io.ReadAll(io.LimitReader(f, h.config.MaxContentSize+1))
+	data, readErr := io.ReadAll(io.LimitReader(file, h.config.MaxContentSize+1))
 	if readErr != nil {
 		return "", "", wrapFilePathCannotBeUsed(readErr)
 	}
@@ -353,7 +355,7 @@ func newHTTPClient() *http.Client {
 					return errRedirectDifferentHost
 				}
 
-				if prev.URL.Scheme == "https" && req.URL.Scheme == "http" {
+				if prev.URL.Scheme == schemeHTTPS && req.URL.Scheme == schemeHTTP {
 					return errRedirectSchemeDowngrade
 				}
 			}

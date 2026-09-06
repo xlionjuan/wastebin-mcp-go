@@ -37,6 +37,10 @@ const (
 	// successful Wastebin JSON response. The expected payload is a small
 	// object containing one paste path, e.g. {"path":"/ABC123"}.
 	maxResponseBodyLength = 1024
+
+	// URL schemes accepted for the Wastebin server.
+	schemeHTTP  = "http"
+	schemeHTTPS = "https"
 )
 
 // WastebinClient handles HTTP communication with the Wastebin server.
@@ -90,14 +94,14 @@ func NewWastebinClient(cfg *Config) (*WastebinClient, error) {
 
 // CreatePaste sends a paste to the Wastebin server.
 func (c *WastebinClient) CreatePaste(ctx context.Context, args *CreatePasteArgs) (*PasteResponse, error) {
-	h := &Handler{
+	handler := &Handler{
 		baseURL:    c.baseURL,
 		httpClient: c.httpClient,
 		config:     c.config,
 		postURL:    c.postURL,
 	}
 
-	return h.CreatePaste(ctx, args)
+	return handler.CreatePaste(ctx, args)
 }
 
 // checkContentSize verifies that the content does not exceed the maximum
@@ -296,7 +300,7 @@ func validateServerURL(cfg *Config) (*url.URL, error) {
 		return nil, fmt.Errorf("invalid server URL: %w", err)
 	}
 
-	if baseURL.Scheme != "http" && baseURL.Scheme != "https" {
+	if baseURL.Scheme != schemeHTTP && baseURL.Scheme != schemeHTTPS {
 		return nil, errUnsupportedURLScheme
 	}
 

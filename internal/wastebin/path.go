@@ -9,6 +9,9 @@ import (
 
 // Sentinel errors are defined in errors.go.
 
+// parentDirComponent is the lexical parent-directory path component.
+const parentDirComponent = ".."
+
 // builtinBlockedPrefixes are absolute path prefixes blocked by default.
 var builtinBlockedPrefixes = []string{"/etc", "/proc", "/sys", "/dev"}
 
@@ -20,7 +23,8 @@ func isContainedPath(base, target string) bool {
 		return false
 	}
 
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+	return rel == "." ||
+		(rel != parentDirComponent && !strings.HasPrefix(rel, parentDirComponent+string(filepath.Separator)))
 }
 
 // builtinBlockedComponents are directory/file names blocked by default
@@ -38,7 +42,7 @@ func hasPathTraversal(path string) bool {
 	normalized := normalizePath(path)
 
 	for part := range strings.SplitSeq(normalized, "/") {
-		if part == ".." {
+		if part == parentDirComponent {
 			return true
 		}
 	}
@@ -230,7 +234,7 @@ func stageBuiltinBlocked(path string) (string, error) {
 // sandbox path before translation, then runs validateFilePath on the
 // translated path for defense in depth.
 //
-//nolint:nonamedreturns // Named returns improve godoc clarity
+//nolint:cyclop,funlen,gocognit,gocyclo,nonamedreturns // Six-stage security pipeline; named returns improve clarity
 func validateFilePath(rawPath string, cfg *Config) (resolvedPath string, err error) {
 	// Build blocklist stages from config. DisableBuiltinBlocklist is consumed
 	// here — the stages are either present or absent.

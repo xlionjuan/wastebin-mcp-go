@@ -159,6 +159,8 @@ const mcpFirstMessageReadChunkSize = 32 << 10 // 32 KiB
 // oversized first line is rejected without buffering the entire line. A line
 // without a trailing newline is accepted when it ends at EOF; content
 // validation is done by prepareMCPStdin.
+//
+//nolint:gocognit // Bounded incremental read loop with many edge-case branches
 func readFirstLine(stdin io.Reader, maxBytes int) ([]byte, []byte, error) {
 	line := make([]byte, 0, mcpFirstMessageReadChunkSize)
 	buf := make([]byte, mcpFirstMessageReadChunkSize)
@@ -166,11 +168,11 @@ func readFirstLine(stdin io.Reader, maxBytes int) ([]byte, []byte, error) {
 	for {
 		want := min(maxBytes+1-len(line), len(buf))
 
-		n, err := stdin.Read(buf[:want])
-		if n > 0 {
-			for i := range n {
+		num, err := stdin.Read(buf[:want])
+		if num > 0 {
+			for i := range num {
 				if buf[i] == '\n' {
-					return append(line, '\n'), append([]byte(nil), buf[i+1:n]...), nil
+					return append(line, '\n'), append([]byte(nil), buf[i+1:num]...), nil
 				}
 
 				line = append(line, buf[i])
@@ -180,7 +182,7 @@ func readFirstLine(stdin io.Reader, maxBytes int) ([]byte, []byte, error) {
 			}
 		}
 
-		if n == 0 && err == nil {
+		if num == 0 && err == nil {
 			return nil, nil, errInvalidMCPFirstMessage
 		}
 
