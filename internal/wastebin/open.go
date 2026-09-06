@@ -62,14 +62,14 @@ func openFileFromRoot(resolvedPath string, allowedPaths []string) (*os.File, err
 func findAllowedRoot(resolvedPath string, allowedPaths []string) (string, string, bool) {
 	cleaned := filepath.Clean(resolvedPath)
 	for _, allowed := range allowedPaths {
-		a := filepath.Clean(allowed)
-		if isContainedPath(a, cleaned) {
-			rel, err := filepath.Rel(a, cleaned)
+		cleanAllowed := filepath.Clean(allowed)
+		if isContainedPath(cleanAllowed, cleaned) {
+			rel, err := filepath.Rel(cleanAllowed, cleaned)
 			if err != nil {
 				return "", "", false
 			}
 
-			return a, rel, true
+			return cleanAllowed, rel, true
 		}
 	}
 
@@ -86,6 +86,8 @@ func findAllowedRoot(resolvedPath string, allowedPaths []string) (string, string
 // The final component is opened with O_NONBLOCK so that FIFO file paths
 // (which block on O_RDONLY until a writer appears) fail immediately and are
 // rejected before any read can begin.
+//
+//nolint:gocognit // openat walk with per-component validation and careful fd unwind
 func openRelNoFollow(dir *os.File, relPath string) (*os.File, error) {
 	parts := splitPath(relPath)
 	if len(parts) == 0 {

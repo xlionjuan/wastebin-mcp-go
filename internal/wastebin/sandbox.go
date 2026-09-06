@@ -17,15 +17,17 @@ type SandboxMount struct {
 
 // ParseSandboxMounts parses the WASTEBIN_MCP_SANDBOX_MOUNTS env var format:
 // "host1:sand1,host2:sand2".
-func ParseSandboxMounts(s string) ([]SandboxMount, error) {
-	if s == "" {
+//
+//nolint:funlen,gocyclo // Format parser with per-field validation branches
+func ParseSandboxMounts(input string) ([]SandboxMount, error) {
+	if input == "" {
 		return nil, nil
 	}
 
 	var mounts []SandboxMount
 
-	pairs := strings.Split(s, ",")
-	for i, pair := range pairs {
+	pairs := strings.Split(input, ",")
+	for idx, pair := range pairs {
 		pair = strings.TrimSpace(pair)
 		if pair == "" {
 			continue
@@ -35,7 +37,7 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 			return nil, fmt.Errorf(
 				"%w at index %d: %q (expected host:sandbox format)",
-				errInvalidSandboxMount, i, pair,
+				errInvalidSandboxMount, idx, pair,
 			)
 		}
 
@@ -45,14 +47,14 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 		if !strings.HasPrefix(hostPath, "/") {
 			return nil, fmt.Errorf(
 				"%w at index %d: host path %q must be absolute",
-				errInvalidSandboxMount, i, hostPath,
+				errInvalidSandboxMount, idx, hostPath,
 			)
 		}
 
 		if hasSandboxParentDir(sandboxPath) {
 			return nil, fmt.Errorf(
 				"%w at index %d: sandbox path %q must not contain parent-directory traversal",
-				errInvalidSandboxMount, i, sandboxPath,
+				errInvalidSandboxMount, idx, sandboxPath,
 			)
 		}
 
@@ -61,7 +63,7 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 		if !path.IsAbs(sandboxPath) {
 			return nil, fmt.Errorf(
 				"%w at index %d: sandbox path %q must be absolute",
-				errInvalidSandboxMount, i, sandboxPath,
+				errInvalidSandboxMount, idx, sandboxPath,
 			)
 		}
 
@@ -72,17 +74,17 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 	}
 
 	// Validate that no sandbox path contains another (overlapping mounts).
-	for i := range mounts {
-		for j := i + 1; j < len(mounts); j++ {
-			a := mounts[i]
-			b := mounts[j]
+	for idx := range mounts {
+		for other := idx + 1; other < len(mounts); other++ {
+			first := mounts[idx]
+			second := mounts[other]
 
-			if isContainedSandboxPath(a.SandboxPath, b.SandboxPath) ||
-				isContainedSandboxPath(b.SandboxPath, a.SandboxPath) {
+			if isContainedSandboxPath(first.SandboxPath, second.SandboxPath) ||
+				isContainedSandboxPath(second.SandboxPath, first.SandboxPath) {
 				return nil, fmt.Errorf(
 					"%w: sandbox mount %d (%q) overlaps with mount %d (%q); "+
 						"each mount's sandbox path must be unique and non-overlapping",
-					errOverlappingMounts, i, a.SandboxPath, j, b.SandboxPath,
+					errOverlappingMounts, idx, first.SandboxPath, other, second.SandboxPath,
 				)
 			}
 		}
@@ -93,7 +95,7 @@ func ParseSandboxMounts(s string) ([]SandboxMount, error) {
 
 func hasSandboxParentDir(sandboxPath string) bool {
 	for part := range strings.SplitSeq(sandboxPath, "/") {
-		if part == ".." {
+		if part == parentDirComponent {
 			return true
 		}
 	}
@@ -161,17 +163,17 @@ func isUnderMountHost(path string, mounts []SandboxMount) bool {
 // Translate converts sandbox path to host path.
 // Returns empty string and false if no mount matches.
 func (t *Translator) Translate(sandboxPath string) (string, bool) {
-	for _, m := range t.mounts {
-		rel, ok := sandboxRelativePath(m.SandboxPath, sandboxPath)
+	for _, mount := range t.mounts {
+		rel, ok := sandboxRelativePath(mount.SandboxPath, sandboxPath)
 		if !ok {
 			continue
 		}
 
 		if rel == "." {
-			return m.HostPath, true
+			return mount.HostPath, true
 		}
 
-		return filepath.Join(m.HostPath, rel), true
+		return filepath.Join(mount.HostPath, rel), true
 	}
 
 	return "", false

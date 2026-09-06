@@ -15,6 +15,7 @@ linters:
     - wastedassign
     - wsl_v5
   disable:
+    - exhaustruct
     - gochecknoglobals
     - gomodguard
     - wrapcheck
@@ -22,6 +23,16 @@ linters:
   settings:
     cyclop:
       max-complexity: 15
+    exhaustruct_v5:
+      # These types are intentionally initialized partially: builders that
+      # fill optional fields conditionally, config/default constructors, and
+      # external SDK/stdlib types where only the needed fields are set.
+      optional-patterns:
+        - 'github\.com/modelcontextprotocol/go-sdk/mcp\.(Tool|ToolAnnotations|Implementation|IOTransport|CallToolResult|TextContent)$'
+        - 'net/http\.(Client|Transport)$'
+        - 'net\.Dialer$'
+        - 'wastebin-mcp-go\.CLIFlags$'
+        - 'wastebin-mcp-go/internal/wastebin\.(CreatePasteArgs|PasteResponse|wastebinRequest|BlocklistStages)$'
     depguard:
       rules:
         main:
@@ -90,45 +101,35 @@ linters:
       - builtin$
       - examples$
     rules:
-      - linters: [exhaustruct]
-        paths:
-          - ".*_test\\.go$"
+      - linters: [exhaustruct_v5]
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [forbidigo]
-        paths:
-          - "cli\\.go$"
+        path: "cli\\.go$"
         text: ".*"
       - linters: [funlen]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [dupl]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [gosmopolitan]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [goconst]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [varnamelen]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [gocognit]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [gocyclo]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [cyclop]
-        paths:
-          - ".*_test\\.go$"
+        path: ".*_test\\.go$"
         text: ".*"
       - linters: [tagliatelle]
         path: 'internal/wastebin/types\.go$'
@@ -148,7 +149,10 @@ formatters:
         - default
         - prefix(wastebin-mcp-go)
     gofumpt:
-      extra-rules: true
+      extra:
+        group-params: true
+        clothe-returns: true
+        balance-calls: true
       module-path: wastebin-mcp-go
   exclusions:
     generated: lax
