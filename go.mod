@@ -3,7 +3,7 @@ module wastebin-mcp-go
 go 1.26.4
 
 require (
-	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	go.uber.org/goleak v1.3.0
 	golang.org/x/sys v0.47.0
 )
