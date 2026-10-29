@@ -162,7 +162,7 @@ type ContentTooLargeError struct {
 	err   error
 }
 
-var _ error = (*ContentTooLargeError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
+var _ error = (*ContentTooLargeError)(nil)
 
 func newContentTooLargeError(size, limit int64) *ContentTooLargeError {
 	return &ContentTooLargeError{Size: size, Limit: limit, err: errContentTooLarge}
@@ -189,7 +189,7 @@ type InvalidExtensionError struct {
 	err error
 }
 
-var _ error = (*InvalidExtensionError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
+var _ error = (*InvalidExtensionError)(nil)
 
 func newInvalidExtensionError(ext string) *InvalidExtensionError {
 	return &InvalidExtensionError{Ext: ext, err: errInvalidExtension}
@@ -215,7 +215,7 @@ type PathNotFoundError struct {
 	err        error
 }
 
-var _ error = (*PathNotFoundError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
+var _ error = (*PathNotFoundError)(nil)
 
 func newPathNotFoundError(underlying error) *PathNotFoundError {
 	return &PathNotFoundError{Underlying: underlying, err: errPathNotFound}
@@ -245,7 +245,7 @@ type PathPermissionError struct {
 	err        error
 }
 
-var _ error = (*PathPermissionError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
+var _ error = (*PathPermissionError)(nil)
 
 func newPathPermissionError(underlying error) *PathPermissionError {
 	return &PathPermissionError{Underlying: underlying, err: errPathPermissionDenied}
@@ -275,7 +275,7 @@ type SandboxNoMatchError struct {
 	err  error
 }
 
-var _ error = (*SandboxNoMatchError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
+var _ error = (*SandboxNoMatchError)(nil)
 
 func newSandboxNoMatchError(path string) *SandboxNoMatchError {
 	return &SandboxNoMatchError{Path: path, err: errSandboxTranslationNoMatch}
@@ -303,7 +303,7 @@ type BlockedComponentError struct {
 	err       error
 }
 
-var _ error = (*BlockedComponentError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
+var _ error = (*BlockedComponentError)(nil)
 
 func newBlockedComponentError(component string) *BlockedComponentError {
 	return &BlockedComponentError{Component: component, err: errBuiltinBlockedComponent}
@@ -330,7 +330,7 @@ type BlockedPrefixError struct {
 	err    error
 }
 
-var _ error = (*BlockedPrefixError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
+var _ error = (*BlockedPrefixError)(nil)
 
 func newBlockedPrefixError(prefix string) *BlockedPrefixError {
 	return &BlockedPrefixError{Prefix: prefix, err: errBuiltinBlockedPrefix}
@@ -358,7 +358,7 @@ type HTTPError struct {
 	err        error
 }
 
-var _ error = (*HTTPError)(nil) //nolint:errcheck // compile-time interface assertion; not a function call
+var _ error = (*HTTPError)(nil)
 
 func newHTTPError(statusCode int, body string) *HTTPError {
 	var sentinel error
