@@ -1,6 +1,6 @@
 module wastebin-mcp-go
 
-go 1.26.4
+go 1.27.3
 
 require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
